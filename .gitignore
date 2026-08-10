@@ -1,0 +1,34 @@
+# Dependencies and package-manager state
+node_modules/
+.pnpm-store/
+
+# TypeScript and test output
+dist/
+coverage/
+*.tsbuildinfo
+
+# Next.js
+.next/
+out/
+
+# Electron and desktop packaging output
+release/
+*.blockmap
+
+# Logs and local environment
+*.log
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Windows crash and installer artifacts
+*.dmp
+*.msi
+*.msix

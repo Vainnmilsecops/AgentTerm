@@ -1,0 +1,9 @@
+.agents/
+.git/
+.next/
+apps/website/next-env.d.ts
+coverage/
+dist/
+node_modules/
+release/
+pnpm-lock.yaml

@@ -1,0 +1,25 @@
+{
+  "name": "@agentterm/infrastructure",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agentterm/application": "workspace:*",
+    "@agentterm/domain": "workspace:*",
+    "@agentterm/shared": "workspace:*"
+  }
+}
