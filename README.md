@@ -2,7 +2,7 @@
 
 AgentTerm is a Windows-first desktop terminal workspace for coordinating coding agents. This repository also contains the separate public landing and documentation website.
 
-The project is currently at foundation stage: the monorepo, architecture modules, desktop shell, website shell, tooling, tests, architecture decisions, Project/Task domain model, and initial Application use cases exist; infrastructure adapters and native terminal capabilities are intentionally deferred.
+The project is currently at foundation stage: the monorepo, architecture modules, desktop shell, website shell, tooling, tests, architecture decisions, Project/Task domain model, initial Application use cases, and SQLite repository adapter exist. Native terminal and agent capabilities are intentionally deferred.
 
 ## Repository Layout
 
@@ -57,7 +57,14 @@ pnpm --filter @agentterm/website dev
 
 Dependencies point inward: Presentation calls Application, Application depends on Domain, and Infrastructure implements ports owned by inner modules. The marketing website stays separate from desktop product workflows.
 
-See [Architecture](docs/ARCHITECTURE.md), [ADR-001](docs/decisions/ADR-001-monorepo-structure.md), and [ADR-002](docs/decisions/ADR-002-desktop-application-framework.md).
+See [Architecture](docs/ARCHITECTURE.md), [ADR-001](docs/decisions/ADR-001-monorepo-structure.md), [ADR-002](docs/decisions/ADR-002-desktop-application-framework.md), and [ADR-003](docs/decisions/ADR-003-sqlite-persistence.md).
+
+## Persistence
+
+`@agentterm/infrastructure` implements the Application-owned Project and Task repositories with
+the built-in `node:sqlite` module. It applies an explicit versioned migration and preserves Domain
+validation when mapping rows. The adapter is not yet composed into the desktop shell, and there
+are intentionally no future Session, Worktree, or Artifact tables.
 
 ## Security Baseline
 
@@ -67,7 +74,7 @@ Dependency lifecycle scripts are denied by default through pnpm 11. Only the exp
 
 ## Deliberately Not Implemented Yet
 
-There are no session/runtime state models, infrastructure adapters, PTY or ConPTY integration, Git Worktree commands, coding-agent adapters, SQLite/Drizzle persistence, terminal renderer, product UI, installer, updater, authentication, billing, or backend business service in this foundation.
+There are no session/runtime state models, PTY or ConPTY integration, Git Worktree commands, coding-agent adapters, desktop database composition, terminal renderer, product UI, installer, updater, authentication, billing, or backend business service in this foundation.
 
 ## Agent Workflows
 

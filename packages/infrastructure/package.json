@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
+    "build": "tsup src/index.ts --format esm --dts --clean --platform node",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

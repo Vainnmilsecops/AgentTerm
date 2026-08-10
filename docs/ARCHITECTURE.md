@@ -32,4 +32,4 @@ Package manifests encode the current allowed graph, and `tests/architecture/work
 
 ## Current Scope
 
-This foundation contains runnable desktop/website shells, a pure Domain model for Project and the primary Task lifecycle, and Application use cases backed by repository ports. Session/runtime lifecycles, infrastructure adapters, terminal rendering, persistence, logging pipelines, installers, and product UI are not implemented yet.
+This foundation contains runnable desktop/website shells, a pure Domain model for Project and the primary Task lifecycle, Application use cases backed by repository ports, and an Infrastructure SQLite adapter for those ports. The adapter owns migrations and reconstructs persisted data through Domain APIs. Desktop composition, session/runtime lifecycles, other external-system adapters, terminal rendering, logging pipelines, installers, and product UI are not implemented yet.

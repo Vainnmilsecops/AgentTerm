@@ -1,13 +1,14 @@
 # AgentTerm Current State
 
-Updated: 2026-08-10
+Updated: 2026-08-11
 
 ## Current State
 
 - The pnpm TypeScript monorepo, Electron desktop shell, Next.js website shell, and shared validation tooling are in place.
 - `@agentterm/domain` now exposes pure TypeScript `Project`, `Task`, and `TaskPhase` models.
 - `@agentterm/application` now exposes use cases to create Projects, create Tasks, and transition the current Task lifecycle.
-- Application persistence seams are limited to `ProjectRepository` and `TaskRepository`; test coverage uses in-memory fakes only.
+- `@agentterm/infrastructure` implements the existing Project and Task repository ports with SQLite.
+- Migration 1 creates only `projects`, `tasks`, and a migration ledger; temporary-database integration tests cover migrations, constraints, repository contracts, reopen behavior, and every `TaskPhase`.
 
 ## Decisions
 
@@ -15,11 +16,13 @@ Updated: 2026-08-10
 - Project and Task IDs cannot be silently replaced through create use cases; Task creation also requires an existing Project.
 - Task transitions load and persist state through `TaskRepository`, while transition validity remains owned by Domain.
 - No runtime, Git, filesystem, PTY, agent, event, or query port has been introduced.
+- SQLite uses the built-in `node:sqlite` module and explicit prepared SQL; no ORM or additional runtime dependency was added.
+- Persisted rows are reconstructed through Domain factories and valid transitions rather than trusted casts.
 
 ## Blockers
 
-None known.
+None known. Node.js 22.13 emits its documented experimental warning for `node:sqlite`; Electron 43's Node.js 24 runtime does not emit that warning in the current smoke test.
 
 ## Next Step
 
-Implement a persistence adapter for the existing repository ports with migrations and integration tests, without changing Domain ownership.
+Compose the SQLite adapter at the desktop boundary with an approved application-data path and lifecycle; do not add future tables until their Domain/Application behavior exists.
