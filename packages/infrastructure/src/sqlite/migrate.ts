@@ -62,14 +62,16 @@ function readAppliedMigrations(database: DatabaseSync): AppliedMigrationRow[] {
 }
 
 function validateAppliedMigrations(appliedMigrations: readonly AppliedMigrationRow[]): void {
-  const knownMigrations = new Map(
-    sqliteMigrations.map((migration) => [migration.version, migration.name]),
-  );
+  for (const [index, appliedMigration] of appliedMigrations.entries()) {
+    const expectedMigration = sqliteMigrations[index];
 
-  for (const appliedMigration of appliedMigrations) {
-    if (knownMigrations.get(appliedMigration.version) !== appliedMigration.name) {
+    if (
+      expectedMigration === undefined ||
+      expectedMigration.version !== appliedMigration.version ||
+      expectedMigration.name !== appliedMigration.name
+    ) {
       throw new SqlitePersistenceError(
-        `SQLite migration ${appliedMigration.version} is unknown or has an unexpected name.`,
+        'SQLite migration ledger is not an applied prefix of the migration registry.',
       );
     }
   }

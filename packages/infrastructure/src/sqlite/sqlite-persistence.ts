@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 
-import type { ProjectRepository, TaskRepository } from '@agentterm/application';
+import type { ProjectCatalog, ProjectRepository, TaskRepository } from '@agentterm/application';
 
 import { migrateSqliteDatabase } from './migrate';
 import { SqliteProjectRepository, SqliteTaskRepository } from './repositories';
@@ -11,7 +11,7 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
-  readonly projects: ProjectRepository;
+  readonly projects: ProjectCatalog & ProjectRepository;
   readonly tasks: TaskRepository;
   close(): void;
 }
@@ -26,7 +26,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     enableDoubleQuotedStringLiterals: false,
     enableForeignKeyConstraints: true,
   });
-  let projects: ProjectRepository;
+  let projects: ProjectCatalog & ProjectRepository;
   let tasks: TaskRepository;
 
   try {

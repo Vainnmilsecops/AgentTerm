@@ -2,7 +2,7 @@
 
 AgentTerm is a Windows-first desktop terminal workspace for coordinating coding agents. This repository also contains the separate public landing and documentation website.
 
-The project is currently at foundation stage: the monorepo, architecture modules, desktop shell, website shell, tooling, tests, architecture decisions, Project/Task domain model, initial Application use cases, and SQLite repository adapter exist. Native terminal and agent capabilities are intentionally deferred.
+The project is currently at foundation stage: the monorepo, architecture modules, desktop shell, website shell, tooling, tests, Project/Task model and use cases, SQLite persistence, and local Git Project Management exist. Native terminal and agent capabilities are intentionally deferred.
 
 ## Repository Layout
 
@@ -57,14 +57,22 @@ pnpm --filter @agentterm/website dev
 
 Dependencies point inward: Presentation calls Application, Application depends on Domain, and Infrastructure implements ports owned by inner modules. The marketing website stays separate from desktop product workflows.
 
-See [Architecture](docs/ARCHITECTURE.md), [ADR-001](docs/decisions/ADR-001-monorepo-structure.md), [ADR-002](docs/decisions/ADR-002-desktop-application-framework.md), and [ADR-003](docs/decisions/ADR-003-sqlite-persistence.md).
+See [Architecture](docs/ARCHITECTURE.md), [ADR-001](docs/decisions/ADR-001-monorepo-structure.md), [ADR-002](docs/decisions/ADR-002-desktop-application-framework.md), [ADR-003](docs/decisions/ADR-003-sqlite-persistence.md), and [ADR-004](docs/decisions/ADR-004-local-project-identity.md).
+
+## Project Management
+
+Application use cases can open an existing local Git working tree and list recent Projects. The
+Infrastructure adapter canonicalizes native paths, validates directory access, invokes a resolved
+absolute Git executable without a shell, and records one canonical local identity. It never
+initializes a non-Git folder. Desktop file-picker and IPC composition remain separate follow-up
+work.
 
 ## Persistence
 
-`@agentterm/infrastructure` implements the Application-owned Project and Task repositories with
-the built-in `node:sqlite` module. It applies an explicit versioned migration and preserves Domain
-validation when mapping rows. The adapter is not yet composed into the desktop shell, and there
-are intentionally no future Session, Worktree, or Artifact tables.
+`@agentterm/infrastructure` implements the Application-owned Project, recent-Project catalog, and
+Task repositories with the built-in `node:sqlite` module. It applies explicit versioned migrations
+and preserves Domain validation when mapping rows. The adapter is not yet composed into the
+desktop shell, and there are intentionally no future Session, Worktree, or Artifact tables.
 
 ## Security Baseline
 
@@ -74,7 +82,7 @@ Dependency lifecycle scripts are denied by default through pnpm 11. Only the exp
 
 ## Deliberately Not Implemented Yet
 
-There are no session/runtime state models, PTY or ConPTY integration, Git Worktree commands, coding-agent adapters, desktop database composition, terminal renderer, product UI, installer, updater, authentication, billing, or backend business service in this foundation.
+There are no session/runtime state models, mutating Git or Worktree commands, PTY or ConPTY integration, coding-agent adapters, desktop Project/database IPC composition, terminal renderer, product UI, installer, updater, authentication, billing, or backend business service in this foundation.
 
 ## Agent Workflows
 

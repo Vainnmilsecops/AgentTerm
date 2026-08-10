@@ -1,3 +1,4 @@
+import type { LocalProject } from '@agentterm/application';
 import {
   createProject,
   createTask,
@@ -24,6 +25,13 @@ export function mapProjectRow(row: SqliteRow): Project {
   return createProject({
     id: readText(row, 'id', 'Project'),
     name: readText(row, 'name', 'Project'),
+  });
+}
+
+export function mapLocalProjectRow(row: SqliteRow): LocalProject {
+  return Object.freeze({
+    ...mapProjectRow(row),
+    rootPath: readText(row, 'canonical_path', 'Local Project'),
   });
 }
 

@@ -1,4 +1,5 @@
 import { projectsAndTasksMigration } from './0001-projects-and-tasks';
+import { projectRootsMigration } from './0002-project-roots';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -6,4 +7,7 @@ export interface SqliteMigration {
   readonly version: number;
 }
 
-export const sqliteMigrations: readonly SqliteMigration[] = [projectsAndTasksMigration];
+export const sqliteMigrations: readonly SqliteMigration[] = [
+  projectsAndTasksMigration,
+  projectRootsMigration,
+];

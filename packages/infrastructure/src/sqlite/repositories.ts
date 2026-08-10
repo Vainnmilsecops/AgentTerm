@@ -2,23 +2,62 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 
 import {
   EntityAlreadyExistsError,
+  type LocalProject,
+  type ProjectCatalog,
   type ProjectRepository,
+  type RecordProjectOpenInput,
   type TaskRepository,
 } from '@agentterm/application';
 import type { Project, Task } from '@agentterm/domain';
 
 import { SqlitePersistenceError } from './errors';
-import { mapProjectRow, mapTaskRow } from './mapping';
+import { mapLocalProjectRow, mapProjectRow, mapTaskRow } from './mapping';
 
 const primaryKeyConstraintCode = 1555;
 
-export class SqliteProjectRepository implements ProjectRepository {
+export class SqliteProjectRepository implements ProjectCatalog, ProjectRepository {
+  private readonly database: DatabaseSync;
   private readonly findByIdStatement: StatementSync;
+  private readonly findByPathIdentityStatement: StatementSync;
   private readonly insertStatement: StatementSync;
+  private readonly insertRootStatement: StatementSync;
+  private readonly listRecentStatement: StatementSync;
+  private readonly nextOpenedOrderStatement: StatementSync;
+  private readonly touchRootStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
+    this.database = database;
     this.findByIdStatement = database.prepare('SELECT id, name FROM projects WHERE id = ?');
+    this.findByPathIdentityStatement = database.prepare(
+      `SELECT projects.id, projects.name, project_roots.canonical_path
+       FROM project_roots
+       INNER JOIN projects ON projects.id = project_roots.project_id
+       WHERE project_roots.path_identity = ?`,
+    );
     this.insertStatement = database.prepare('INSERT INTO projects (id, name) VALUES (?, ?)');
+    this.insertRootStatement = database.prepare(
+      `INSERT INTO project_roots (
+         project_id,
+         canonical_path,
+         path_identity,
+         last_opened_order
+       ) VALUES (?, ?, ?, ?)`,
+    );
+    this.listRecentStatement = database.prepare(
+      `SELECT projects.id, projects.name, project_roots.canonical_path
+       FROM project_roots
+       INNER JOIN projects ON projects.id = project_roots.project_id
+       ORDER BY project_roots.last_opened_order DESC, projects.id`,
+    );
+    this.nextOpenedOrderStatement = database.prepare(
+      `SELECT COALESCE(MAX(last_opened_order), 0) + 1 AS next_order
+       FROM project_roots`,
+    );
+    this.touchRootStatement = database.prepare(
+      `UPDATE project_roots
+       SET last_opened_order = ?
+       WHERE project_id = ?`,
+    );
   }
 
   public async findById(id: string): Promise<Project | undefined> {
@@ -36,6 +75,68 @@ export class SqliteProjectRepository implements ProjectRepository {
 
       throw error;
     }
+  }
+
+  public async recordOpen(input: RecordProjectOpenInput): Promise<LocalProject> {
+    this.database.exec('BEGIN IMMEDIATE');
+
+    try {
+      const existingRoot = this.findByPathIdentityStatement.get(input.pathIdentity);
+      const nextOpenedOrder = this.readNextOpenedOrder();
+
+      if (existingRoot === undefined) {
+        if (this.findByIdStatement.get(input.project.id) === undefined) {
+          this.insertStatement.run(input.project.id, input.project.name);
+        }
+
+        this.insertRootStatement.run(
+          input.project.id,
+          input.rootPath,
+          input.pathIdentity,
+          nextOpenedOrder,
+        );
+      } else {
+        const existingProject = mapLocalProjectRow(existingRoot);
+        this.touchRootStatement.run(nextOpenedOrder, existingProject.id);
+      }
+
+      const storedRoot = this.findByPathIdentityStatement.get(input.pathIdentity);
+
+      if (storedRoot === undefined) {
+        throw new SqlitePersistenceError('Recorded Project root could not be read back.');
+      }
+
+      const localProject = mapLocalProjectRow(storedRoot);
+      this.database.exec('COMMIT');
+      return localProject;
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+
+      if (error instanceof SqlitePersistenceError) {
+        throw error;
+      }
+
+      throw new SqlitePersistenceError('Failed to record Project open.', { cause: error });
+    }
+  }
+
+  public async listRecent(): Promise<readonly LocalProject[]> {
+    return this.listRecentStatement.all().map(mapLocalProjectRow);
+  }
+
+  private readNextOpenedOrder(): number {
+    const row = this.nextOpenedOrderStatement.get();
+    const nextOpenedOrder = row?.next_order;
+
+    if (
+      typeof nextOpenedOrder !== 'number' ||
+      !Number.isSafeInteger(nextOpenedOrder) ||
+      nextOpenedOrder <= 0
+    ) {
+      throw new SqlitePersistenceError('Could not allocate the next Project open order.');
+    }
+
+    return nextOpenedOrder;
   }
 }
 
