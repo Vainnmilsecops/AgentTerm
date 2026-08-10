@@ -32,4 +32,4 @@ Package manifests encode the current allowed graph, and `tests/architecture/work
 
 ## Current Scope
 
-This foundation contains package interfaces and runnable desktop/website shells only. Domain entities, task/session lifecycles, ports, adapters, terminal rendering, persistence, logging pipelines, installers, and product UI are not implemented yet.
+This foundation contains runnable desktop/website shells and a pure Domain model for Project and the primary Task lifecycle. Application use cases, session/runtime lifecycles, ports, adapters, terminal rendering, persistence, logging pipelines, installers, and product UI are not implemented yet.
