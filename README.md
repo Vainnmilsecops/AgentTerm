@@ -2,7 +2,7 @@
 
 AgentTerm is a Windows-first desktop terminal workspace for coordinating coding agents. This repository also contains the separate public landing and documentation website.
 
-The project is currently at foundation stage: the monorepo, architecture modules, desktop shell, website shell, tooling, tests, architecture decisions, and initial Project/Task domain model exist; application workflows and native terminal capabilities are intentionally deferred.
+The project is currently at foundation stage: the monorepo, architecture modules, desktop shell, website shell, tooling, tests, architecture decisions, Project/Task domain model, and initial Application use cases exist; infrastructure adapters and native terminal capabilities are intentionally deferred.
 
 ## Repository Layout
 
@@ -67,7 +67,7 @@ Dependency lifecycle scripts are denied by default through pnpm 11. Only the exp
 
 ## Deliberately Not Implemented Yet
 
-There are no Application use cases, session/runtime state models, PTY or ConPTY integration, Git Worktree commands, coding-agent adapters, SQLite/Drizzle persistence, terminal renderer, product UI, installer, updater, authentication, billing, or backend business service in this foundation.
+There are no session/runtime state models, infrastructure adapters, PTY or ConPTY integration, Git Worktree commands, coding-agent adapters, SQLite/Drizzle persistence, terminal renderer, product UI, installer, updater, authentication, billing, or backend business service in this foundation.
 
 ## Agent Workflows
 

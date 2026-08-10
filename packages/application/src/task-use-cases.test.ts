@@ -1,0 +1,147 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  createProject as createDomainProject,
+  TaskPhase,
+  type Project,
+  type Task,
+} from '@agentterm/domain';
+
+import { createTask, transitionTask, type ProjectRepository, type TaskRepository } from './index';
+
+class InMemoryProjectRepository implements ProjectRepository {
+  private readonly projects = new Map<string, Project>();
+
+  public constructor(projects: readonly Project[] = []) {
+    for (const project of projects) {
+      this.projects.set(project.id, project);
+    }
+  }
+
+  public async findById(id: string): Promise<Project | undefined> {
+    return this.projects.get(id);
+  }
+
+  public async insert(project: Project): Promise<void> {
+    if (this.projects.has(project.id)) {
+      throw new Error(`Project ${project.id} already exists in the fake repository.`);
+    }
+
+    this.projects.set(project.id, project);
+  }
+}
+
+class InMemoryTaskRepository implements TaskRepository {
+  private readonly tasks = new Map<string, Task>();
+
+  public async findById(id: string): Promise<Task | undefined> {
+    return this.tasks.get(id);
+  }
+
+  public async insert(task: Task): Promise<void> {
+    if (this.tasks.has(task.id)) {
+      throw new Error(`Task ${task.id} already exists in the fake repository.`);
+    }
+
+    this.tasks.set(task.id, task);
+  }
+
+  public async update(task: Task): Promise<void> {
+    if (!this.tasks.has(task.id)) {
+      throw new Error(`Task ${task.id} is missing from the fake repository.`);
+    }
+
+    this.tasks.set(task.id, task);
+  }
+}
+
+const project = createDomainProject({ id: 'project-1', name: 'AgentTerm' });
+const validTaskInput = {
+  id: 'task-1',
+  projectId: project.id,
+  title: 'Build application use cases',
+};
+
+describe('createTask', () => {
+  it('creates a BACKLOG task for an existing project and persists it', async () => {
+    const projects = new InMemoryProjectRepository([project]);
+    const tasks = new InMemoryTaskRepository();
+
+    const task = await createTask(validTaskInput, projects, tasks);
+
+    expect(task).toEqual({ ...validTaskInput, phase: 'BACKLOG' });
+    await expect(tasks.findById('task-1')).resolves.toEqual(task);
+  });
+
+  it('rejects a task whose project does not exist', async () => {
+    const projects = new InMemoryProjectRepository();
+    const tasks = new InMemoryTaskRepository();
+
+    const result = createTask(validTaskInput, projects, tasks);
+
+    await expect(result).rejects.toMatchObject({
+      name: 'EntityNotFoundError',
+      entity: 'Project',
+      id: 'project-1',
+    });
+    await expect(tasks.findById('task-1')).resolves.toBeUndefined();
+  });
+
+  it('rejects a duplicate task id without replacing the existing task', async () => {
+    const projects = new InMemoryProjectRepository([project]);
+    const tasks = new InMemoryTaskRepository();
+    await createTask(validTaskInput, projects, tasks);
+
+    const duplicate = createTask({ ...validTaskInput, title: 'Replacement task' }, projects, tasks);
+
+    await expect(duplicate).rejects.toMatchObject({
+      name: 'EntityAlreadyExistsError',
+      entity: 'Task',
+      id: 'task-1',
+    });
+    await expect(tasks.findById('task-1')).resolves.toEqual({
+      ...validTaskInput,
+      phase: 'BACKLOG',
+    });
+  });
+});
+
+describe('transitionTask', () => {
+  it('loads a task, applies the Domain transition, and persists the result', async () => {
+    const projects = new InMemoryProjectRepository([project]);
+    const tasks = new InMemoryTaskRepository();
+    await createTask(validTaskInput, projects, tasks);
+
+    const planning = await transitionTask({ taskId: 'task-1', to: TaskPhase.PLANNING }, tasks);
+
+    expect(planning.phase).toBe(TaskPhase.PLANNING);
+    await expect(tasks.findById('task-1')).resolves.toEqual(planning);
+  });
+
+  it('rejects a transition when the task does not exist', async () => {
+    const tasks = new InMemoryTaskRepository();
+
+    const result = transitionTask({ taskId: 'missing-task', to: TaskPhase.PLANNING }, tasks);
+
+    await expect(result).rejects.toMatchObject({
+      name: 'EntityNotFoundError',
+      entity: 'Task',
+      id: 'missing-task',
+    });
+  });
+
+  it('preserves persisted state when the Domain rejects a transition', async () => {
+    const projects = new InMemoryProjectRepository([project]);
+    const tasks = new InMemoryTaskRepository();
+    const backlog = await createTask(validTaskInput, projects, tasks);
+
+    const result = transitionTask({ taskId: 'task-1', to: TaskPhase.RUNNING }, tasks);
+
+    await expect(result).rejects.toMatchObject({
+      name: 'InvalidTaskPhaseTransitionError',
+      from: TaskPhase.BACKLOG,
+      to: TaskPhase.RUNNING,
+    });
+    await expect(tasks.findById('task-1')).resolves.toEqual(backlog);
+  });
+});
