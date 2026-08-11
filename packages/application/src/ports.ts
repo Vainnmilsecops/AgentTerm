@@ -1,5 +1,54 @@
 import type { Project, Task } from '@agentterm/domain';
 
+export type GitHead =
+  | {
+      readonly branchName: string;
+      readonly commitId: string;
+      readonly kind: 'attached';
+    }
+  | {
+      readonly commitId: string;
+      readonly kind: 'detached';
+    }
+  | {
+      readonly branchName: string;
+      readonly kind: 'unborn';
+    };
+
+export interface GitBaseBranch {
+  readonly name: string;
+  readonly refName: string;
+  readonly source: 'current-branch' | 'local-main' | 'local-master' | 'remote-head';
+}
+
+export interface GitWorkingTreeStatus {
+  readonly conflictedPaths: readonly string[];
+  readonly isDirty: boolean;
+  readonly stagedPaths: readonly string[];
+  readonly unstagedPaths: readonly string[];
+  readonly untrackedPaths: readonly string[];
+}
+
+export interface GitRepositorySnapshot {
+  readonly head: GitHead;
+  readonly rootPath: string;
+  readonly status: GitWorkingTreeStatus;
+  readonly suggestedBaseBranch: GitBaseBranch | undefined;
+}
+
+export type GitRepositoryInspection =
+  | {
+      readonly kind: 'not-working-tree';
+    }
+  | {
+      readonly kind: 'repository';
+      readonly repository: GitRepositorySnapshot;
+    };
+
+export interface GitRepositoryInspector {
+  inspect(path: string): Promise<GitRepositoryInspection>;
+}
+
 export interface DiscoveredProject {
   readonly id: string;
   readonly name: string;
