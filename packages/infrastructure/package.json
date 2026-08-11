@@ -14,12 +14,13 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean --platform node",
+    "build": "tsup src/index.ts --format esm --dts --clean --platform node --external node-pty && node scripts/copy-runtime-assets.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@agentterm/application": "workspace:*",
     "@agentterm/domain": "workspace:*",
-    "@agentterm/shared": "workspace:*"
+    "@agentterm/shared": "workspace:*",
+    "node-pty": "1.1.0"
   }
 }

@@ -1,4 +1,9 @@
-import type { TaskWorktree, TaskWorktreeStatus } from './ports';
+import type {
+  PtyRuntimeFailureReason,
+  PtyRuntimeOperation,
+  TaskWorktree,
+  TaskWorktreeStatus,
+} from './ports';
 
 export type EntityKind = 'Project' | 'Task';
 
@@ -65,6 +70,18 @@ export class ProjectOpenError extends Error {
     super(projectOpenFailureMessage(reason));
     this.name = 'ProjectOpenError';
     this.path = path;
+    this.reason = reason;
+  }
+}
+
+export class PtyRuntimeError extends Error {
+  public readonly operation: PtyRuntimeOperation;
+  public readonly reason: PtyRuntimeFailureReason;
+
+  public constructor(operation: PtyRuntimeOperation, reason: PtyRuntimeFailureReason) {
+    super(ptyRuntimeFailureMessage(reason));
+    this.name = 'PtyRuntimeError';
+    this.operation = operation;
     this.reason = reason;
   }
 }
@@ -172,6 +189,31 @@ function projectOpenFailureMessage(reason: ProjectOpenFailure): string {
       return 'Project path is not a valid accessible Git working tree.';
     case 'GIT_INSPECTION_FAILED':
       return 'Git repository inspection failed.';
+  }
+}
+
+function ptyRuntimeFailureMessage(reason: PtyRuntimeFailureReason): string {
+  switch (reason) {
+    case 'INVALID_EXECUTABLE':
+      return 'Terminal executable path is invalid.';
+    case 'INVALID_ARGUMENT':
+      return 'Terminal process arguments are invalid.';
+    case 'INVALID_WORKING_DIRECTORY':
+      return 'Terminal working directory is invalid.';
+    case 'INVALID_ENVIRONMENT':
+      return 'Terminal process environment is invalid.';
+    case 'INVALID_TERMINAL_SIZE':
+      return 'Terminal size is invalid.';
+    case 'INVALID_INPUT':
+      return 'Terminal input is invalid.';
+    case 'NOT_RUNNING':
+      return 'The terminal process is not running.';
+    case 'UNSUPPORTED_PLATFORM':
+      return 'The terminal runtime is not supported on this platform.';
+    case 'CONPTY_UNAVAILABLE':
+      return 'Windows ConPTY is unavailable.';
+    case 'RUNTIME_FAILURE':
+      return 'The terminal runtime operation failed.';
   }
 }
 
