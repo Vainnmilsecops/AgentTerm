@@ -1,5 +1,77 @@
 import type { Project, Task } from '@agentterm/domain';
 
+export interface PtyTerminalSize {
+  readonly columns: number;
+  readonly rows: number;
+}
+
+export interface PtyLaunchSpec {
+  readonly executablePath: string;
+  readonly arguments: readonly string[];
+  readonly workingDirectory: string;
+  /** The complete environment passed to the child process. */
+  readonly environment: Readonly<Record<string, string>>;
+  readonly initialSize: PtyTerminalSize;
+}
+
+export type PtyRuntimeOperation =
+  'spawn' | 'write' | 'resize' | 'runtime' | 'terminate' | 'cleanup';
+
+export type PtyRuntimeFailureReason =
+  | 'INVALID_EXECUTABLE'
+  | 'INVALID_ARGUMENT'
+  | 'INVALID_WORKING_DIRECTORY'
+  | 'INVALID_ENVIRONMENT'
+  | 'INVALID_TERMINAL_SIZE'
+  | 'INVALID_INPUT'
+  | 'NOT_RUNNING'
+  | 'UNSUPPORTED_PLATFORM'
+  | 'CONPTY_UNAVAILABLE'
+  | 'RUNTIME_FAILURE';
+
+export type PtyRuntimeEvent =
+  | {
+      /** The runtime accepted the launch and its listeners are active; target startup may still fail asynchronously. */
+      readonly kind: 'started';
+      readonly sequence: number;
+    }
+  | {
+      readonly data: string;
+      readonly kind: 'output';
+      readonly sequence: number;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly operation: PtyRuntimeOperation;
+      readonly reason: PtyRuntimeFailureReason;
+      readonly sequence: number;
+    }
+  | {
+      readonly exitCode: number;
+      readonly kind: 'exited';
+      readonly sequence: number;
+      readonly signal?: number;
+    };
+
+export type PtyRuntimeEventSink = (event: PtyRuntimeEvent) => void;
+
+export interface PtyHandle {
+  write(input: string): Promise<void>;
+  resize(size: PtyTerminalSize): Promise<void>;
+  /** Requests process termination. Calling this more than once is safe. */
+  terminate(): Promise<void>;
+  /** Terminates when needed and releases owned resources. Calling this more than once is safe. */
+  dispose(): Promise<void>;
+}
+
+export interface PtyRuntime {
+  /**
+   * Opens a terminal process and reports its runtime lifecycle without changing Task state.
+   * Event sequence numbers are strictly increasing for the returned handle.
+   */
+  open(spec: PtyLaunchSpec, sink: PtyRuntimeEventSink): Promise<PtyHandle>;
+}
+
 export type GitHead =
   | {
       readonly branchName: string;

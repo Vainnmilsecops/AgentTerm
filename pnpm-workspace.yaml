@@ -5,4 +5,8 @@ packages:
 allowBuilds:
   electron: true
   esbuild: true
+  node-pty: true
   sharp: true
+
+patchedDependencies:
+  node-pty@1.1.0: patches/node-pty@1.1.0.patch

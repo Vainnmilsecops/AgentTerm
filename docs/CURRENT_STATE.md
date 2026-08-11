@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-08-11
+Updated: 2026-08-12
 
 ## Current State
 
@@ -13,15 +13,17 @@ Updated: 2026-08-11
 - Task Worktree use cases now create, reuse, inspect, and safely clean up one deterministic primary Worktree per Task while preserving its branch and dirty or ignored files.
 - Migration 3 stores Worktree identity, exact base revision, and `PROVISIONING` / `PRESENT` / `REMOVING` / `REMOVED` reconciliation checkpoints.
 - Temporary integration tests use real Git repositories, linked Worktrees, and SQLite databases, including collision, dirty-protection, and partial-persistence recovery cases.
+- Application now owns a PTY runtime port with structured launch input, sequenced runtime events, and an owned input/resize/terminate handle.
+- Infrastructure implements that port with Windows ConPTY through pinned `node-pty` 1.1.0 in one dedicated host process per terminal; real Windows and Electron 43 smoke tests cover input, output, resize, exit, cleanup, native loading, attached-child termination, and host/handle release.
 
 ## Decisions
 
 - Application use cases are async functions with explicit inputs, Domain outputs, and injected repository ports.
 - Project and Task IDs cannot be silently replaced through create use cases; Task creation also requires an existing Project.
 - Task transitions load and persist state through `TaskRepository`, while transition validity remains owned by Domain.
-- No PTY, agent-runtime, event, or generic query port has been introduced. Git/filesystem access is
-  limited to `ProjectDiscovery`, the read-only `GitRepositoryInspector`, and the narrow Task
-  Worktree lifecycle boundary.
+- The PTY port is runtime-only: Infrastructure owns `node-pty` and ConPTY mechanics, while process
+  exit remains evidence and never changes `TaskPhase`. Agent-specific commands, session policy,
+  validated IPC, and terminal UI remain outside this slice.
 - SQLite uses the built-in `node:sqlite` module and explicit prepared SQL; no ORM or additional runtime dependency was added.
 - Persisted rows are reconstructed through Domain factories and valid transitions rather than trusted casts.
 - Domain `Project` remains filesystem/Git-agnostic; Application owns `ProjectDiscovery` and `ProjectCatalog` ports.
@@ -47,6 +49,18 @@ Updated: 2026-08-11
   `RETURNING` keeps each checkpoint result tied to the row changed by that statement.
 - Task branch and path names use a full SHA-256 of canonical repository identity plus Task ID, making
   retry names deterministic and Windows-safe without counters.
+- PTY launch uses an absolute executable, argv, canonical working directory, exact caller-supplied
+  environment, and bounded terminal dimensions. Runtime failures are sanitized and cleanup is
+  idempotent; output is drained before exit, and Application receives `exited` only after the owned
+  host process has closed.
+- `node-pty` is isolated from the long-lived Electron process because its released Windows native
+  addon can retain ConPTY handles after a terminal exits. Per-terminal host teardown makes Windows
+  process cleanup the final resource-ownership boundary without exposing host identity through the
+  Application port.
+- Windows ConPTY requires build 18309 or newer and uses the system implementation, not the bundled
+  experimental ConPTY DLL. The pinned dependency patch removes PID-based termination, releases its
+  output worker after natural exit, converts output-worker startup/runtime failure into bounded
+  cleanup evidence, and permits input, resize, and termination before first output.
 
 ## Blockers
 
@@ -58,9 +72,14 @@ Worktree checkout can likewise execute configured clean/smudge/process filters e
 disabled for AgentTerm's mutating commands. Active-process coordination remains deferred to the
 future session/runtime lifecycle; cleanup requires exclusive ownership because another writer could
 otherwise race the final dirty/ignored-file inspection.
+The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
+Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
+copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
+`node-pty` module outside ASAR. PTY children run with the desktop process's privileges; executable
+and environment policy belongs to the future session/agent coordinator.
 
 ## Next Step
 
-Compose SQLite, Project Management, repository inspection, and Task Worktree lifecycle in the
-Electron main process behind narrow validated IPC. The renderer must not receive raw filesystem,
-Git, or database capability.
+Compose SQLite, Project Management, repository inspection, Task Worktree lifecycle, and the PTY
+runtime in the Electron main process behind narrow validated IPC and explicit AgentSession policy.
+The renderer must not receive raw filesystem, Git, database, process, or environment capability.
