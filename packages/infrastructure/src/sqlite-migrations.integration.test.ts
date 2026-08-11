@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { openSqlitePersistence, SqlitePersistenceError } from './index';
 import { projectsAndTasksMigration } from './sqlite/migrations/0001-projects-and-tasks';
+import { projectRootsMigration } from './sqlite/migrations/0002-project-roots';
 
 async function withTemporaryDatabase(run: (databasePath: string) => Promise<void>): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'agentterm-sqlite-migration-'));
@@ -20,7 +21,7 @@ async function withTemporaryDatabase(run: (databasePath: string) => Promise<void
 }
 
 describe('SQLite migrations', () => {
-  it('applies the current schema once with only current Project and Task tables', async () => {
+  it('applies the current Project, Task, root, and Worktree schema once', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       openSqlitePersistence(databasePath).close();
       openSqlitePersistence(databasePath).close();
@@ -50,10 +51,17 @@ describe('SQLite migrations', () => {
           )
           .all();
 
-        expect(tables).toEqual(['_agentterm_migrations', 'project_roots', 'projects', 'tasks']);
+        expect(tables).toEqual([
+          '_agentterm_migrations',
+          'project_roots',
+          'projects',
+          'task_worktrees',
+          'tasks',
+        ]);
         expect(migrations).toEqual([
           { name: 'projects-and-tasks', version: 1 },
           { name: 'project-roots', version: 2 },
+          { name: 'task-worktrees', version: 3 },
         ]);
         expect(indexes).toEqual([
           { name: 'project_roots_recent_index' },
@@ -155,6 +163,173 @@ describe('SQLite migrations', () => {
         });
       } finally {
         migrated.close();
+      }
+    });
+  });
+
+  it('upgrades a v2 database without changing existing Project, Task, or root data', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+
+      try {
+        database.exec(`
+          CREATE TABLE _agentterm_migrations (
+            version INTEGER PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL UNIQUE,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          ) STRICT;
+          ${projectsAndTasksMigration.sql}
+          ${projectRootsMigration.sql}
+          INSERT INTO _agentterm_migrations (version, name)
+          VALUES (1, 'projects-and-tasks'), (2, 'project-roots');
+        `);
+        database
+          .prepare('INSERT INTO projects (id, name) VALUES (?, ?)')
+          .run('legacy-project', 'Legacy Project');
+        database
+          .prepare('INSERT INTO tasks (id, project_id, title, phase) VALUES (?, ?, ?, ?)')
+          .run('legacy-task', 'legacy-project', 'Legacy Task', 'RUNNING');
+        database
+          .prepare(
+            `INSERT INTO project_roots (
+               project_id,
+               canonical_path,
+               path_identity,
+               last_opened_order
+             ) VALUES (?, ?, ?, ?)`,
+          )
+          .run('legacy-project', 'C:\\repos\\legacy', 'legacy-root-identity', 7);
+      } finally {
+        database.close();
+      }
+
+      openSqlitePersistence(databasePath).close();
+      const migrated = new DatabaseSync(databasePath, { readOnly: true });
+
+      try {
+        expect(migrated.prepare('SELECT id, name FROM projects').all()).toEqual([
+          { id: 'legacy-project', name: 'Legacy Project' },
+        ]);
+        expect(migrated.prepare('SELECT id, project_id, title, phase FROM tasks').all()).toEqual([
+          {
+            id: 'legacy-task',
+            phase: 'RUNNING',
+            project_id: 'legacy-project',
+            title: 'Legacy Task',
+          },
+        ]);
+        expect(
+          migrated
+            .prepare(
+              `SELECT project_id, canonical_path, path_identity, last_opened_order
+               FROM project_roots`,
+            )
+            .all(),
+        ).toEqual([
+          {
+            canonical_path: 'C:\\repos\\legacy',
+            last_opened_order: 7,
+            path_identity: 'legacy-root-identity',
+            project_id: 'legacy-project',
+          },
+        ]);
+        expect(migrated.prepare('SELECT count(*) AS count FROM task_worktrees').get()).toEqual({
+          count: 0,
+        });
+        expect(
+          migrated
+            .prepare('SELECT version, name FROM _agentterm_migrations ORDER BY version')
+            .all(),
+        ).toEqual([
+          { name: 'projects-and-tasks', version: 1 },
+          { name: 'project-roots', version: 2 },
+          { name: 'task-worktrees', version: 3 },
+        ]);
+      } finally {
+        migrated.close();
+      }
+    });
+  });
+
+  it('enforces Worktree lifecycle state and Task foreign-key constraints', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      openSqlitePersistence(databasePath).close();
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+
+      try {
+        database
+          .prepare('INSERT INTO projects (id, name) VALUES (?, ?)')
+          .run('project-1', 'AgentTerm');
+        database
+          .prepare('INSERT INTO tasks (id, project_id, title, phase) VALUES (?, ?, ?, ?)')
+          .run('task-1', 'project-1', 'Manage Worktree', 'RUNNING');
+        const insertWorktree = database.prepare(
+          `INSERT INTO task_worktrees (
+             task_id,
+             repository_root_path,
+             worktree_path,
+             path_identity,
+             branch_name,
+             base_ref_name,
+             base_commit_id,
+             lifecycle_state
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+
+        expect(() =>
+          insertWorktree.run(
+            'task-1',
+            'C:\\repos\\agentterm',
+            'C:\\worktrees\\invalid-state',
+            'invalid-state-identity',
+            'agentterm/task-1-invalid-state',
+            'refs/heads/main',
+            '1111111111111111111111111111111111111111',
+            'BROKEN',
+          ),
+        ).toThrow();
+        expect(() =>
+          insertWorktree.run(
+            'missing-task',
+            'C:\\repos\\agentterm',
+            'C:\\worktrees\\orphan',
+            'orphan-identity',
+            'agentterm/missing-task',
+            'refs/heads/main',
+            '1111111111111111111111111111111111111111',
+            'PROVISIONING',
+          ),
+        ).toThrow();
+        expect(() =>
+          insertWorktree.run(
+            'task-1',
+            'C:\\repos\\agentterm',
+            'C:\\worktrees\\invalid-object-id',
+            'invalid-object-id-identity',
+            'agentterm/task-1-invalid-object-id',
+            'refs/heads/main',
+            'not-an-object-id',
+            'PROVISIONING',
+          ),
+        ).toThrow();
+
+        insertWorktree.run(
+          'task-1',
+          'C:\\repos\\agentterm',
+          'C:\\worktrees\\task-1',
+          'task-1-identity',
+          'agentterm/task-1',
+          'refs/heads/main',
+          '1111111111111111111111111111111111111111',
+          'PROVISIONING',
+        );
+
+        expect(() => database.prepare('DELETE FROM tasks WHERE id = ?').run('task-1')).toThrow();
+        expect(database.prepare('SELECT count(*) AS count FROM task_worktrees').get()).toEqual({
+          count: 1,
+        });
+      } finally {
+        database.close();
       }
     });
   });

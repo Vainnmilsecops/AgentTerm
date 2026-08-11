@@ -60,6 +60,81 @@ export interface LocalProject extends Project {
   readonly rootPath: string;
 }
 
+export interface LocalProjectLocator {
+  findLocalById(id: string): Promise<LocalProject | undefined>;
+}
+
+export type TaskWorktreeLifecycleState = 'PRESENT' | 'PROVISIONING' | 'REMOVED' | 'REMOVING';
+
+export interface TaskWorktree {
+  readonly baseCommitId: string;
+  readonly baseRefName: string;
+  readonly branchName: string;
+  readonly pathIdentity: string;
+  readonly repositoryRootPath: string;
+  readonly taskId: string;
+  readonly worktreePath: string;
+}
+
+export interface TaskWorktreeRecord extends TaskWorktree {
+  readonly lifecycleState: TaskWorktreeLifecycleState;
+}
+
+export interface TaskWorktreeStatus extends GitWorkingTreeStatus {
+  readonly ignoredPaths: readonly string[];
+}
+
+export type TaskWorktreeInspection =
+  | {
+      readonly kind: 'missing';
+      readonly worktree: TaskWorktree;
+    }
+  | {
+      readonly kind: 'stale-registration';
+      readonly recoveryPath: string;
+      readonly status: TaskWorktreeStatus;
+      readonly worktree: TaskWorktree;
+    }
+  | {
+      readonly kind: 'present';
+      readonly status: TaskWorktreeStatus;
+      readonly worktree: TaskWorktree;
+    };
+
+export interface InspectGitTaskWorktreeInput {
+  readonly recordedWorktree?: TaskWorktreeRecord;
+  readonly repositoryRootPath: string;
+  readonly taskId: string;
+}
+
+export interface TaskWorktreeEnsureResult {
+  readonly kind: 'created' | 'reused';
+  readonly status: TaskWorktreeStatus;
+  readonly worktree: TaskWorktree;
+}
+
+export interface TaskWorktreeCleanupResult {
+  readonly kind: 'already-missing' | 'removed';
+  readonly worktree: TaskWorktree;
+}
+
+export interface GitTaskWorktreeLifecycle {
+  /** The caller must ensure no process or session can write to this Worktree during cleanup. */
+  cleanup(worktree: TaskWorktree): Promise<TaskWorktreeCleanupResult>;
+  ensure(worktree: TaskWorktree): Promise<TaskWorktreeEnsureResult>;
+  inspect(input: InspectGitTaskWorktreeInput): Promise<TaskWorktreeInspection>;
+}
+
+export interface TaskWorktreeRepository {
+  findByTaskId(taskId: string): Promise<TaskWorktreeRecord | undefined>;
+  insertReservation(worktree: TaskWorktree): Promise<TaskWorktreeRecord>;
+  transitionState(
+    taskId: string,
+    expectedState: TaskWorktreeLifecycleState,
+    nextState: TaskWorktreeLifecycleState,
+  ): Promise<TaskWorktreeRecord>;
+}
+
 export interface RecordProjectOpenInput {
   readonly pathIdentity: string;
   readonly project: Project;

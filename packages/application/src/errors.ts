@@ -1,3 +1,5 @@
+import type { TaskWorktree, TaskWorktreeStatus } from './ports';
+
 export type EntityKind = 'Project' | 'Task';
 
 export type ProjectOpenFailure =
@@ -17,6 +19,19 @@ export type GitRepositoryInspectionFailure =
   | 'PATH_NOT_ACCESSIBLE'
   | 'PATH_NOT_DIRECTORY'
   | 'PATH_NOT_FOUND';
+
+export type TaskWorktreeLifecycleFailure =
+  | 'BASE_BRANCH_UNAVAILABLE'
+  | 'BRANCH_COLLISION'
+  | 'DIRTY_WORKTREE'
+  | 'GIT_OPERATION_FAILED'
+  | 'INVALID_WORKTREE_ROOT'
+  | 'LOCKED_WORKTREE'
+  | 'METADATA_MISMATCH'
+  | 'OPERATION_IN_PROGRESS'
+  | 'PATH_COLLISION'
+  | 'PROJECT_NOT_LOCAL'
+  | 'WORKTREE_MISMATCH';
 
 export class EntityAlreadyExistsError extends Error {
   public readonly entity: EntityKind;
@@ -66,6 +81,62 @@ export class GitRepositoryInspectionError extends Error {
   }
 }
 
+export class TaskWorktreeLifecycleError extends Error {
+  public readonly reason: TaskWorktreeLifecycleFailure;
+  public readonly recoveryPath: string | undefined;
+  public readonly status: TaskWorktreeStatus | undefined;
+  public readonly taskId: string;
+
+  public constructor(
+    reason: TaskWorktreeLifecycleFailure,
+    taskId: string,
+    options: {
+      readonly cause?: unknown;
+      readonly recoveryPath?: string;
+      readonly status?: TaskWorktreeStatus;
+    } = {},
+  ) {
+    super(taskWorktreeLifecycleFailureMessage(reason), { cause: options.cause });
+    this.name = 'TaskWorktreeLifecycleError';
+    this.reason = reason;
+    this.recoveryPath = options.recoveryPath;
+    this.status = options.status;
+    this.taskId = taskId;
+  }
+}
+
+export class TaskWorktreeMetadataConflictError extends Error {
+  public readonly taskId: string;
+
+  public constructor(taskId: string, options?: ErrorOptions) {
+    super(`Task ${taskId} Worktree metadata conflicts with the requested operation.`, options);
+    this.name = 'TaskWorktreeMetadataConflictError';
+    this.taskId = taskId;
+  }
+}
+
+export class TaskWorktreePersistenceError extends Error {
+  public readonly gitState: 'PRESENT' | 'REMOVED';
+  public readonly operation: 'cleanup' | 'ensure';
+  public readonly worktree: TaskWorktree;
+
+  public constructor(
+    operation: 'cleanup' | 'ensure',
+    gitState: 'PRESENT' | 'REMOVED',
+    worktree: TaskWorktree,
+    options?: ErrorOptions,
+  ) {
+    super(
+      `Git Worktree is ${gitState}, but its ${operation} checkpoint was not persisted.`,
+      options,
+    );
+    this.name = 'TaskWorktreePersistenceError';
+    this.gitState = gitState;
+    this.operation = operation;
+    this.worktree = worktree;
+  }
+}
+
 function gitRepositoryInspectionFailureMessage(reason: GitRepositoryInspectionFailure): string {
   switch (reason) {
     case 'INVALID_PATH':
@@ -101,5 +172,32 @@ function projectOpenFailureMessage(reason: ProjectOpenFailure): string {
       return 'Project path is not a valid accessible Git working tree.';
     case 'GIT_INSPECTION_FAILED':
       return 'Git repository inspection failed.';
+  }
+}
+
+function taskWorktreeLifecycleFailureMessage(reason: TaskWorktreeLifecycleFailure): string {
+  switch (reason) {
+    case 'BASE_BRANCH_UNAVAILABLE':
+      return 'A committed base branch is required to create a Task Worktree.';
+    case 'BRANCH_COLLISION':
+      return 'The deterministic Task branch is already associated with another Worktree.';
+    case 'DIRTY_WORKTREE':
+      return 'The Task Worktree contains recoverable changes that must be handled first.';
+    case 'GIT_OPERATION_FAILED':
+      return 'The Git Worktree operation failed.';
+    case 'INVALID_WORKTREE_ROOT':
+      return 'The managed Worktree root is invalid for this repository.';
+    case 'LOCKED_WORKTREE':
+      return 'The Task Worktree is locked and cannot be cleaned up.';
+    case 'METADATA_MISMATCH':
+      return 'Persisted Task Worktree metadata does not match its deterministic identity.';
+    case 'OPERATION_IN_PROGRESS':
+      return 'Another Task Worktree lifecycle operation is already in progress.';
+    case 'PATH_COLLISION':
+      return 'The deterministic Task Worktree path is already occupied.';
+    case 'PROJECT_NOT_LOCAL':
+      return 'The Task Project does not have a persisted local Git root.';
+    case 'WORKTREE_MISMATCH':
+      return 'The registered Worktree does not match the expected Task branch and repository.';
   }
 }

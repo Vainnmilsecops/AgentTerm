@@ -1,9 +1,19 @@
 import { createRequire } from 'node:module';
 
-import type { ProjectCatalog, ProjectRepository, TaskRepository } from '@agentterm/application';
+import type {
+  LocalProjectLocator,
+  ProjectCatalog,
+  ProjectRepository,
+  TaskRepository,
+  TaskWorktreeRepository,
+} from '@agentterm/application';
 
 import { migrateSqliteDatabase } from './migrate';
-import { SqliteProjectRepository, SqliteTaskRepository } from './repositories';
+import {
+  SqliteProjectRepository,
+  SqliteTaskRepository,
+  SqliteTaskWorktreeRepository,
+} from './repositories';
 
 type NodeSqliteModule = typeof import('node:sqlite');
 
@@ -11,8 +21,9 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
-  readonly projects: ProjectCatalog & ProjectRepository;
+  readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   readonly tasks: TaskRepository;
+  readonly worktrees: TaskWorktreeRepository;
   close(): void;
 }
 
@@ -26,8 +37,9 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     enableDoubleQuotedStringLiterals: false,
     enableForeignKeyConstraints: true,
   });
-  let projects: ProjectCatalog & ProjectRepository;
+  let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   let tasks: TaskRepository;
+  let worktrees: TaskWorktreeRepository;
 
   try {
     database.exec(`
@@ -39,6 +51,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     migrateSqliteDatabase(database);
     projects = new SqliteProjectRepository(database);
     tasks = new SqliteTaskRepository(database);
+    worktrees = new SqliteTaskWorktreeRepository(database);
   } catch (error) {
     database.close();
     throw error;
@@ -49,6 +62,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   return Object.freeze({
     projects,
     tasks,
+    worktrees,
     close(): void {
       if (!isClosed) {
         database.close();

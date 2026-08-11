@@ -3,22 +3,32 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import {
   EntityAlreadyExistsError,
   type LocalProject,
+  type LocalProjectLocator,
   type ProjectCatalog,
   type ProjectRepository,
   type RecordProjectOpenInput,
   type TaskRepository,
+  TaskWorktreeMetadataConflictError,
+  type TaskWorktree,
+  type TaskWorktreeLifecycleState,
+  type TaskWorktreeRecord,
+  type TaskWorktreeRepository,
 } from '@agentterm/application';
 import type { Project, Task } from '@agentterm/domain';
 
 import { SqlitePersistenceError } from './errors';
-import { mapLocalProjectRow, mapProjectRow, mapTaskRow } from './mapping';
+import { mapLocalProjectRow, mapProjectRow, mapTaskRow, mapTaskWorktreeRow } from './mapping';
 
 const primaryKeyConstraintCode = 1555;
+const uniqueConstraintCode = 2067;
 
-export class SqliteProjectRepository implements ProjectCatalog, ProjectRepository {
+export class SqliteProjectRepository
+  implements LocalProjectLocator, ProjectCatalog, ProjectRepository
+{
   private readonly database: DatabaseSync;
   private readonly findByIdStatement: StatementSync;
   private readonly findByPathIdentityStatement: StatementSync;
+  private readonly findLocalByIdStatement: StatementSync;
   private readonly insertStatement: StatementSync;
   private readonly insertRootStatement: StatementSync;
   private readonly listRecentStatement: StatementSync;
@@ -28,6 +38,12 @@ export class SqliteProjectRepository implements ProjectCatalog, ProjectRepositor
   public constructor(database: DatabaseSync) {
     this.database = database;
     this.findByIdStatement = database.prepare('SELECT id, name FROM projects WHERE id = ?');
+    this.findLocalByIdStatement = database.prepare(
+      `SELECT projects.id, projects.name, project_roots.canonical_path
+       FROM project_roots
+       INNER JOIN projects ON projects.id = project_roots.project_id
+       WHERE projects.id = ?`,
+    );
     this.findByPathIdentityStatement = database.prepare(
       `SELECT projects.id, projects.name, project_roots.canonical_path
        FROM project_roots
@@ -63,6 +79,11 @@ export class SqliteProjectRepository implements ProjectCatalog, ProjectRepositor
   public async findById(id: string): Promise<Project | undefined> {
     const row = this.findByIdStatement.get(id);
     return row === undefined ? undefined : mapProjectRow(row);
+  }
+
+  public async findLocalById(id: string): Promise<LocalProject | undefined> {
+    const row = this.findLocalByIdStatement.get(id);
+    return row === undefined ? undefined : mapLocalProjectRow(row);
   }
 
   public async insert(project: Project): Promise<void> {
@@ -183,6 +204,124 @@ export class SqliteTaskRepository implements TaskRepository {
   }
 }
 
+export class SqliteTaskWorktreeRepository implements TaskWorktreeRepository {
+  private readonly findByTaskIdStatement: StatementSync;
+  private readonly insertStatement: StatementSync;
+  private readonly transitionStateStatement: StatementSync;
+
+  public constructor(database: DatabaseSync) {
+    this.findByTaskIdStatement = database.prepare(
+      `SELECT
+         task_id,
+         repository_root_path,
+         worktree_path,
+         path_identity,
+         branch_name,
+         base_ref_name,
+         base_commit_id,
+         lifecycle_state
+       FROM task_worktrees
+       WHERE task_id = ?`,
+    );
+    this.insertStatement = database.prepare(
+      `INSERT INTO task_worktrees (
+         task_id,
+         repository_root_path,
+         worktree_path,
+         path_identity,
+         branch_name,
+         base_ref_name,
+         base_commit_id,
+         lifecycle_state
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'PROVISIONING')
+       RETURNING
+         task_id,
+         repository_root_path,
+         worktree_path,
+         path_identity,
+         branch_name,
+         base_ref_name,
+         base_commit_id,
+         lifecycle_state`,
+    );
+    this.transitionStateStatement = database.prepare(
+      `UPDATE task_worktrees
+       SET lifecycle_state = ?
+       WHERE task_id = ? AND lifecycle_state = ?
+       RETURNING
+         task_id,
+         repository_root_path,
+         worktree_path,
+         path_identity,
+         branch_name,
+         base_ref_name,
+         base_commit_id,
+         lifecycle_state`,
+    );
+  }
+
+  public async findByTaskId(taskId: string): Promise<TaskWorktreeRecord | undefined> {
+    const row = this.findByTaskIdStatement.get(taskId);
+    return row === undefined ? undefined : mapTaskWorktreeRow(row);
+  }
+
+  public async insertReservation(worktree: TaskWorktree): Promise<TaskWorktreeRecord> {
+    if (!isGitObjectId(worktree.baseCommitId)) {
+      throw new SqlitePersistenceError('Task Worktree base commit id is invalid.');
+    }
+
+    let row: ReturnType<StatementSync['get']>;
+
+    try {
+      row = this.insertStatement.get(
+        worktree.taskId,
+        worktree.repositoryRootPath,
+        worktree.worktreePath,
+        worktree.pathIdentity,
+        worktree.branchName,
+        worktree.baseRefName,
+        worktree.baseCommitId,
+      );
+    } catch (error) {
+      if (isSqliteMetadataConflictError(error)) {
+        throw new TaskWorktreeMetadataConflictError(worktree.taskId, { cause: error });
+      }
+
+      throw new SqlitePersistenceError('Failed to reserve Task Worktree metadata.', {
+        cause: error,
+      });
+    }
+
+    if (row === undefined) {
+      throw new SqlitePersistenceError('Task Worktree reservation was not returned after insert.');
+    }
+
+    return mapTaskWorktreeRow(row);
+  }
+
+  public async transitionState(
+    taskId: string,
+    expectedState: TaskWorktreeLifecycleState,
+    nextState: TaskWorktreeLifecycleState,
+  ): Promise<TaskWorktreeRecord> {
+    let row: ReturnType<StatementSync['get']>;
+
+    try {
+      row = this.transitionStateStatement.get(nextState, taskId, expectedState);
+    } catch (error) {
+      throw new SqlitePersistenceError('Failed to transition Task Worktree metadata.', {
+        cause: error,
+      });
+    }
+
+    if (row === undefined) {
+      throw new TaskWorktreeMetadataConflictError(taskId);
+    }
+
+    return mapTaskWorktreeRow(row);
+  }
+}
+
 function isSqliteErrorCode(error: unknown, code: number): boolean {
   return (
     error instanceof Error &&
@@ -190,4 +329,15 @@ function isSqliteErrorCode(error: unknown, code: number): boolean {
     typeof error.errcode === 'number' &&
     error.errcode === code
   );
+}
+
+function isSqliteMetadataConflictError(error: unknown): boolean {
+  return (
+    isSqliteErrorCode(error, primaryKeyConstraintCode) ||
+    isSqliteErrorCode(error, uniqueConstraintCode)
+  );
+}
+
+function isGitObjectId(value: string): boolean {
+  return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value);
 }
