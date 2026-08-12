@@ -16,6 +16,8 @@ Updated: 2026-08-12
 - Application now owns a PTY runtime port with structured launch input, sequenced runtime events, and an owned input/resize/terminate handle.
 - Infrastructure implements that port with Windows ConPTY through pinned `node-pty` 1.1.0 in one dedicated host process per terminal; real Windows and Electron 43 smoke tests cover input, output, resize, exit, cleanup, native loading, attached-child termination, and host/handle release.
 - Application now owns a minimal provider-neutral `AgentAdapter` contract and launch use case; Infrastructure provides the first `CodexAdapter` for CLI discovery, version/capability inspection, and structured interactive launch through the PTY runtime.
+- Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
+- Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 
 ## Decisions
 
@@ -68,6 +70,11 @@ Updated: 2026-08-12
   Provider flags stay in `CodexAdapter`; Task Worktree cwd is both the PTY cwd and the structured
   `--cd` argument. The adapter forwards only the caller-approved complete environment, never
   installs, logs in, reads credentials, or infers Task completion from runtime exit.
+- Agent Session status is independent from Task workflow: `STARTING`, `WORKING`, `IDLE`,
+  `WAITING_INPUT`, `EXITED`, and `FAILED` are Domain states for one runtime attempt. The
+  Application coordinator persists `STARTING` before launch, serializes PTY evidence, retains
+  owned handles for stop, and records exit/failure as session evidence only. Multiple sessions per
+  Task are preserved; output is not persisted or interpreted as idle/input/completion state.
 
 ## Blockers
 
@@ -76,9 +83,9 @@ No implementation blocker is known. Node.js 22.13 emits its documented experimen
 Git status can still execute repository-configured clean/process filters. Stronger isolation for
 untrusted repositories is deferred; current inspection must follow an explicit user trust decision.
 Worktree checkout can likewise execute configured clean/smudge/process filters even though hooks are
-disabled for AgentTerm's mutating commands. Active-process coordination remains deferred to the
-future session/runtime lifecycle; cleanup requires exclusive ownership because another writer could
-otherwise race the final dirty/ignored-file inspection.
+disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator now owns PTY
+handles, but cross-process recovery and exclusive Worktree-cleanup coordination remain deferred;
+another writer could otherwise race the final dirty/ignored-file inspection.
 The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
 copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
@@ -87,7 +94,7 @@ and environment policy belongs to the future session/agent coordinator.
 
 ## Next Step
 
-Compose SQLite, Project Management, repository inspection, Task Worktree lifecycle, Codex launch,
-and the PTY runtime in the Electron main process behind narrow validated IPC and explicit
-AgentSession policy. The renderer must not receive raw filesystem, Git, database, process, or
-environment capability.
+Compose SQLite, Project Management, repository inspection, Task Worktree lifecycle, the Agent
+Session coordinator, Codex launch, and the PTY runtime in the Electron main process behind narrow
+validated IPC. The renderer must not receive raw filesystem, Git, database, process, or environment
+capability. Full restart/recovery and resume policy remain a later lifecycle slice.

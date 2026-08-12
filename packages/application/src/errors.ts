@@ -5,7 +5,7 @@ import type {
   TaskWorktreeStatus,
 } from './ports';
 
-export type EntityKind = 'Project' | 'Task';
+export type EntityKind = 'AgentSession' | 'Project' | 'Task';
 
 export type AgentAdapterFailureReason =
   'EXECUTABLE_NOT_FOUND' | 'INSPECTION_FAILED' | 'INVALID_LAUNCH_REQUEST';
@@ -48,6 +48,26 @@ export class AgentAdapterError extends Error {
     super(agentAdapterFailureMessage(reason));
     this.name = 'AgentAdapterError';
     this.reason = reason;
+  }
+}
+
+export class AgentSessionPersistenceError extends Error {
+  public readonly sessionId: string;
+
+  public constructor(sessionId: string) {
+    super(`Agent Session ${sessionId} runtime evidence was not persisted.`);
+    this.name = 'AgentSessionPersistenceError';
+    this.sessionId = sessionId;
+  }
+}
+
+export class AgentSessionRuntimeOwnershipError extends Error {
+  public readonly sessionId: string;
+
+  public constructor(sessionId: string) {
+    super(`Agent Session ${sessionId} does not have a runtime owned by this coordinator.`);
+    this.name = 'AgentSessionRuntimeOwnershipError';
+    this.sessionId = sessionId;
   }
 }
 

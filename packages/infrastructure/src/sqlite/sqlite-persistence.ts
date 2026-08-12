@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 
 import type {
+  AgentSessionRepository,
   LocalProjectLocator,
   ProjectCatalog,
   ProjectRepository,
@@ -11,6 +12,7 @@ import type {
 import { migrateSqliteDatabase } from './migrate';
 import {
   SqliteProjectRepository,
+  SqliteAgentSessionRepository,
   SqliteTaskRepository,
   SqliteTaskWorktreeRepository,
 } from './repositories';
@@ -22,6 +24,7 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSq
 
 export interface SqlitePersistence {
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
+  readonly sessions: AgentSessionRepository;
   readonly tasks: TaskRepository;
   readonly worktrees: TaskWorktreeRepository;
   close(): void;
@@ -38,6 +41,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     enableForeignKeyConstraints: true,
   });
   let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
+  let sessions: AgentSessionRepository;
   let tasks: TaskRepository;
   let worktrees: TaskWorktreeRepository;
 
@@ -50,6 +54,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     `);
     migrateSqliteDatabase(database);
     projects = new SqliteProjectRepository(database);
+    sessions = new SqliteAgentSessionRepository(database);
     tasks = new SqliteTaskRepository(database);
     worktrees = new SqliteTaskWorktreeRepository(database);
   } catch (error) {
@@ -61,6 +66,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
 
   return Object.freeze({
     projects,
+    sessions,
     tasks,
     worktrees,
     close(): void {
