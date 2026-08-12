@@ -178,10 +178,10 @@ button:focus-visible {
 }
 
 .workspace-main {
-  display: grid;
+  display: flex;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: auto auto auto minmax(20rem, 1fr);
+  flex-direction: column;
   gap: 0.75rem;
   padding: clamp(0.75rem, 2vw, 1.4rem);
 }
@@ -286,6 +286,16 @@ button:focus-visible {
   padding: 0.55rem 0.7rem;
 }
 
+.restore-state {
+  grid-column: 1 / -1;
+  margin: 0;
+  border-top: 1px solid #463b27;
+  padding: 0.55rem 0.7rem;
+  color: #dbc99f;
+  background: #18150f;
+  font-size: 0.72rem;
+}
+
 .state-value + .state-value,
 .session-identity {
   border-left: 1px solid #252c33;
@@ -348,6 +358,7 @@ button:focus-visible {
   display: grid;
   min-width: 0;
   min-height: 0;
+  flex: 1 1 20rem;
   overflow: hidden;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid #252c33;
@@ -445,7 +456,6 @@ button:focus-visible {
 
 @media (max-width: 560px) {
   .workspace-main {
-    grid-template-rows: auto auto auto minmax(18rem, 1fr);
     padding: 0.65rem;
   }
 

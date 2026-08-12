@@ -18,6 +18,7 @@ Updated: 2026-08-12
 - Application now owns a minimal provider-neutral `AgentAdapter` contract and launch use case; Infrastructure provides the first `CodexAdapter` for CLI discovery, version/capability inspection, and structured interactive launch through the PTY runtime.
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
+- Application startup reconciliation now finds persisted active Agent Sessions and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
 - Application now exposes `startTaskExecution`: it accepts a `PLANNING` or already-`RUNNING` Task, ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes a minimal start-execution action through an application-shaped client.
@@ -78,6 +79,11 @@ Updated: 2026-08-12
   Application coordinator persists `STARTING` before launch, serializes PTY evidence, retains
   owned handles for stop, and records exit/failure as session evidence only. Multiple sessions per
   Task are preserved; output is not persisted or interpreted as idle/input/completion state.
+- Startup restore runs before the new process owns any PTY. Persisted `STARTING`, `WORKING`,
+  `IDLE`, or `WAITING_INPUT` sessions are not reattached or killed by PID; they receive one
+  sanitized `RUNTIME_OWNERSHIP_LOST` failure event through revision-checked history append. The
+  operation is idempotent, preserves partial progress for a later retry, and needs no schema change
+  because migration 4 already stores the required lifecycle evidence.
 - Task execution orders external effects deliberately: validate phase, ensure/reuse the Worktree,
   persist `RUNNING`, then create and launch a new Session. A later failure preserves the ready
   Worktree and durable Task/Session checkpoint for inspection; it never deletes Git state or
@@ -93,6 +99,9 @@ Updated: 2026-08-12
   Project paths. React owns only loading, selection, action, and error presentation state;
   execution orchestration remains behind its client interface. Terminal lifecycle evidence triggers
   a read-model refresh rather than a Presentation-owned business transition.
+- The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
+  check verifies nonempty rendered content instead of accepting `did-finish-load` alone. The CSP
+  permits only the inline style elements/attributes required by xterm while scripts remain self-only.
 
 ## Blockers
 
@@ -101,9 +110,10 @@ No implementation blocker is known. Node.js 22.13 emits its documented experimen
 Git status can still execute repository-configured clean/process filters. Stronger isolation for
 untrusted repositories is deferred; current inspection must follow an explicit user trust decision.
 Worktree checkout can likewise execute configured clean/smudge/process filters even though hooks are
-disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator now owns PTY
-handles, but cross-process recovery and exclusive Worktree-cleanup coordination remain deferred;
-another writer could otherwise race the final dirty/ignored-file inspection.
+disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator owns PTY
+handles, and startup can now reconcile persisted sessions that no longer have ownership.
+Reattaching to an old process, full retry/resume recovery, and exclusive Worktree-cleanup
+coordination remain deferred; another writer could otherwise race the final dirty/ignored-file inspection.
 The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
 copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
@@ -117,9 +127,10 @@ demo data or exposing Infrastructure to React.
 
 ## Next Step
 
-Bind `loadAgentWorkspace`, `startTaskExecution`, and terminal attachment to the sandboxed renderer
-through a narrow validated preload/IPC adapter in the Electron main process. That composition must
-own session identifiers, approved launch environment, database path, and managed Worktree root; the
+Bind startup session reconciliation, `loadAgentWorkspace`, `startTaskExecution`, and terminal
+attachment to the sandboxed renderer through a narrow validated preload/IPC adapter in the Electron
+main process. Reconciliation must finish before new runtime launches or workspace reads. That
+composition must own session identifiers, approved launch environment, database path, and managed Worktree root; the
 renderer must not receive raw filesystem, Git, database, process, or environment capability. Full
 restart/recovery, resume policy, output replay, and cross-process execution reconciliation remain
 later lifecycle slices.

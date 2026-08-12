@@ -34,12 +34,28 @@ function createWindow(): void {
 
   mainWindow.webContents.once('did-finish-load', () => {
     if (isSmokeTest) {
-      console.log('AgentTerm desktop smoke test passed: renderer loaded.');
-      app.quit();
+      void verifySmokeRenderer(mainWindow).then((exitCode) => app.exit(exitCode));
     }
   });
 
   void mainWindow.loadFile(join(app.getAppPath(), 'dist', 'renderer', 'index.html'));
+}
+
+async function verifySmokeRenderer(window: BrowserWindow | null): Promise<number> {
+  try {
+    const renderedText = await window?.webContents.executeJavaScript(
+      'document.getElementById("root")?.textContent ?? ""',
+    );
+    if (typeof renderedText !== 'string' || renderedText.trim().length === 0) {
+      console.error('AgentTerm desktop smoke test failed: renderer content is empty.');
+      return 1;
+    }
+    console.log('AgentTerm desktop smoke test passed: renderer content loaded.');
+    return 0;
+  } catch {
+    console.error('AgentTerm desktop smoke test failed: renderer content could not be inspected.');
+    return 1;
+  }
 }
 
 app.whenReady().then(() => {

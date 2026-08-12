@@ -151,6 +151,12 @@ export function AgentWorkspaceView({
                   : `${selected.latestSession.agentId} · ${selected.latestSession.id}`}
               </strong>
             </div>
+            {selected.latestSession?.failureCode === 'RUNTIME_OWNERSHIP_LOST' ? (
+              <p className="restore-state" role="status">
+                The previous Agent Session was interrupted when AgentTerm restarted. Task phase
+                remains {selected.task.phase}.
+              </p>
+            ) : null}
           </div>
 
           <TerminalRenderer

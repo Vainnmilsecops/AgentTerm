@@ -45,6 +45,8 @@ export interface AgentSessionRepository {
   insert(session: AgentSession): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;
+  /** Returns sessions whose persisted status still claims a live runtime. */
+  listActive(): Promise<readonly AgentSession[]>;
   /** Returns session attempts from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly AgentSession[]>;
 }

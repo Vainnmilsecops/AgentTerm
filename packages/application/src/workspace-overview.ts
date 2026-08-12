@@ -14,6 +14,7 @@ export interface AgentSessionSummary {
   readonly agentId: string;
   readonly createdAt: number;
   readonly endedAt: number | undefined;
+  readonly failureCode: string | undefined;
   readonly id: string;
   readonly status: AgentSession['status'];
   readonly taskId: string;
@@ -63,14 +64,28 @@ function summarizeSession(session: AgentSession | undefined): AgentSessionSummar
   if (session === undefined) {
     return undefined;
   }
+  const fatalFailure = findLatestFatalFailure(session);
   return Object.freeze({
     agentId: session.agentId,
     createdAt: session.createdAt,
     endedAt: session.endedAt,
+    failureCode: fatalFailure?.code,
     id: session.id,
     status: session.status,
     taskId: session.taskId,
   });
+}
+
+function findLatestFatalFailure(
+  session: AgentSession,
+): Extract<AgentSession['history'][number], { kind: 'RUNTIME_FAILED' }> | undefined {
+  for (let index = session.history.length - 1; index >= 0; index -= 1) {
+    const event = session.history[index];
+    if (event?.kind === 'RUNTIME_FAILED' && event.fatal) {
+      return event;
+    }
+  }
+  return undefined;
 }
 
 function findLatestActiveSession(sessions: readonly AgentSession[]): AgentSession | undefined {

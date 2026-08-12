@@ -53,6 +53,12 @@ class FakeSessionRepository implements AgentSessionRepository {
     throw new Error('append is not used by the workspace overview');
   }
 
+  public async listActive(): Promise<readonly AgentSession[]> {
+    return this.sessions.filter(
+      (session) => session.status !== 'EXITED' && session.status !== 'FAILED',
+    );
+  }
+
   public async listByTaskId(taskId: string): Promise<readonly AgentSession[]> {
     return this.sessions.filter((session) => session.taskId === taskId);
   }
@@ -124,7 +130,7 @@ describe('loadAgentWorkspace', () => {
     });
     expect(workspace.projects[0]?.tasks[1]).toMatchObject({
       activeSession: { status: 'WORKING' },
-      latestSession: { status: 'FAILED' },
+      latestSession: { failureCode: 'RUNTIME_FAILURE', status: 'FAILED' },
       task: { phase: 'RUNNING' },
     });
   });
@@ -208,10 +214,14 @@ function failSession(session: AgentSession, occurredAt: number): AgentSession {
 }
 
 function summarize(session: AgentSession) {
+  const failure = [...session.history]
+    .reverse()
+    .find((event) => event.kind === 'RUNTIME_FAILED' && event.fatal);
   return {
     agentId: session.agentId,
     createdAt: session.createdAt,
     endedAt: session.endedAt,
+    failureCode: failure?.kind === 'RUNTIME_FAILED' ? failure.code : undefined,
     id: session.id,
     status: session.status,
     taskId: session.taskId,
