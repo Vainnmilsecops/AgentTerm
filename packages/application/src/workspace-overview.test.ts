@@ -107,14 +107,18 @@ describe('loadAgentWorkspace', () => {
           tasks: [
             {
               activeSession: workingSummary,
-              canStartExecution: true,
+              canRetryExecution: false,
+              canStartExecution: false,
               latestSession: workingSummary,
+              previousSession: summarize(exited),
               task: runningTask,
             },
             {
               activeSession: olderActiveSummary,
-              canStartExecution: true,
+              canRetryExecution: false,
+              canStartExecution: false,
               latestSession: latestFailedSummary,
+              previousSession: olderActiveSummary,
               task: secondTask,
             },
           ],
@@ -172,9 +176,40 @@ describe('loadAgentWorkspace', () => {
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
-      { canStartExecution: false, task: { phase: 'BACKLOG' } },
-      { canStartExecution: true, task: { phase: 'PLANNING' } },
+      { canRetryExecution: false, canStartExecution: false, task: { phase: 'BACKLOG' } },
+      { canRetryExecution: false, canStartExecution: true, task: { phase: 'PLANNING' } },
     ]);
+  });
+
+  it('offers retry only for an eligible Task whose latest Session is terminal', async () => {
+    const project: LocalProject = {
+      id: 'project-retry',
+      name: 'Recovery',
+      rootPath: 'D:\\Repositories\\Recovery',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'retry', projectId: project.id, title: 'Retry safely' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const failed = failSession(startSession('session-failed', running.id, 100), 101);
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([running]),
+      new FakeSessionRepository([failed]),
+    );
+
+    expect(workspace.projects[0]?.tasks[0]).toMatchObject({
+      activeSession: undefined,
+      canRetryExecution: true,
+      canStartExecution: false,
+      latestSession: { id: failed.id, status: 'FAILED' },
+      previousSession: undefined,
+      task: { phase: 'RUNNING' },
+    });
   });
 });
 

@@ -9,6 +9,7 @@ import {
 
 import {
   AgentAdapterError,
+  AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
   EntityAlreadyExistsError,
@@ -78,7 +79,7 @@ interface OwnedSessionRuntime {
 
 export class AgentSessionCoordinator {
   private readonly adapter: AgentAdapter;
-  private readonly agentId: string;
+  public readonly agentId: string;
   private readonly clock: () => number;
   private readonly runtime: PtyRuntime;
   private readonly sessions: AgentSessionRepository;
@@ -224,6 +225,20 @@ export class AgentSessionCoordinator {
     return this.sessions.listByTaskId(taskId);
   }
 
+  public async findOwnedRuntimeByTaskId(taskId: string): Promise<AgentSession | undefined> {
+    for (const sessionId of [...this.ownedRuntimes.keys()]) {
+      const current = await this.sessions.findById(sessionId);
+      if (current?.taskId !== taskId) {
+        continue;
+      }
+      await this.flush(sessionId);
+      if (this.ownedRuntimes.has(sessionId)) {
+        return this.sessions.findById(sessionId);
+      }
+    }
+    return undefined;
+  }
+
   private async startOnce(input: StartAgentSessionInput): Promise<AgentSession> {
     if ((await this.tasks.findById(input.taskId)) === undefined) {
       throw new EntityNotFoundError('Task', input.taskId);
@@ -242,6 +257,13 @@ export class AgentSessionCoordinator {
         return existing;
       }
       throw new AgentSessionRuntimeOwnershipError(input.sessionId);
+    }
+
+    const active = (await this.sessions.listActive()).find(
+      (session) => session.taskId === input.taskId,
+    );
+    if (active !== undefined) {
+      throw new AgentSessionActiveConflictError(input.taskId);
     }
 
     const starting = createAgentSession({

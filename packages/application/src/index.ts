@@ -1,5 +1,6 @@
 export {
   AgentAdapterError,
+  AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
   EntityAlreadyExistsError,
@@ -11,12 +12,14 @@ export {
   TaskWorktreeMetadataConflictError,
   TaskWorktreePersistenceError,
   TaskExecutionStartError,
+  TaskExecutionRetryError,
   type EntityKind,
   type AgentAdapterFailureReason,
   type GitRepositoryInspectionFailure,
   type ProjectOpenFailure,
   type TaskWorktreeLifecycleFailure,
   type TaskExecutionStartStage,
+  type TaskExecutionRetryFailure,
 } from './errors';
 export {
   AgentSessionCoordinator,
@@ -86,10 +89,12 @@ export {
 } from './workspace-overview';
 export { createTask, transitionTask, type TransitionTaskInput } from './task-use-cases';
 export {
+  retryTaskExecution,
   startTaskExecution,
   type StartTaskExecutionDependencies,
   type StartTaskExecutionInput,
   type TaskExecutionStartResult,
+  type TaskExecutionRetryResult,
 } from './task-execution';
 export {
   cleanupTaskWorktree,

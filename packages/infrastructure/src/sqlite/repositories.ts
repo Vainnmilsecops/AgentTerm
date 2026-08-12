@@ -2,6 +2,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 
 import {
   type AgentSessionRepository,
+  AgentSessionActiveConflictError,
   EntityAlreadyExistsError,
   type LocalProject,
   type LocalProjectLocator,
@@ -345,6 +346,7 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly findByIdStatement: StatementSync;
   private readonly insertEventStatement: StatementSync;
   private readonly insertSessionStatement: StatementSync;
+  private readonly activeByTaskIdStatement: StatementSync;
   private readonly listActiveStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
@@ -364,6 +366,11 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
        FROM agent_sessions
        WHERE status IN ('STARTING', 'WORKING', 'IDLE', 'WAITING_INPUT')
        ORDER BY task_id, ordinal`,
+    );
+    this.activeByTaskIdStatement = database.prepare(
+      `SELECT id FROM agent_sessions
+       WHERE task_id = ? AND status IN ('STARTING', 'WORKING', 'IDLE', 'WAITING_INPUT')
+       LIMIT 1`,
     );
     this.eventsBySessionIdStatement = database.prepare(
       `SELECT
@@ -410,6 +417,12 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     assertInitialSession(session);
     this.database.exec('BEGIN IMMEDIATE');
     try {
+      if (this.findByIdStatement.get(session.id) !== undefined) {
+        throw new EntityAlreadyExistsError('AgentSession', session.id);
+      }
+      if (this.activeByTaskIdStatement.get(session.taskId) !== undefined) {
+        throw new AgentSessionActiveConflictError(session.taskId);
+      }
       const ordinalRow = this.nextOrdinalStatement.get(session.taskId);
       const ordinal = ordinalRow?.next_ordinal;
       if (typeof ordinal !== 'number' || !Number.isSafeInteger(ordinal) || ordinal <= 0) {
@@ -433,7 +446,11 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
       this.database.exec('COMMIT');
     } catch (error) {
       this.database.exec('ROLLBACK');
-      if (error instanceof SqlitePersistenceError) {
+      if (
+        error instanceof AgentSessionActiveConflictError ||
+        error instanceof EntityAlreadyExistsError ||
+        error instanceof SqlitePersistenceError
+      ) {
         throw error;
       }
       if (isSqliteMetadataConflictError(error)) {

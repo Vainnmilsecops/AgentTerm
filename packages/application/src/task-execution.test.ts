@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AgentSessionStatus,
   TaskPhase,
+  createAgentSession,
   createTask,
+  recordAgentSessionEvent,
   transitionTask,
   type AgentSession,
   type Task,
@@ -14,7 +16,9 @@ import {
   AgentAdapterError,
   AgentSessionCoordinator,
   PtyRuntimeError,
+  TaskExecutionRetryError,
   TaskExecutionStartError,
+  retryTaskExecution,
   startTaskExecution,
   type AgentAdapter,
   type AgentLaunchRequest,
@@ -397,26 +401,45 @@ describe('startTaskExecution', () => {
     expect(observedEvents).toEqual([{ kind: 'started', sequence: 1 }]);
   });
 
-  it('reuses the primary Worktree and preserves the exited Session when starting again', async () => {
+  it('requires the explicit Retry action after an exited Session', async () => {
     const fixture = createFixture();
     await startTaskExecution(executionInput, fixture.dependencies);
     fixture.runtime.emit(0, { exitCode: 0, kind: 'exited', sequence: 2 });
     await fixture.sessionCoordinator.findById(executionInput.sessionId);
 
-    const restarted = await startTaskExecution(
-      { ...executionInput, sessionId: 'session-2' },
-      fixture.dependencies,
-    );
+    const eventsBeforeRestart = [...fixture.events];
+    await expect(
+      startTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+    ).rejects.toMatchObject({
+      name: 'TaskExecutionRetryError',
+      reason: 'RETRY_REQUIRED',
+    });
 
-    expect(restarted.worktree.kind).toBe('reused');
+    expect(fixture.events).toEqual(eventsBeforeRestart);
     expect(fixture.git.ensureCalls).toBe(1);
     expect(fixture.tasks.update).toHaveBeenCalledTimes(1);
     await expect(
       fixture.sessionRepository.listByTaskId(executionInput.taskId),
-    ).resolves.toMatchObject([
-      { id: 'session-1', status: AgentSessionStatus.EXITED },
-      { id: 'session-2', status: AgentSessionStatus.WORKING },
-    ]);
+    ).resolves.toHaveLength(1);
+  });
+
+  it('rejects a second active Session before inspecting or changing the Worktree', async () => {
+    const fixture = createFixture();
+    await startTaskExecution(executionInput, fixture.dependencies);
+    const eventsBeforeDuplicate = [...fixture.events];
+
+    await expect(
+      startTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+    ).rejects.toMatchObject({
+      name: 'TaskExecutionRetryError',
+      reason: 'ACTIVE_SESSION_EXISTS',
+      sessionId: 'session-2',
+      taskId: executionInput.taskId,
+    });
+
+    expect(fixture.events).toEqual(eventsBeforeDuplicate);
+    expect(fixture.git.ensureCalls).toBe(1);
+    expect(fixture.runtime.specs).toHaveLength(1);
   });
 
   it('keeps the Worktree provisioning checkpoint and creates no Session when Git fails', async () => {
@@ -511,7 +534,7 @@ describe('startTaskExecution', () => {
     });
     expect(fixture.events).toEqual(eventsBeforeDuplicate);
 
-    const retried = await startTaskExecution(
+    const retried = await retryTaskExecution(
       { ...executionInput, sessionId: 'session-2' },
       fixture.dependencies,
     );
@@ -571,5 +594,193 @@ describe('startTaskExecution', () => {
     await expect(fixture.tasks.findById(executionInput.taskId)).resolves.toMatchObject({
       phase: TaskPhase.RUNNING,
     });
+  });
+});
+
+describe('retryTaskExecution', () => {
+  it.each([TaskPhase.BACKLOG, TaskPhase.REVIEW, TaskPhase.DONE])(
+    'rejects retry from Task phase %s before inspecting Git',
+    async (phase) => {
+      const fixture = createFixture(phase);
+      const starting = createAgentSession({
+        agentId: 'codex',
+        createdAt: 1_800_000_000_000,
+        id: 'session-old',
+        taskId: executionInput.taskId,
+      });
+      const exited = recordAgentSessionEvent(starting, {
+        exitCode: 0,
+        kind: 'PROCESS_EXITED',
+        occurredAt: 1_800_000_000_001,
+        reason: 'PROCESS_EXIT',
+        runtimeSequence: 1,
+      });
+      await fixture.sessionRepository.insert(starting);
+      await fixture.sessionRepository.append(exited, 1);
+      fixture.events.length = 0;
+
+      await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+        name: 'InvalidTaskPhaseTransitionError',
+        to: TaskPhase.RUNNING,
+      });
+
+      expect(fixture.events).toEqual([]);
+      expect(fixture.git.ensureCalls).toBe(0);
+    },
+  );
+
+  it('requires a previous FAILED or EXITED Session before touching Git', async () => {
+    const fixture = createFixture(TaskPhase.RUNNING);
+
+    await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toEqual(
+      new TaskExecutionRetryError(
+        'NO_RETRYABLE_SESSION',
+        executionInput.taskId,
+        executionInput.sessionId,
+      ),
+    );
+
+    expect(fixture.events).toEqual([]);
+    expect(fixture.git.ensureCalls).toBe(0);
+  });
+
+  it('reuses the primary Worktree and creates a new Session after the prior one exits', async () => {
+    const fixture = createFixture();
+    await startTaskExecution(executionInput, fixture.dependencies);
+    fixture.runtime.emit(0, { exitCode: 17, kind: 'exited', sequence: 2 });
+    await fixture.sessionCoordinator.findById(executionInput.sessionId);
+
+    const retried = await retryTaskExecution(
+      { ...executionInput, sessionId: 'session-2' },
+      fixture.dependencies,
+    );
+
+    expect(retried).toMatchObject({
+      previousSession: { id: 'session-1', status: AgentSessionStatus.EXITED },
+      session: { id: 'session-2', status: AgentSessionStatus.WORKING },
+      task: { phase: TaskPhase.RUNNING },
+      worktree: { kind: 'reused', worktree: primaryWorktree },
+    });
+    expect(fixture.git.ensureCalls).toBe(1);
+    await expect(
+      fixture.sessionRepository.listByTaskId(executionInput.taskId),
+    ).resolves.toMatchObject([
+      { id: 'session-1', status: AgentSessionStatus.EXITED },
+      { id: 'session-2', status: AgentSessionStatus.WORKING },
+    ]);
+  });
+
+  it('rejects retry while an active Session exists without provisioning or launching again', async () => {
+    const fixture = createFixture();
+    await startTaskExecution(executionInput, fixture.dependencies);
+    const eventsBeforeRetry = [...fixture.events];
+
+    await expect(
+      retryTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+    ).rejects.toMatchObject({
+      activeSessionId: 'session-1',
+      name: 'TaskExecutionRetryError',
+      reason: 'ACTIVE_SESSION_EXISTS',
+    });
+
+    expect(fixture.events).toEqual(eventsBeforeRetry);
+    expect(fixture.runtime.specs).toHaveLength(1);
+  });
+
+  it('rejects retry while a FAILED Session still has runtime ownership awaiting exit', async () => {
+    const fixture = createFixture();
+    await startTaskExecution(executionInput, fixture.dependencies);
+    fixture.runtime.emit(0, {
+      kind: 'failed',
+      operation: 'runtime',
+      reason: 'RUNTIME_FAILURE',
+      sequence: 2,
+    });
+    await expect(fixture.sessionCoordinator.findById('session-1')).resolves.toMatchObject({
+      status: AgentSessionStatus.FAILED,
+    });
+    const eventsBeforeRetry = [...fixture.events];
+
+    await expect(
+      retryTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+    ).rejects.toMatchObject({
+      activeSessionId: 'session-1',
+      name: 'TaskExecutionRetryError',
+      reason: 'ACTIVE_SESSION_EXISTS',
+    });
+
+    expect(fixture.events).toEqual(eventsBeforeRetry);
+    expect(fixture.runtime.specs).toHaveLength(1);
+
+    fixture.runtime.emit(0, { exitCode: -1, kind: 'exited', sequence: 3 });
+    await fixture.sessionCoordinator.findById('session-1');
+    await expect(
+      retryTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+    ).resolves.toMatchObject({
+      previousSession: { id: 'session-1', status: AgentSessionStatus.FAILED },
+      session: { id: 'session-2', status: AgentSessionStatus.WORKING },
+    });
+  });
+
+  it('rejects retry through a different agent coordinator without touching the Worktree', async () => {
+    const fixture = createFixture(TaskPhase.RUNNING);
+    const otherAgentStarting = createAgentSession({
+      agentId: 'other-agent',
+      createdAt: 1_800_000_000_000,
+      id: 'session-other',
+      taskId: executionInput.taskId,
+    });
+    const otherAgentExited = recordAgentSessionEvent(otherAgentStarting, {
+      exitCode: 0,
+      kind: 'PROCESS_EXITED',
+      occurredAt: 1_800_000_000_001,
+      reason: 'PROCESS_EXIT',
+      runtimeSequence: 1,
+    });
+    await fixture.sessionRepository.insert(otherAgentStarting);
+    await fixture.sessionRepository.append(otherAgentExited, 1);
+    fixture.events.length = 0;
+
+    await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+      name: 'TaskExecutionRetryError',
+      reason: 'AGENT_MISMATCH',
+    });
+
+    expect(fixture.events).toEqual([]);
+    expect(fixture.git.ensureCalls).toBe(0);
+  });
+
+  it('preserves both failed attempts so a later explicit retry can succeed', async () => {
+    const fixture = createFixture();
+    await startTaskExecution(executionInput, fixture.dependencies);
+    fixture.runtime.emit(0, { exitCode: 1, kind: 'exited', sequence: 2 });
+    await fixture.sessionCoordinator.findById(executionInput.sessionId);
+    fixture.adapter.failure = new AgentAdapterError('EXECUTABLE_NOT_FOUND');
+
+    const failure = await retryTaskExecution(
+      { ...executionInput, sessionId: 'session-2' },
+      fixture.dependencies,
+    ).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      session: { id: 'session-2', status: AgentSessionStatus.FAILED },
+      stage: 'SESSION_START',
+    });
+    fixture.adapter.failure = undefined;
+    const recovered = await retryTaskExecution(
+      { ...executionInput, sessionId: 'session-3' },
+      fixture.dependencies,
+    );
+    expect(recovered.session).toMatchObject({
+      id: 'session-3',
+      status: AgentSessionStatus.WORKING,
+    });
+    await expect(
+      fixture.sessionRepository.listByTaskId(executionInput.taskId),
+    ).resolves.toMatchObject([
+      { id: 'session-1', status: AgentSessionStatus.EXITED },
+      { id: 'session-2', status: AgentSessionStatus.FAILED },
+      { id: 'session-3', status: AgentSessionStatus.WORKING },
+    ]);
   });
 });

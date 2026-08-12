@@ -217,12 +217,30 @@ describe('AgentSessionCoordinator', () => {
     fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
 
     await fixture.coordinator.start(launchInput);
+    fixture.runtime.emit({ exitCode: 0, kind: 'exited', sequence: 2 });
+    await fixture.coordinator.findById(launchInput.sessionId);
     await fixture.coordinator.start({ ...launchInput, sessionId: 'session-2' });
 
     await expect(fixture.coordinator.listByTaskId(task.id)).resolves.toMatchObject([
       { agentId: 'codex', id: 'session-1', taskId: task.id },
       { agentId: 'codex', id: 'session-2', taskId: task.id },
     ]);
+  });
+
+  it('rejects a second active Session for the same Task', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    await fixture.coordinator.start(launchInput);
+
+    await expect(
+      fixture.coordinator.start({ ...launchInput, sessionId: 'session-2' }),
+    ).rejects.toMatchObject({
+      name: 'AgentSessionActiveConflictError',
+      taskId: task.id,
+    });
+
+    await expect(fixture.coordinator.listByTaskId(task.id)).resolves.toHaveLength(1);
+    expect(fixture.runtime.specs).toHaveLength(1);
   });
 
   it('forwards output and persists fatal failure followed by exit evidence without changing Task', async () => {

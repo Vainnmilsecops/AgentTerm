@@ -5,8 +5,10 @@ import { canStartTaskExecution } from './task-execution';
 
 export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
+  readonly canRetryExecution: boolean;
   readonly canStartExecution: boolean;
   readonly latestSession: AgentSessionSummary | undefined;
+  readonly previousSession: AgentSessionSummary | undefined;
   readonly task: Task;
 }
 
@@ -42,10 +44,16 @@ export async function loadAgentWorkspace(
         projectTasks.map(async (task): Promise<WorkspaceTaskOverview> => {
           const history = await sessions.listByTaskId(task.id);
           const activeSession = findLatestActiveSession(history);
+          const latestSession = history.at(-1);
+          const phaseAllowsExecution = canStartTaskExecution(task);
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
-            canStartExecution: canStartTaskExecution(task),
-            latestSession: summarizeSession(history.at(-1)),
+            canRetryExecution:
+              phaseAllowsExecution && activeSession === undefined && isTerminal(latestSession),
+            canStartExecution:
+              phaseAllowsExecution && activeSession === undefined && latestSession === undefined,
+            latestSession: summarizeSession(latestSession),
+            previousSession: summarizeSession(history.at(-2)),
             task,
           });
         }),
@@ -58,6 +66,12 @@ export async function loadAgentWorkspace(
   );
 
   return Object.freeze({ projects: Object.freeze(projectOverviews) });
+}
+
+function isTerminal(session: AgentSession | undefined): boolean {
+  return (
+    session?.status === AgentSessionStatus.EXITED || session?.status === AgentSessionStatus.FAILED
+  );
 }
 
 function summarizeSession(session: AgentSession | undefined): AgentSessionSummary | undefined {

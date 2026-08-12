@@ -279,11 +279,20 @@ button:focus-visible {
 }
 
 .state-value,
-.session-identity {
+.session-identity,
+.previous-session {
   display: grid;
   min-width: 0;
   gap: 0.25rem;
   padding: 0.55rem 0.7rem;
+}
+
+.previous-session {
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+  align-items: center;
+  border-top: 1px solid #252c33;
+  background: #10151a;
 }
 
 .restore-state {
@@ -302,7 +311,8 @@ button:focus-visible {
 }
 
 .state-value span,
-.session-identity span {
+.session-identity span,
+.previous-session span {
   color: #71808d;
   font-size: 0.62rem;
   font-weight: 700;
@@ -311,7 +321,8 @@ button:focus-visible {
 }
 
 .state-value strong,
-.session-identity strong {
+.session-identity strong,
+.previous-session strong {
   overflow: hidden;
   color: #d6dfe7;
   font-family: 'Cascadia Mono', Consolas, monospace;
