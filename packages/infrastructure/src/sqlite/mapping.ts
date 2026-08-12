@@ -4,10 +4,14 @@ import type {
   TaskWorktreeRecord,
 } from '@agentterm/application';
 import {
+  createAgentSession,
   createProject,
   createTask,
   TaskPhase,
   transitionTask,
+  recordAgentSessionEvent,
+  type AgentSession,
+  type AgentSessionEvent,
   type Project,
   type Task,
   type TaskPhase as TaskPhaseValue,
@@ -97,6 +101,129 @@ export function mapTaskWorktreeRow(row: SqliteRow): TaskWorktreeRecord {
   });
 }
 
+export function mapAgentSessionRows(
+  sessionRow: SqliteRow,
+  eventRows: readonly SqliteRow[],
+): AgentSession {
+  const createdAt = readSafeNonNegativeInteger(sessionRow, 'created_at', 'Agent Session');
+  let session = createAgentSession({
+    agentId: readNonBlankText(sessionRow, 'agent_id', 'Agent Session'),
+    createdAt,
+    id: readNonBlankText(sessionRow, 'id', 'Agent Session'),
+    taskId: readNonBlankText(sessionRow, 'task_id', 'Agent Session'),
+  });
+
+  if (eventRows.length === 0) {
+    throw new SqlitePersistenceError('Agent Session history is empty.');
+  }
+  const initialRow = eventRows[0];
+  if (initialRow === undefined) {
+    throw new SqlitePersistenceError('Agent Session history is empty.');
+  }
+  assertStoredEventMatches(session.history[0], initialRow);
+
+  for (const row of eventRows.slice(1)) {
+    try {
+      session = recordAgentSessionEvent(session, mapAgentSessionEventInput(row));
+    } catch (error) {
+      throw new SqlitePersistenceError('Agent Session history contains an invalid transition.', {
+        cause: error,
+      });
+    }
+    assertStoredEventMatches(session.history.at(-1), row);
+  }
+
+  const storedSequence = readSafePositiveInteger(sessionRow, 'history_sequence', 'Agent Session');
+  const storedStatus = readText(sessionRow, 'status', 'Agent Session');
+  const storedEndedAt = readNullableSafeNonNegativeInteger(sessionRow, 'ended_at', 'Agent Session');
+  if (
+    session.history.length !== storedSequence ||
+    session.status !== storedStatus ||
+    session.endedAt !== storedEndedAt
+  ) {
+    throw new SqlitePersistenceError('Agent Session snapshot does not match its event history.');
+  }
+  return session;
+}
+
+function mapAgentSessionEventInput(row: SqliteRow): Parameters<typeof recordAgentSessionEvent>[1] {
+  const kind = readText(row, 'kind', 'Agent Session event');
+  const occurredAt = readSafeNonNegativeInteger(row, 'occurred_at', 'Agent Session event');
+  const runtimeSequence = readNullableSafePositiveInteger(
+    row,
+    'runtime_sequence',
+    'Agent Session event',
+  );
+  switch (kind) {
+    case 'STATUS_REPORTED': {
+      const status = readText(row, 'status', 'Agent Session event');
+      const source = readText(row, 'source', 'Agent Session event');
+      if (
+        !['IDLE', 'WAITING_INPUT', 'WORKING'].includes(status) ||
+        !['APPLICATION', 'RUNTIME'].includes(source)
+      ) {
+        throw new SqlitePersistenceError('Agent Session status event is invalid.');
+      }
+      return {
+        kind,
+        occurredAt,
+        ...(runtimeSequence === undefined ? {} : { runtimeSequence }),
+        source: source as 'APPLICATION' | 'RUNTIME',
+        status: status as 'IDLE' | 'WAITING_INPUT' | 'WORKING',
+      };
+    }
+    case 'STOP_REQUESTED':
+      return { kind, occurredAt };
+    case 'RUNTIME_FAILED': {
+      const fatal = readInteger(row, 'fatal', 'Agent Session event');
+      const stage = readText(row, 'stage', 'Agent Session event');
+      if (
+        ![0, 1].includes(fatal) ||
+        !['CLEANUP', 'RESIZE', 'RUNTIME', 'START', 'TERMINATE', 'WRITE'].includes(stage)
+      ) {
+        throw new SqlitePersistenceError('Agent Session failure event is invalid.');
+      }
+      return {
+        code: readNonBlankText(row, 'failure_code', 'Agent Session event'),
+        fatal: fatal === 1,
+        kind,
+        occurredAt,
+        ...(runtimeSequence === undefined ? {} : { runtimeSequence }),
+        stage: stage as 'CLEANUP' | 'RESIZE' | 'RUNTIME' | 'START' | 'TERMINATE' | 'WRITE',
+      };
+    }
+    case 'PROCESS_EXITED': {
+      const reason = readText(row, 'exit_reason', 'Agent Session event');
+      if (runtimeSequence === undefined || !['PROCESS_EXIT', 'STOPPED'].includes(reason)) {
+        throw new SqlitePersistenceError('Agent Session exit event is invalid.');
+      }
+      const signal = readNullableInteger(row, 'signal', 'Agent Session event');
+      return {
+        exitCode: readInteger(row, 'exit_code', 'Agent Session event'),
+        kind,
+        occurredAt,
+        reason: reason as 'PROCESS_EXIT' | 'STOPPED',
+        runtimeSequence,
+        ...(signal === undefined ? {} : { signal }),
+      };
+    }
+    default:
+      throw new SqlitePersistenceError(`Agent Session event kind is invalid: ${kind}.`);
+  }
+}
+
+function assertStoredEventMatches(event: AgentSessionEvent | undefined, row: SqliteRow): void {
+  if (
+    event === undefined ||
+    event.sequence !== readSafePositiveInteger(row, 'sequence', 'Agent Session event') ||
+    event.kind !== readText(row, 'kind', 'Agent Session event') ||
+    event.status !== readText(row, 'status', 'Agent Session event') ||
+    event.occurredAt !== readSafeNonNegativeInteger(row, 'occurred_at', 'Agent Session event')
+  ) {
+    throw new SqlitePersistenceError('Agent Session event row does not match Domain history.');
+  }
+}
+
 function readTaskPhase(row: SqliteRow): TaskPhaseValue {
   const phase = readText(row, 'phase', 'Task');
 
@@ -125,4 +252,48 @@ function readNonBlankText(row: SqliteRow, column: string, entity: string): strin
   }
 
   return value;
+}
+
+function readInteger(row: SqliteRow, column: string, entity: string): number {
+  const value = row[column];
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw new SqlitePersistenceError(`${entity} row contains an invalid ${column} integer.`);
+  }
+  return value;
+}
+
+function readSafeNonNegativeInteger(row: SqliteRow, column: string, entity: string): number {
+  const value = readInteger(row, column, entity);
+  if (value < 0) {
+    throw new SqlitePersistenceError(`${entity} row contains a negative ${column}.`);
+  }
+  return value;
+}
+
+function readSafePositiveInteger(row: SqliteRow, column: string, entity: string): number {
+  const value = readInteger(row, column, entity);
+  if (value <= 0) {
+    throw new SqlitePersistenceError(`${entity} row contains a nonpositive ${column}.`);
+  }
+  return value;
+}
+
+function readNullableInteger(row: SqliteRow, column: string, entity: string): number | undefined {
+  return row[column] === null ? undefined : readInteger(row, column, entity);
+}
+
+function readNullableSafePositiveInteger(
+  row: SqliteRow,
+  column: string,
+  entity: string,
+): number | undefined {
+  return row[column] === null ? undefined : readSafePositiveInteger(row, column, entity);
+}
+
+function readNullableSafeNonNegativeInteger(
+  row: SqliteRow,
+  column: string,
+  entity: string,
+): number | undefined {
+  return row[column] === null ? undefined : readSafeNonNegativeInteger(row, column, entity);
 }

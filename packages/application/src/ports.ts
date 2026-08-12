@@ -1,4 +1,4 @@
-import type { Project, Task } from '@agentterm/domain';
+import type { AgentSession, Project, Task } from '@agentterm/domain';
 
 export interface AgentVersion {
   readonly major: number;
@@ -37,6 +37,15 @@ export interface AgentLaunchCommand extends AgentLaunchRequest {
 export interface AgentAdapter {
   inspect(): Promise<AgentAvailability>;
   buildLaunchCommand(request: AgentLaunchRequest): Promise<AgentLaunchCommand>;
+}
+
+export interface AgentSessionRepository {
+  findById(id: string): Promise<AgentSession | undefined>;
+  /** Inserts one new attempt and must never replace an existing session. */
+  insert(session: AgentSession): Promise<void>;
+  /** Atomically appends the new history suffix when the stored revision matches. */
+  append(session: AgentSession, expectedSequence: number): Promise<void>;
+  listByTaskId(taskId: string): Promise<readonly AgentSession[]>;
 }
 
 export interface PtyTerminalSize {

@@ -1,5 +1,7 @@
 export {
   AgentAdapterError,
+  AgentSessionPersistenceError,
+  AgentSessionRuntimeOwnershipError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
   GitRepositoryInspectionError,
@@ -14,6 +16,13 @@ export {
   type ProjectOpenFailure,
   type TaskWorktreeLifecycleFailure,
 } from './errors';
+export {
+  AgentSessionCoordinator,
+  type AgentSessionCoordinatorDependencies,
+  type ReportAgentSessionStatusInput,
+  type StartAgentSessionInput,
+  type StopAgentSessionInput,
+} from './agent-session-coordinator';
 export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
 export { listRecentProjects, openProject, type OpenProjectInput } from './project-management';
 export { createProject } from './project-use-cases';
@@ -24,6 +33,7 @@ export type {
   AgentLaunchCommand,
   AgentLaunchRequest,
   AgentVersion,
+  AgentSessionRepository,
   DiscoveredProject,
   GitBaseBranch,
   GitHead,
