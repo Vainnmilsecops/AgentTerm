@@ -1,4 +1,11 @@
-import type { AgentSession, ExecutionArtifact, Project, Task } from '@agentterm/domain';
+import type {
+  AgentSession,
+  ExecutionArtifact,
+  Project,
+  QualityGate,
+  QualityGateRun,
+  Task,
+} from '@agentterm/domain';
 
 export interface AgentVersion {
   readonly major: number;
@@ -131,6 +138,62 @@ export interface PtyRuntime {
   open(spec: PtyLaunchSpec, sink: PtyRuntimeEventSink): Promise<PtyHandle>;
 }
 
+export interface QualityGateCatalog {
+  /** Resolves a trusted configured gate; callers select only the stable id. */
+  findById(id: string): Promise<QualityGate | undefined>;
+}
+
+export interface QualityGateRunRepository {
+  findById(id: string): Promise<QualityGateRun | undefined>;
+  /** Inserts one RUNNING evidence record and must never replace an existing run. */
+  insert(run: QualityGateRun): Promise<void>;
+  /** Finalizes exactly one RUNNING record using compare-and-set semantics. */
+  finalize(run: QualityGateRun, expectedStatus: 'RUNNING'): Promise<void>;
+  /** Returns every run for the Task from oldest to newest. */
+  listByTaskId(taskId: string): Promise<readonly QualityGateRun[]>;
+}
+
+export interface QualityGateProcessRequest {
+  readonly arguments: readonly string[];
+  /** Complete environment for the child process; never persisted by the runner. */
+  readonly environment: Readonly<Record<string, string>>;
+  readonly executablePath: string;
+  readonly maxOutputBytes: number;
+  readonly redactValues: readonly string[];
+  readonly timeoutMs: number;
+  readonly workingDirectory: string;
+}
+
+export type QualityGateProcessResult =
+  | {
+      readonly exitCode: number;
+      readonly kind: 'exited';
+      readonly output: string;
+      readonly truncated: boolean;
+    }
+  | {
+      readonly kind: 'timed-out';
+      readonly output: string;
+      readonly terminationFailed: boolean;
+      readonly truncated: boolean;
+    }
+  | {
+      readonly kind: 'launch-error';
+      readonly output: '';
+      readonly reason: 'EXECUTABLE_NOT_FOUND' | 'INVALID_REQUEST' | 'SPAWN_FAILED';
+      readonly truncated: false;
+    }
+  | {
+      readonly kind: 'infrastructure-error';
+      readonly output: string;
+      readonly reason: 'PROCESS_PROTOCOL_ERROR' | 'TERMINATION_FAILED';
+      readonly truncated: boolean;
+    };
+
+export interface QualityGateProcessRunner {
+  run(request: QualityGateProcessRequest): Promise<QualityGateProcessResult>;
+}
+
 export type GitHead =
   | {
       readonly branchName: string;
@@ -227,6 +290,8 @@ export type TaskWorktreeInspection =
       readonly worktree: TaskWorktree;
     }
   | {
+      /** Attached HEAD observed in the verified Worktree at inspection time. */
+      readonly headCommitId: string;
       readonly kind: 'present';
       readonly status: TaskWorktreeStatus;
       readonly worktree: TaskWorktree;

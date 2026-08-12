@@ -178,6 +178,12 @@ describe('restoreAgentWorkspaceAfterRestart', () => {
         insert: async () => undefined,
         listByTaskId: async () => [],
       },
+      {
+        finalize: async () => never(),
+        findById: async () => undefined,
+        insert: async () => never(),
+        listByTaskId: async () => [],
+      },
       () => createdAt + 100,
     );
 

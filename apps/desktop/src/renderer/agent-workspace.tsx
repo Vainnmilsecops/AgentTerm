@@ -173,6 +173,7 @@ export function AgentWorkspaceView({
           </div>
 
           <ArtifactHistory artifacts={selected.artifacts} />
+          <QualityGateHistory runs={selected.qualityGateRuns} />
 
           <TerminalRenderer
             {...(client === undefined ? {} : { client })}
@@ -188,6 +189,54 @@ export function AgentWorkspaceView({
         </section>
       )}
     </main>
+  );
+}
+
+function QualityGateHistory({ runs }: { readonly runs: WorkspaceTaskOverview['qualityGateRuns'] }) {
+  const newestFirst = [...runs].reverse();
+
+  return (
+    <section className="quality-gates" aria-labelledby="quality-gates-heading">
+      <header className="quality-gates__header">
+        <div>
+          <p className="eyebrow">Recorded evidence</p>
+          <h3 id="quality-gates-heading">Quality gates</h3>
+        </div>
+        <span>
+          {runs.length} {runs.length === 1 ? 'run' : 'runs'}
+        </span>
+      </header>
+      {newestFirst.length === 0 ? (
+        <p className="quality-gates__empty">
+          No AgentTerm-recorded gate evidence for this Task yet.
+        </p>
+      ) : (
+        <ol className="quality-gates__list">
+          {newestFirst.map((run) => (
+            <li className="quality-gate-run" key={run.id}>
+              <div className="quality-gate-run__summary">
+                <strong>{run.kind}</strong>
+                <span className="quality-gate-run__identity">
+                  {run.gateId} / {run.id}
+                </span>
+                <span className={`quality-gate-status quality-gate-status--${run.status}`}>
+                  {run.status}
+                </span>
+                <span>{formatDuration(run.durationMs)}</span>
+                <span>{run.exitCode === undefined ? 'No exit code' : `Exit ${run.exitCode}`}</span>
+                {run.failureCategory === undefined ? null : <span>{run.failureCategory}</span>}
+              </div>
+              {run.output === undefined ? null : (
+                <pre className="quality-gate-run__output">
+                  {run.output.text}
+                  {run.output.truncated ? '\n... output truncated' : ''}
+                </pre>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -230,6 +279,15 @@ function ArtifactHistory({
   );
 }
 
+function formatDuration(durationMs: number | undefined): string {
+  if (durationMs === undefined) {
+    return 'Result pending';
+  }
+  if (durationMs < 1_000) {
+    return `${durationMs} ms`;
+  }
+  return `${(durationMs / 1_000).toFixed(1)} s`;
+}
 function WorkspaceSidebar({
   onSelectTask,
   projects,

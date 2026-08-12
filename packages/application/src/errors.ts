@@ -7,8 +7,48 @@ import type {
 } from './ports';
 import type { AgentSession } from '@agentterm/domain';
 
-export type EntityKind = 'AgentSession' | 'ExecutionArtifact' | 'Project' | 'Task';
+export type EntityKind =
+  'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task';
 
+export type QualityGateExecutionFailure =
+  'GATE_NOT_FOUND' | 'INVALID_ENVIRONMENT' | 'UNSAFE_COMMAND_METADATA' | 'WORKTREE_NOT_READY';
+
+export class QualityGateExecutionError extends Error {
+  public readonly reason: QualityGateExecutionFailure;
+  public readonly taskId: string;
+
+  public constructor(reason: QualityGateExecutionFailure, taskId: string) {
+    super(
+      reason === 'GATE_NOT_FOUND'
+        ? 'The configured Quality Gate was not found.'
+        : reason === 'INVALID_ENVIRONMENT'
+          ? 'The Quality Gate environment is invalid.'
+          : reason === 'UNSAFE_COMMAND_METADATA'
+            ? 'The configured Quality Gate command contains unsafe persisted metadata.'
+            : 'The Task primary Worktree is not ready for Quality Gate execution.',
+    );
+    this.name = 'QualityGateExecutionError';
+    this.reason = reason;
+    this.taskId = taskId;
+  }
+}
+
+export class QualityGatePersistenceError extends Error {
+  public readonly observedRun: import('@agentterm/domain').QualityGateRun;
+  public readonly persistedStatus = 'RUNNING' as const;
+
+  public constructor(
+    observedRun: import('@agentterm/domain').QualityGateRun,
+    options?: ErrorOptions,
+  ) {
+    super(
+      'Quality Gate process evidence completed, but its final checkpoint was not persisted.',
+      options,
+    );
+    this.name = 'QualityGatePersistenceError';
+    this.observedRun = observedRun;
+  }
+}
 export type AgentAdapterFailureReason =
   'EXECUTABLE_NOT_FOUND' | 'INSPECTION_FAILED' | 'INVALID_LAUNCH_REQUEST';
 

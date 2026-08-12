@@ -5,6 +5,7 @@ import type {
   AgentSessionRepository,
   ExecutionArtifactRepository,
   ProjectCatalog,
+  QualityGateRunRepository,
   TaskCatalog,
 } from './ports';
 import { loadAgentWorkspace, type AgentWorkspaceOverview } from './workspace-overview';
@@ -60,10 +61,11 @@ export async function restoreAgentWorkspaceAfterRestart(
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
   artifacts: ExecutionArtifactRepository,
+  qualityGateRuns: QualityGateRunRepository,
   clock: () => number,
 ): Promise<AgentWorkspaceOverview> {
   await restoreAgentSessionsAfterRestart(sessions, clock);
-  return loadAgentWorkspace(projects, tasks, sessions, artifacts);
+  return loadAgentWorkspace(projects, tasks, sessions, artifacts, qualityGateRuns);
 }
 
 async function readLatest(

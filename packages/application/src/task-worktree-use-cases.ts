@@ -198,7 +198,8 @@ async function cleanupTaskWorktreeExclusive(
   return cleaned;
 }
 
-async function serializeTaskWorktreeOperation<Result>(
+/** Serializes every in-process writer or lifecycle operation that owns a Task Worktree. */
+export async function serializeTaskWorktreeOperation<Result>(
   taskId: string,
   operation: () => Promise<Result>,
 ): Promise<Result> {

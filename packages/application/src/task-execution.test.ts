@@ -146,7 +146,12 @@ class MemoryGitWorktreeLifecycle implements GitTaskWorktreeLifecycle {
   public async inspect(): Promise<Awaited<ReturnType<GitTaskWorktreeLifecycle['inspect']>>> {
     this.events.push('git:inspect');
     return this.present
-      ? { kind: 'present', status: cleanStatus, worktree: primaryWorktree }
+      ? {
+          headCommitId: primaryWorktree.baseCommitId,
+          kind: 'present',
+          status: cleanStatus,
+          worktree: primaryWorktree,
+        }
       : { kind: 'missing', worktree: primaryWorktree };
   }
 

@@ -1,11 +1,11 @@
 # AgentTerm Current State
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 ## Current State
 
 - The pnpm TypeScript monorepo, Electron desktop shell, Next.js website shell, and shared validation tooling are in place.
-- `@agentterm/domain` now exposes pure TypeScript `Project`, `Task`, and `TaskPhase` models.
+- `@agentterm/domain` now exposes pure TypeScript Project, Task, Agent Session, and Quality Gate models.
 - `@agentterm/application` now exposes use cases to create Projects, create Tasks, and transition the current Task lifecycle.
 - `@agentterm/infrastructure` implements the existing Project and Task repository ports with SQLite.
 - Project Management can inspect and open an existing local Git working tree, persist it atomically, deduplicate canonical path aliases, and list recent Projects.
@@ -25,6 +25,11 @@ Updated: 2026-08-12
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes a minimal start-execution action through an application-shaped client.
 - Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
+- Domain now models configured `LINT`, `TYPECHECK`, `TEST`, and `BUILD` Quality Gates plus immutable runs whose runtime status and evidence are independent from `TaskPhase`.
+- Application can run a configured gate only after read-only verification of the persisted primary Task Worktree, records `RUNNING` before process launch, and persists pass, command failure, timeout, launch failure, or infrastructure failure without changing the Task.
+- Migration 6 preserves every gate attempt by Task ordinal with structured command, the Worktree base and observed start-time HEAD revisions, plus bounded, redacted diagnostic output. A compatibility migration safely converges databases that previously recorded Quality Gates as migration 5. A failed final checkpoint retains the durable `RUNNING` record and surfaces the observed process result for later reconciliation rather than rerunning it.
+- Infrastructure executes gate commands as an absolute executable plus argv with no shell, an exact environment, bounded UTF-8 output, and Windows process-tree timeout cleanup. Real Git integration proves commands run in the primary Worktree while dirty user files and Worktree registration remain intact.
+- The workspace read model and desktop show newest-first AgentTerm-recorded gate evidence separately from Task and Agent Session state. React receives no command, environment, output reference, or local Worktree path.
 
 ## Decisions
 
@@ -115,6 +120,18 @@ Updated: 2026-08-12
   history. SQLite stores validated text and fixed contract metadata directly, so this slice adds no
   user-controlled filesystem path. Metadata excludes environment and credential data, and the
   desktop renders artifact content as escaped plain text instead of executable HTML.
+- Quality Gate execution is a one-shot Application workflow, not an agent claim or Task transition.
+  It serializes with in-process Worktree lifecycle operations, inspects but never provisions or
+  cleans the Worktree, inserts `RUNNING` before spawn, and finalizes the same immutable run through
+  SQLite compare-and-set. Each later attempt needs a new run id, so earlier evidence is preserved.
+- Gate provenance records the attached commit observed immediately before launch. Dirty, ignored,
+  and untracked content is deliberately left in place and is exercised by the command, but this
+  foundation does not claim that such uncommitted content is a reproducible commit snapshot.
+- Gate process policy uses a dedicated Infrastructure runner rather than the interactive PTY. The
+  runner drains stdout and stderr, applies explicit sensitive-value redaction, retains at most
+  256 KiB, and never persists its environment. On Windows timeout it invokes canonical
+  `taskkill.exe` with structured arguments for the captured child tree; a Job Object would provide
+  stronger PID ownership but is deferred rather than hidden behind a speculative abstraction.
 - The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
   check verifies nonempty rendered content instead of accepting `did-finish-load` alone. The CSP
   permits only the inline style elements/attributes required by xterm while scripts remain self-only.
@@ -140,6 +157,9 @@ renderer still has no validated preload/IPC binding to the main-process reposito
 coordinator. Until that composition and its database/worktree/environment policy are added, the
 desktop shell intentionally renders a recoverable connection-unavailable state rather than using
 demo data or exposing Infrastructure to React.
+If AgentTerm exits after a gate process finishes but before its final SQLite checkpoint, that run
+remains durably `RUNNING` and the workspace labels its result as pending. Automatic reconciliation
+of such orphan gate attempts is deferred; a retry must use a new run id and preserve the old row.
 
 ## Next Step
 

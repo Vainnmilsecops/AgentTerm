@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  completeQualityGateRun,
   createAgentSession,
   createExecutionArtifact,
+  createQualityGate,
   createTask,
+  QualityGateKind,
   recordAgentSessionEvent,
+  startQualityGateRun,
   TaskPhase,
   transitionTask,
   type AgentSession,
   type ExecutionArtifact,
+  type QualityGateRun,
   type Task,
 } from '@agentterm/domain';
 
@@ -18,6 +23,7 @@ import {
   type ExecutionArtifactRepository,
   type LocalProject,
   type ProjectCatalog,
+  type QualityGateRunRepository,
   type TaskCatalog,
 } from './index';
 
@@ -67,6 +73,26 @@ class FakeSessionRepository implements AgentSessionRepository {
   }
 }
 
+class FakeQualityGateRunRepository implements QualityGateRunRepository {
+  public constructor(private readonly runs: readonly QualityGateRun[]) {}
+
+  public async findById(id: string): Promise<QualityGateRun | undefined> {
+    return this.runs.find((run) => run.id === id);
+  }
+
+  public async insert(): Promise<never> {
+    throw new Error('insert is not used by the workspace overview');
+  }
+
+  public async finalize(): Promise<never> {
+    throw new Error('finalize is not used by the workspace overview');
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly QualityGateRun[]> {
+    return this.runs.filter((run) => run.taskId === taskId);
+  }
+}
+
 class FakeArtifactRepository implements ExecutionArtifactRepository {
   public constructor(private readonly artifacts: readonly ExecutionArtifact[]) {}
 
@@ -108,6 +134,25 @@ describe('loadAgentWorkspace', () => {
     const working = workSession(startSession('session-working', runningTask.id, 102), 103);
     const olderActive = workSession(startSession('session-active', secondTask.id, 104), 105);
     const latestFailed = failSession(startSession('session-failed', secondTask.id, 106), 107);
+    const lintPassed = completeQualityGateRun(startGateRun('gate-run-lint', runningTask.id, 200), {
+      exitCode: 0,
+      finishedAt: 320,
+      kind: 'exited',
+      output: { reference: 'output-lint', text: 'lint passed', truncated: false },
+    });
+    const testsFailed = completeQualityGateRun(
+      startGateRun('gate-run-test', runningTask.id, 400, QualityGateKind.TEST),
+      {
+        exitCode: 1,
+        finishedAt: 1_650,
+        kind: 'exited',
+        output: {
+          reference: 'output-test',
+          text: 'Ki\u1ec3m th\u1eed th\u1ea5t b\u1ea1i',
+          truncated: true,
+        },
+      },
+    );
     const plan = createExecutionArtifact({
       content: '# Plan\n\nGiữ Task phase và Session status riêng biệt.',
       createdAt: 108,
@@ -130,6 +175,7 @@ describe('loadAgentWorkspace', () => {
       new FakeTaskCatalog([runningTask, secondTask]),
       new FakeSessionRepository([exited, working, olderActive, latestFailed]),
       new FakeArtifactRepository([plan, summary]),
+      new FakeQualityGateRunRepository([lintPassed, testsFailed]),
     );
 
     const projectSummary = { id: project.id, name: project.name };
@@ -148,6 +194,7 @@ describe('loadAgentWorkspace', () => {
               canStartExecution: false,
               latestSession: workingSummary,
               previousSession: summarize(exited),
+              qualityGateRuns: [summarizeGateRun(lintPassed), summarizeGateRun(testsFailed)],
               task: runningTask,
             },
             {
@@ -157,6 +204,7 @@ describe('loadAgentWorkspace', () => {
               canStartExecution: false,
               latestSession: latestFailedSummary,
               previousSession: olderActiveSummary,
+              qualityGateRuns: [],
               task: secondTask,
             },
           ],
@@ -175,6 +223,51 @@ describe('loadAgentWorkspace', () => {
       latestSession: { failureCode: 'RUNTIME_FAILURE', status: 'FAILED' },
       task: { phase: 'RUNNING' },
     });
+    expect(workspace.projects[0]?.tasks[0]?.qualityGateRuns[0]).not.toHaveProperty('gate');
+    expect(workspace.projects[0]?.tasks[0]?.qualityGateRuns[0]).not.toHaveProperty('worktree');
+    expect(workspace.projects[0]?.tasks[0]?.qualityGateRuns[0]?.output).not.toHaveProperty(
+      'reference',
+    );
+  });
+
+  it('bounds gate evidence copied into the workspace read model', async () => {
+    const project: LocalProject = {
+      id: 'project-bounded-gates',
+      name: 'Bounded gates',
+      rootPath: 'D:\\Repositories\\Bounded gates',
+    };
+    const runningTask = transitionTask(
+      transitionTask(
+        createTask({ id: 'task-bounded-gates', projectId: project.id, title: 'Gate history' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const gateRuns = Array.from({ length: 21 }, (_, index) =>
+      completeQualityGateRun(startGateRun(`gate-run-${index}`, runningTask.id, index), {
+        exitCode: 0,
+        finishedAt: index + 1,
+        kind: 'exited',
+        output: {
+          reference: `quality-gate-output:gate-run-${index}`,
+          text: 'x'.repeat(5_000),
+          truncated: false,
+        },
+      }),
+    );
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([runningTask]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository(gateRuns),
+    );
+    const summaries = workspace.projects[0]?.tasks[0]?.qualityGateRuns;
+
+    expect(summaries).toHaveLength(20);
+    expect(summaries?.[0]?.id).toBe('gate-run-1');
+    expect(summaries?.at(-1)?.output).toEqual({ text: 'x'.repeat(4_096), truncated: true });
   });
 
   it('preserves recent Projects that do not have Tasks', async () => {
@@ -190,6 +283,7 @@ describe('loadAgentWorkspace', () => {
         new FakeTaskCatalog([]),
         new FakeSessionRepository([]),
         new FakeArtifactRepository([]),
+        new FakeQualityGateRunRepository([]),
       ),
     ).resolves.toEqual({
       projects: [{ project: { id: emptyProject.id, name: emptyProject.name }, tasks: [] }],
@@ -213,6 +307,7 @@ describe('loadAgentWorkspace', () => {
       new FakeTaskCatalog([backlog, planning]),
       new FakeSessionRepository([]),
       new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
@@ -241,6 +336,7 @@ describe('loadAgentWorkspace', () => {
       new FakeTaskCatalog([running]),
       new FakeSessionRepository([failed]),
       new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
@@ -302,5 +398,50 @@ function summarize(session: AgentSession) {
     id: session.id,
     status: session.status,
     taskId: session.taskId,
+  };
+}
+
+function startGateRun(
+  id: string,
+  taskId: string,
+  startedAt: number,
+  kind: QualityGateRun['gate']['kind'] = QualityGateKind.LINT,
+): QualityGateRun {
+  return startQualityGateRun({
+    gate: createQualityGate({
+      command: { arguments: ['run', kind.toLowerCase()], executablePath: 'pnpm.cmd' },
+      id: `gate-${kind.toLowerCase()}`,
+      kind,
+      timeoutMs: 60_000,
+    }),
+    id,
+    startedAt,
+    taskId,
+    worktree: {
+      baseCommitId: 'a'.repeat(40),
+      branchName: 'agentterm/task-1',
+      headCommitIdAtStart: 'b'.repeat(40),
+      pathIdentity: 'worktree-identity',
+      worktreePath: 'D:\\worktrees\\task-1',
+    },
+  });
+}
+
+function summarizeGateRun(run: QualityGateRun) {
+  return {
+    durationMs: run.durationMs,
+    exitCode: run.exitCode,
+    failureCategory: run.failureCategory,
+    finishedAt: run.finishedAt,
+    gateId: run.gate.id,
+    id: run.id,
+    kind: run.gate.kind,
+    output:
+      run.output === undefined
+        ? undefined
+        : { text: run.output.text, truncated: run.output.truncated },
+    startedAt: run.startedAt,
+    status: run.status,
+    taskId: run.taskId,
   };
 }

@@ -93,6 +93,7 @@ describe('Agent Session startup restore with SQLite', () => {
           reopened.tasks,
           reopened.sessions,
           reopened.artifacts,
+          reopened.qualityGateRuns,
         );
         const sessions = await reopened.sessions.listByTaskId('task-1');
 

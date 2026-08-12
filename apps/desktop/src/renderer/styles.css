@@ -339,6 +339,129 @@ button:focus-visible {
   color: #8fc7bc;
 }
 
+.quality-gates {
+  display: grid;
+  min-width: 0;
+  max-height: min(13rem, 28vh);
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid #252c33;
+  border-radius: 0.55rem;
+  background: #0d1115;
+}
+
+.quality-gates__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #252c33;
+  padding: 0.55rem 0.7rem;
+}
+
+.quality-gates__header h3,
+.quality-gates__header p {
+  margin: 0;
+}
+
+.quality-gates__header h3 {
+  font-size: 0.85rem;
+}
+
+.quality-gates__header > span {
+  color: #71808d;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.66rem;
+}
+
+.quality-gates__empty {
+  margin: 0;
+  padding: 0.65rem 0.7rem;
+  color: #71808d;
+  font-size: 0.75rem;
+}
+
+.quality-gates__list {
+  display: grid;
+  min-height: 0;
+  gap: 0.35rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.45rem;
+  list-style: none;
+}
+
+.quality-gate-run {
+  min-width: 0;
+  border: 1px solid #222a31;
+  border-radius: 0.45rem;
+  background: #10151a;
+}
+
+.quality-gate-run__summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  color: #8fa1b2;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.65rem;
+}
+
+.quality-gate-run__summary strong {
+  color: #d6dfe7;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.quality-gate-run__identity {
+  overflow: hidden;
+  max-width: min(20rem, 36vw);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-gate-status {
+  border: 1px solid #46515b;
+  border-radius: 999px;
+  padding: 0.12rem 0.38rem;
+  color: #c5ced6;
+}
+
+.quality-gate-status--PASSED {
+  border-color: #3b725b;
+  color: #8fd5ad;
+}
+
+.quality-gate-status--FAILED,
+.quality-gate-status--LAUNCH_FAILED,
+.quality-gate-status--INFRASTRUCTURE_FAILED {
+  border-color: #713f42;
+  color: #ffc2c0;
+}
+
+.quality-gate-status--TIMED_OUT {
+  border-color: #75633d;
+  color: #ead296;
+}
+
+.quality-gate-run__output {
+  max-height: 4.5rem;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #222a31;
+  padding: 0.45rem 0.55rem;
+  color: #aeb9c3;
+  background: #0a0e12;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.65rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .workspace-message {
   display: grid;
   min-height: 100vh;
@@ -582,6 +705,10 @@ button:focus-visible {
 
   .task-header h2 {
     font-size: 1.2rem;
+  }
+
+  .quality-gates {
+    max-height: 10rem;
   }
 }
 
