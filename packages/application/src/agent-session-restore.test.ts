@@ -174,6 +174,11 @@ describe('restoreAgentWorkspaceAfterRestart', () => {
       { listByProjectId: async () => [task] },
       repository,
       {
+        findById: async () => undefined,
+        insert: async () => undefined,
+        listByTaskId: async () => [],
+      },
+      {
         finalize: async () => never(),
         findById: async () => undefined,
         insert: async () => never(),

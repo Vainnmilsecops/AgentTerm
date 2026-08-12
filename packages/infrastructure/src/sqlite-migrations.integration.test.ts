@@ -10,6 +10,8 @@ import { projectsAndTasksMigration } from './sqlite/migrations/0001-projects-and
 import { projectRootsMigration } from './sqlite/migrations/0002-project-roots';
 import { taskWorktreesMigration } from './sqlite/migrations/0003-task-worktrees';
 import { agentSessionsMigration } from './sqlite/migrations/0004-agent-sessions';
+import { executionArtifactsMigration } from './sqlite/migrations/0005-execution-artifacts';
+import { qualityGateRunsMigration } from './sqlite/migrations/0006-quality-gate-runs';
 
 async function withTemporaryDatabase(run: (databasePath: string) => Promise<void>): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'agentterm-sqlite-migration-'));
@@ -22,8 +24,66 @@ async function withTemporaryDatabase(run: (databasePath: string) => Promise<void
   }
 }
 
+function createSchemaThroughV4(database: DatabaseSync): void {
+  database.exec(`
+    CREATE TABLE _agentterm_migrations (
+      version INTEGER PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL UNIQUE,
+      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) STRICT;
+    ${projectsAndTasksMigration.sql}
+    ${projectRootsMigration.sql}
+    ${taskWorktreesMigration.sql}
+    ${agentSessionsMigration.sql}
+    INSERT INTO _agentterm_migrations (version, name)
+    VALUES
+      (1, 'projects-and-tasks'),
+      (2, 'project-roots'),
+      (3, 'task-worktrees'),
+      (4, 'agent-sessions');
+    INSERT INTO projects (id, name) VALUES ('project-1', 'AgentTerm');
+    INSERT INTO tasks (id, project_id, title, phase)
+    VALUES ('task-1', 'project-1', 'Preserve migration history', 'RUNNING');
+  `);
+}
+
+function createLegacyQualityGateV5Database(database: DatabaseSync): void {
+  createSchemaThroughV4(database);
+  database.exec(qualityGateRunsMigration.sql);
+  database
+    .prepare(
+      `INSERT INTO _agentterm_migrations (version, name, applied_at)
+       VALUES (5, 'quality-gate-runs', ?)`,
+    )
+    .run('2026-08-01 10:00:00');
+  database
+    .prepare(
+      `INSERT INTO quality_gate_runs (
+         id, task_id, ordinal, gate_id, gate_kind, executable_path, arguments_json,
+         timeout_ms, worktree_path_identity, worktree_path, worktree_branch_name,
+         worktree_base_commit_id, worktree_head_commit_id, status, started_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)`,
+    )
+    .run(
+      'legacy-run',
+      'task-1',
+      1,
+      'test',
+      'TEST',
+      'C:\\Program Files\\nodejs\\node.exe',
+      '["test"]',
+      120_000,
+      'win32:d:\\worktrees\\task-1',
+      'D:\\worktrees\\task-1',
+      'agentterm/task/task-1',
+      'a'.repeat(40),
+      'b'.repeat(40),
+      1_800_000_000_000,
+    );
+}
+
 describe('SQLite migrations', () => {
-  it('applies the current Project, Task, Worktree, Agent Session, and Quality Gate schema once', async () => {
+  it('applies the current Project, Task, Worktree, Session, Artifact, and Quality Gate schema once', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       openSqlitePersistence(databasePath).close();
       openSqlitePersistence(databasePath).close();
@@ -51,6 +111,8 @@ describe('SQLite migrations', () => {
                AND name IN (
                  'agent_session_events_runtime_sequence_index',
                  'agent_sessions_task_ordinal_index',
+                 'agent_sessions_identity_task_index',
+                 'execution_artifacts_task_history_index',
                  'quality_gate_runs_task_ordinal_index',
                  'tasks_project_id_index',
                  'project_roots_recent_index'
@@ -63,6 +125,7 @@ describe('SQLite migrations', () => {
           '_agentterm_migrations',
           'agent_session_events',
           'agent_sessions',
+          'execution_artifacts',
           'project_roots',
           'projects',
           'quality_gate_runs',
@@ -74,11 +137,14 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
-          { name: 'quality-gate-runs', version: 5 },
+          { name: 'execution-artifacts', version: 5 },
+          { name: 'quality-gate-runs', version: 6 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
+          { name: 'agent_sessions_identity_task_index' },
           { name: 'agent_sessions_task_ordinal_index' },
+          { name: 'execution_artifacts_task_history_index' },
           { name: 'project_roots_recent_index' },
           { name: 'quality_gate_runs_task_ordinal_index' },
           { name: 'tasks_project_id_index' },
@@ -261,7 +327,8 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
-          { name: 'quality-gate-runs', version: 5 },
+          { name: 'execution-artifacts', version: 5 },
+          { name: 'quality-gate-runs', version: 6 },
         ]);
       } finally {
         migrated.close();
@@ -330,7 +397,8 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
-          { name: 'quality-gate-runs', version: 5 },
+          { name: 'execution-artifacts', version: 5 },
+          { name: 'quality-gate-runs', version: 6 },
         ]);
       } finally {
         migrated.close();
@@ -392,16 +460,80 @@ describe('SQLite migrations', () => {
         ).toEqual([{ lifecycle_state: 'PRESENT', task_id: 'task-1' }]);
         expect(
           migrated
-            .prepare('SELECT id, task_id, status, history_sequence FROM agent_sessions')
+            .prepare('SELECT id, task_id, agent_id, status, history_sequence FROM agent_sessions')
             .all(),
         ).toEqual([
           {
+            agent_id: 'codex',
             history_sequence: 1,
             id: 'session-1',
             status: 'STARTING',
             task_id: 'task-1',
           },
         ]);
+        expect(migrated.prepare('SELECT count(*) AS count FROM quality_gate_runs').get()).toEqual({
+          count: 0,
+        });
+        expect(migrated.prepare('SELECT count(*) AS count FROM execution_artifacts').get()).toEqual(
+          { count: 0 },
+        );
+        expect(
+          migrated
+            .prepare('SELECT version, name FROM _agentterm_migrations ORDER BY version')
+            .all(),
+        ).toEqual([
+          { name: 'projects-and-tasks', version: 1 },
+          { name: 'project-roots', version: 2 },
+          { name: 'task-worktrees', version: 3 },
+          { name: 'agent-sessions', version: 4 },
+          { name: 'execution-artifacts', version: 5 },
+          { name: 'quality-gate-runs', version: 6 },
+        ]);
+      } finally {
+        migrated.close();
+      }
+    });
+  });
+
+  it('upgrades a canonical Artifact v5 database without changing Artifact history', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+      try {
+        createSchemaThroughV4(database);
+        database.exec(executionArtifactsMigration.sql);
+        database
+          .prepare('INSERT INTO _agentterm_migrations (version, name) VALUES (?, ?)')
+          .run(5, 'execution-artifacts');
+        database
+          .prepare(
+            `INSERT INTO execution_artifacts (
+               id, task_id, session_id, ordinal, kind, phase, canonical_name,
+               format, schema_version, validation, content, created_at
+             ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            'artifact-1',
+            'task-1',
+            1,
+            'plan',
+            'PLANNING',
+            'planning/plan.md',
+            'markdown',
+            1,
+            'VALID',
+            '# Kế hoạch',
+            1_800_000_000_000,
+          );
+      } finally {
+        database.close();
+      }
+
+      openSqlitePersistence(databasePath).close();
+      const migrated = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        expect(
+          migrated.prepare('SELECT id, content FROM execution_artifacts ORDER BY ordinal').all(),
+        ).toEqual([{ content: '# Kế hoạch', id: 'artifact-1' }]);
         expect(migrated.prepare('SELECT count(*) AS count FROM quality_gate_runs').get()).toEqual({
           count: 0,
         });
@@ -414,10 +546,102 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
-          { name: 'quality-gate-runs', version: 5 },
+          { name: 'execution-artifacts', version: 5 },
+          { name: 'quality-gate-runs', version: 6 },
         ]);
       } finally {
         migrated.close();
+      }
+    });
+  });
+
+  it('reconciles the legacy Quality Gate v5 fork without losing runs and remains idempotent', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+      try {
+        createLegacyQualityGateV5Database(database);
+      } finally {
+        database.close();
+      }
+
+      openSqlitePersistence(databasePath).close();
+      openSqlitePersistence(databasePath).close();
+
+      const migrated = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        expect(
+          migrated.prepare('SELECT id, task_id, status, started_at FROM quality_gate_runs').all(),
+        ).toEqual([
+          {
+            id: 'legacy-run',
+            started_at: 1_800_000_000_000,
+            status: 'RUNNING',
+            task_id: 'task-1',
+          },
+        ]);
+        expect(migrated.prepare('SELECT count(*) AS count FROM execution_artifacts').get()).toEqual(
+          { count: 0 },
+        );
+        expect(
+          migrated
+            .prepare('SELECT version, name, applied_at FROM _agentterm_migrations ORDER BY version')
+            .all(),
+        ).toEqual([
+          expect.objectContaining({ name: 'projects-and-tasks', version: 1 }),
+          expect.objectContaining({ name: 'project-roots', version: 2 }),
+          expect.objectContaining({ name: 'task-worktrees', version: 3 }),
+          expect.objectContaining({ name: 'agent-sessions', version: 4 }),
+          expect.objectContaining({ name: 'execution-artifacts', version: 5 }),
+          {
+            applied_at: '2026-08-01 10:00:00',
+            name: 'quality-gate-runs',
+            version: 6,
+          },
+        ]);
+      } finally {
+        migrated.close();
+      }
+    });
+  });
+
+  it('rolls back legacy reconciliation when the Artifact migration cannot be applied', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+      try {
+        createLegacyQualityGateV5Database(database);
+        database.exec('CREATE TABLE execution_artifacts (id TEXT PRIMARY KEY) STRICT;');
+      } finally {
+        database.close();
+      }
+
+      expect(() => openSqlitePersistence(databasePath)).toThrow(SqlitePersistenceError);
+
+      const preserved = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        expect(
+          preserved
+            .prepare('SELECT version, name FROM _agentterm_migrations ORDER BY version')
+            .all(),
+        ).toEqual([
+          { name: 'projects-and-tasks', version: 1 },
+          { name: 'project-roots', version: 2 },
+          { name: 'task-worktrees', version: 3 },
+          { name: 'agent-sessions', version: 4 },
+          { name: 'quality-gate-runs', version: 5 },
+        ]);
+        expect(preserved.prepare('SELECT id FROM quality_gate_runs').all()).toEqual([
+          { id: 'legacy-run' },
+        ]);
+        expect(
+          preserved
+            .prepare(
+              `SELECT count(*) AS count FROM sqlite_schema
+               WHERE type = 'index' AND name = 'agent_sessions_identity_task_index'`,
+            )
+            .get(),
+        ).toEqual({ count: 0 });
+      } finally {
+        preserved.close();
       }
     });
   });

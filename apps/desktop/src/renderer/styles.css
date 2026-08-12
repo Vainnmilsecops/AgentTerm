@@ -488,6 +488,118 @@ button:focus-visible {
   letter-spacing: -0.06em;
 }
 
+.artifact-history {
+  display: grid;
+  max-height: min(15rem, 30vh);
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid #252c33;
+  border-radius: 0.6rem;
+  background: #0d1115;
+}
+
+.artifact-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #252c33;
+  padding: 0.6rem 0.75rem;
+}
+
+.artifact-history__header h3,
+.artifact-history__header p {
+  margin: 0;
+}
+
+.artifact-history__header h3 {
+  font-size: 0.86rem;
+}
+
+.artifact-history__header > span {
+  min-width: 1.5rem;
+  border-radius: 999px;
+  padding: 0.14rem 0.4rem;
+  color: #f2c879;
+  background: #211d14;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.65rem;
+  text-align: center;
+}
+
+.artifact-history__empty {
+  margin: 0;
+  padding: 0.75rem;
+  color: #71808d;
+  font-size: 0.76rem;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.6rem;
+  list-style: none;
+}
+
+.artifact-card {
+  min-width: 0;
+  border: 1px solid #29343d;
+  border-radius: 0.45rem;
+  background: #11171c;
+}
+
+.artifact-card > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border-bottom: 1px solid #252c33;
+  padding: 0.45rem 0.55rem;
+}
+
+.artifact-card > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.artifact-card strong {
+  color: #8fc7bc;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.artifact-card span {
+  overflow: hidden;
+  color: #71808d;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.63rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-card__provenance {
+  flex: 0 1 auto;
+}
+
+.artifact-card pre {
+  overflow: auto;
+  max-height: 6.5rem;
+  margin: 0;
+  padding: 0.55rem;
+  color: #c7d0d8;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.69rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .terminal-panel {
   display: grid;
   min-width: 0;
@@ -580,6 +692,14 @@ button:focus-visible {
   }
 
   .session-identity {
+    display: none;
+  }
+
+  .artifact-history {
+    max-height: 12rem;
+  }
+
+  .artifact-card__provenance {
     display: none;
   }
 

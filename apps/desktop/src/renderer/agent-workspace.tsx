@@ -172,6 +172,7 @@ export function AgentWorkspaceView({
             ) : null}
           </div>
 
+          <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
 
           <TerminalRenderer
@@ -239,6 +240,45 @@ function QualityGateHistory({ runs }: { readonly runs: WorkspaceTaskOverview['qu
   );
 }
 
+function ArtifactHistory({
+  artifacts,
+}: {
+  readonly artifacts: WorkspaceTaskOverview['artifacts'];
+}) {
+  return (
+    <section className="artifact-history" aria-label="Execution artifacts">
+      <header className="artifact-history__header">
+        <div>
+          <p className="eyebrow">Execution evidence</p>
+          <h3>Execution artifacts</h3>
+        </div>
+        <span>{artifacts.length}</span>
+      </header>
+      {artifacts.length === 0 ? (
+        <p className="artifact-history__empty">No structured artifacts for this Task yet.</p>
+      ) : (
+        <ol className="artifact-list">
+          {artifacts.map((artifact) => (
+            <li className="artifact-card" key={artifact.id}>
+              <header>
+                <div>
+                  <strong>{artifact.kind}</strong>
+                  <span>{artifact.canonicalName}</span>
+                </div>
+                <div className="artifact-card__provenance">
+                  <span>{artifact.phase}</span>
+                  <span>{artifact.sessionId ?? 'Task-level'}</span>
+                </div>
+              </header>
+              <pre>{artifact.content}</pre>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function formatDuration(durationMs: number | undefined): string {
   if (durationMs === undefined) {
     return 'Result pending';
@@ -248,7 +288,6 @@ function formatDuration(durationMs: number | undefined): string {
   }
   return `${(durationMs / 1_000).toFixed(1)} s`;
 }
-
 function WorkspaceSidebar({
   onSelectTask,
   projects,

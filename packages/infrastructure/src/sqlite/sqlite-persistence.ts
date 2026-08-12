@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 
 import type {
   AgentSessionRepository,
+  ExecutionArtifactRepository,
   LocalProjectLocator,
   ProjectCatalog,
   ProjectRepository,
@@ -15,6 +16,7 @@ import { migrateSqliteDatabase } from './migrate';
 import {
   SqliteProjectRepository,
   SqliteAgentSessionRepository,
+  SqliteExecutionArtifactRepository,
   SqliteQualityGateRunRepository,
   SqliteTaskRepository,
   SqliteTaskWorktreeRepository,
@@ -26,6 +28,7 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
+  readonly artifacts: ExecutionArtifactRepository;
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   readonly qualityGateRuns: QualityGateRunRepository;
   readonly sessions: AgentSessionRepository;
@@ -44,6 +47,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     enableDoubleQuotedStringLiterals: false,
     enableForeignKeyConstraints: true,
   });
+  let artifacts: ExecutionArtifactRepository;
   let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   let qualityGateRuns: QualityGateRunRepository;
   let sessions: AgentSessionRepository;
@@ -58,6 +62,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
       PRAGMA trusted_schema = OFF;
     `);
     migrateSqliteDatabase(database);
+    artifacts = new SqliteExecutionArtifactRepository(database);
     projects = new SqliteProjectRepository(database);
     qualityGateRuns = new SqliteQualityGateRunRepository(database);
     sessions = new SqliteAgentSessionRepository(database);
@@ -71,6 +76,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let isClosed = false;
 
   return Object.freeze({
+    artifacts,
     projects,
     qualityGateRuns,
     sessions,

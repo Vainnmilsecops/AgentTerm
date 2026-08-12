@@ -79,6 +79,7 @@ const planningOverview: AgentWorkspaceOverview = Object.freeze({
       tasks: [
         {
           activeSession: undefined,
+          artifacts: [],
           canRetryExecution: false,
           canStartExecution: true,
           latestSession: undefined,
@@ -97,6 +98,7 @@ const failedOverview: AgentWorkspaceOverview = Object.freeze({
       tasks: [
         {
           activeSession: undefined,
+          artifacts: [],
           canRetryExecution: true,
           canStartExecution: false,
           latestSession: failedSession,
@@ -169,6 +171,7 @@ describe('WorkspaceController', () => {
             tasks: [
               {
                 activeSession: undefined,
+                artifacts: [],
                 canRetryExecution: false,
                 canStartExecution: true,
                 latestSession: undefined,
@@ -178,6 +181,7 @@ describe('WorkspaceController', () => {
               },
               {
                 activeSession: undefined,
+                artifacts: [],
                 canRetryExecution: false,
                 canStartExecution: false,
                 latestSession: undefined,
@@ -229,6 +233,7 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: workingSession,
+              artifacts: [],
               canRetryExecution: false,
               canStartExecution: false,
               latestSession: workingSession,
@@ -345,6 +350,7 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: undefined,
+              artifacts: [],
               canRetryExecution: false,
               canStartExecution: true,
               latestSession: undefined,
@@ -354,6 +360,7 @@ describe('WorkspaceController', () => {
             },
             {
               activeSession: undefined,
+              artifacts: [],
               canRetryExecution: false,
               canStartExecution: true,
               latestSession: undefined,
@@ -391,6 +398,7 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: workingSession,
+              artifacts: [],
               canRetryExecution: false,
               canStartExecution: false,
               latestSession: workingSession,
@@ -409,6 +417,7 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: undefined,
+              artifacts: [],
               canRetryExecution: true,
               canStartExecution: false,
               latestSession: { ...workingSession, endedAt: 1_800_000_000_100, status: 'EXITED' },
@@ -441,6 +450,69 @@ describe('WorkspaceController', () => {
 });
 
 describe('AgentWorkspaceView', () => {
+  it('renders validated artifact history as escaped Unicode text without changing Task state', () => {
+    const overview: AgentWorkspaceOverview = {
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              activeSession: workingSession,
+              artifacts: [
+                {
+                  canonicalName: 'running/execution-summary.md',
+                  content:
+                    '# Execution Summary\n\nĐã lưu an toàn <script>window.pwned = true</script>.',
+                  createdAt: 1_800_000_000_002,
+                  format: 'markdown',
+                  id: 'artifact-summary',
+                  kind: 'execution-summary',
+                  phase: 'RUNNING',
+                  schemaVersion: 1,
+                  sessionId: workingSession.id,
+                  taskId: runningTask.id,
+                  validation: 'VALID',
+                },
+              ],
+              canRetryExecution: false,
+              canStartExecution: false,
+              latestSession: workingSession,
+              previousSession: undefined,
+              qualityGateRuns: [],
+              task: runningTask,
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onRefresh: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          kind: 'ready',
+          overview,
+          selectedTaskId: runningTask.id,
+          startingTaskId: undefined,
+          terminalSessionId: workingSession.id,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Execution artifacts');
+    expect(markup).toContain('execution-summary');
+    expect(markup).toContain('session-working');
+    expect(markup).toContain('Đã lưu an toàn');
+    expect(markup).toContain('&lt;script&gt;window.pwned = true&lt;/script&gt;');
+    expect(markup).not.toContain('<script>window.pwned');
+    expect(markup).toContain('Task phase</span><strong>RUNNING');
+  });
+
   it('renders TaskPhase and AgentSessionStatus as separate states when a Session failed', () => {
     const client = new FakeWorkspaceClient();
     const snapshot: WorkspaceSnapshot = {
@@ -483,6 +555,7 @@ describe('AgentWorkspaceView', () => {
           tasks: [
             {
               activeSession: workingSession,
+              artifacts: [],
               canRetryExecution: false,
               canStartExecution: false,
               latestSession: workingSession,

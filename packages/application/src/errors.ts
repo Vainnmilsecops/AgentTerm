@@ -7,7 +7,8 @@ import type {
 } from './ports';
 import type { AgentSession } from '@agentterm/domain';
 
-export type EntityKind = 'AgentSession' | 'Project' | 'QualityGateRun' | 'Task';
+export type EntityKind =
+  'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task';
 
 export type QualityGateExecutionFailure =
   'GATE_NOT_FOUND' | 'INVALID_ENVIRONMENT' | 'UNSAFE_COMMAND_METADATA' | 'WORKTREE_NOT_READY';
@@ -48,7 +49,6 @@ export class QualityGatePersistenceError extends Error {
     this.observedRun = observedRun;
   }
 }
-
 export type AgentAdapterFailureReason =
   'EXECUTABLE_NOT_FOUND' | 'INSPECTION_FAILED' | 'INVALID_LAUNCH_REQUEST';
 
@@ -123,6 +123,20 @@ export class AgentSessionActiveConflictError extends Error {
   public constructor(taskId: string) {
     super(`Task ${taskId} already has an active Agent Session.`);
     this.name = 'AgentSessionActiveConflictError';
+    this.taskId = taskId;
+  }
+}
+
+export class ArtifactProvenanceError extends Error {
+  public readonly artifactId: string;
+  public readonly sessionId: string;
+  public readonly taskId: string;
+
+  public constructor(artifactId: string, taskId: string, sessionId: string) {
+    super(`Execution Artifact ${artifactId} Agent Session does not belong to Task ${taskId}.`);
+    this.name = 'ArtifactProvenanceError';
+    this.artifactId = artifactId;
+    this.sessionId = sessionId;
     this.taskId = taskId;
   }
 }

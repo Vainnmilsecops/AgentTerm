@@ -3,6 +3,7 @@ import { AgentSessionStatus, recordAgentSessionEvent, type AgentSession } from '
 import { AgentSessionPersistenceError } from './errors';
 import type {
   AgentSessionRepository,
+  ExecutionArtifactRepository,
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
@@ -59,11 +60,12 @@ export async function restoreAgentWorkspaceAfterRestart(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
+  artifacts: ExecutionArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
   clock: () => number,
 ): Promise<AgentWorkspaceOverview> {
   await restoreAgentSessionsAfterRestart(sessions, clock);
-  return loadAgentWorkspace(projects, tasks, sessions, qualityGateRuns);
+  return loadAgentWorkspace(projects, tasks, sessions, artifacts, qualityGateRuns);
 }
 
 async function readLatest(

@@ -1,4 +1,11 @@
 export { createProject, type CreateProjectInput, type Project } from './project';
+export {
+  createExecutionArtifact,
+  ExecutionArtifactKind,
+  type CreateExecutionArtifactInput,
+  type ExecutionArtifact,
+  type ExecutionArtifactKind as ExecutionArtifactKindValue,
+} from './execution-artifact';
 export { AgentSessionStatus } from './agent-session-status';
 export type { AgentSessionStatus as AgentSessionStatusValue } from './agent-session-status';
 export {

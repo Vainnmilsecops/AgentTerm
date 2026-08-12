@@ -4,6 +4,7 @@ import {
   type AgentSessionRepository,
   AgentSessionActiveConflictError,
   EntityAlreadyExistsError,
+  type ExecutionArtifactRepository,
   type LocalProject,
   type LocalProjectLocator,
   type ProjectCatalog,
@@ -19,10 +20,12 @@ import {
   type TaskWorktreeRepository,
 } from '@agentterm/application';
 import {
+  createExecutionArtifact,
   QualityGateRunStatus,
   startQualityGateRun,
   type AgentSession,
   type AgentSessionEvent,
+  type ExecutionArtifact,
   type Project,
   type QualityGateRun,
   type Task,
@@ -31,6 +34,7 @@ import {
 import { SqlitePersistenceError } from './errors';
 import {
   mapAgentSessionRows,
+  mapExecutionArtifactRow,
   mapLocalProjectRow,
   mapProjectRow,
   mapQualityGateRunRow,
@@ -702,6 +706,105 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
       values.exitReason,
       values.signal,
     );
+  }
+}
+
+export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepository {
+  private readonly database: DatabaseSync;
+  private readonly findByIdStatement: StatementSync;
+  private readonly insertStatement: StatementSync;
+  private readonly listByTaskIdStatement: StatementSync;
+  private readonly nextOrdinalStatement: StatementSync;
+
+  public constructor(database: DatabaseSync) {
+    this.database = database;
+    this.findByIdStatement = database.prepare(
+      `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
+              format, schema_version, validation, content, created_at
+       FROM execution_artifacts WHERE id = ?`,
+    );
+    this.listByTaskIdStatement = database.prepare(
+      `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
+              format, schema_version, validation, content, created_at
+       FROM execution_artifacts WHERE task_id = ? ORDER BY ordinal`,
+    );
+    this.nextOrdinalStatement = database.prepare(
+      `SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
+       FROM execution_artifacts WHERE task_id = ?`,
+    );
+    this.insertStatement = database.prepare(
+      `INSERT INTO execution_artifacts (
+         id, task_id, session_id, ordinal, kind, phase, canonical_name,
+         format, schema_version, validation, content, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+  }
+
+  public async findById(id: string): Promise<ExecutionArtifact | undefined> {
+    const row = this.findByIdStatement.get(id);
+    return row === undefined ? undefined : mapExecutionArtifactRow(row);
+  }
+
+  public async insert(artifact: ExecutionArtifact): Promise<void> {
+    assertExecutionArtifactContract(artifact);
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      if (this.findByIdStatement.get(artifact.id) !== undefined) {
+        throw new EntityAlreadyExistsError('ExecutionArtifact', artifact.id);
+      }
+      const ordinal = this.nextOrdinalStatement.get(artifact.taskId)?.next_ordinal;
+      if (typeof ordinal !== 'number' || !Number.isSafeInteger(ordinal) || ordinal <= 0) {
+        throw new SqlitePersistenceError('Could not allocate the next Execution Artifact ordinal.');
+      }
+      this.insertStatement.run(
+        artifact.id,
+        artifact.taskId,
+        artifact.sessionId ?? null,
+        ordinal,
+        artifact.kind,
+        artifact.phase,
+        artifact.canonicalName,
+        artifact.format,
+        artifact.schemaVersion,
+        artifact.validation,
+        artifact.content,
+        artifact.createdAt,
+      );
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof EntityAlreadyExistsError || error instanceof SqlitePersistenceError) {
+        throw error;
+      }
+      if (isSqliteErrorCode(error, primaryKeyConstraintCode)) {
+        throw new EntityAlreadyExistsError('ExecutionArtifact', artifact.id);
+      }
+      throw new SqlitePersistenceError('Failed to insert Execution Artifact.', { cause: error });
+    }
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]> {
+    return this.listByTaskIdStatement.all(taskId).map(mapExecutionArtifactRow);
+  }
+}
+
+function assertExecutionArtifactContract(artifact: ExecutionArtifact): void {
+  const reconstructed = createExecutionArtifact({
+    content: artifact.content,
+    createdAt: artifact.createdAt,
+    id: artifact.id,
+    kind: artifact.kind,
+    ...(artifact.sessionId === undefined ? {} : { sessionId: artifact.sessionId }),
+    taskId: artifact.taskId,
+  });
+  if (
+    reconstructed.canonicalName !== artifact.canonicalName ||
+    reconstructed.phase !== artifact.phase ||
+    reconstructed.format !== artifact.format ||
+    reconstructed.schemaVersion !== artifact.schemaVersion ||
+    reconstructed.validation !== artifact.validation
+  ) {
+    throw new SqlitePersistenceError('Execution Artifact does not match its Domain contract.');
   }
 }
 

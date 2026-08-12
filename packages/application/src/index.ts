@@ -1,5 +1,6 @@
 export {
   AgentAdapterError,
+  ArtifactProvenanceError,
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
@@ -24,6 +25,11 @@ export {
   type TaskExecutionStartStage,
   type TaskExecutionRetryFailure,
 } from './errors';
+export {
+  createExecutionArtifact,
+  getExecutionArtifact,
+  listTaskExecutionArtifacts,
+} from './execution-artifacts';
 export {
   AgentSessionCoordinator,
   type AgentSessionTerminalAttachment,
@@ -55,6 +61,7 @@ export type {
   AgentLaunchRequest,
   AgentVersion,
   AgentSessionRepository,
+  ExecutionArtifactRepository,
   DiscoveredProject,
   GitBaseBranch,
   GitHead,

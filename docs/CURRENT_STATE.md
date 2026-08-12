@@ -23,9 +23,11 @@ Updated: 2026-08-13
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, reuses the primary Worktree without cleaning dirty code, and creates a new Session for the same agent.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes a minimal start-execution action through an application-shaped client.
+- Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
+- Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
 - Domain now models configured `LINT`, `TYPECHECK`, `TEST`, and `BUILD` Quality Gates plus immutable runs whose runtime status and evidence are independent from `TaskPhase`.
 - Application can run a configured gate only after read-only verification of the persisted primary Task Worktree, records `RUNNING` before process launch, and persists pass, command failure, timeout, launch failure, or infrastructure failure without changing the Task.
-- Migration 5 preserves every gate attempt by Task ordinal with structured command, the Worktree base and observed start-time HEAD revisions, plus bounded, redacted diagnostic output. A failed final checkpoint retains the durable `RUNNING` record and surfaces the observed process result for later reconciliation rather than rerunning it.
+- Migration 6 preserves every gate attempt by Task ordinal with structured command, the Worktree base and observed start-time HEAD revisions, plus bounded, redacted diagnostic output. A compatibility migration safely converges databases that previously recorded Quality Gates as migration 5. A failed final checkpoint retains the durable `RUNNING` record and surfaces the observed process result for later reconciliation rather than rerunning it.
 - Infrastructure executes gate commands as an absolute executable plus argv with no shell, an exact environment, bounded UTF-8 output, and Windows process-tree timeout cleanup. Real Git integration proves commands run in the primary Worktree while dirty user files and Worktree registration remain intact.
 - The workspace read model and desktop show newest-first AgentTerm-recorded gate evidence separately from Task and Agent Session state. React receives no command, environment, output reference, or local Worktree path.
 
@@ -113,6 +115,11 @@ Updated: 2026-08-13
 - The workspace read model exposes Start and Retry availability separately. The desktop retry action
   is disabled while a Session is active and shows the previous attempt beside the newly active/latest
   Session after recovery.
+- Execution Artifacts are structured evidence, never Task transitions. Their identity is insert-only;
+  repeated canonical outputs receive new identities and per-Task ordinals rather than overwriting
+  history. SQLite stores validated text and fixed contract metadata directly, so this slice adds no
+  user-controlled filesystem path. Metadata excludes environment and credential data, and the
+  desktop renders artifact content as escaped plain text instead of executable HTML.
 - Quality Gate execution is a one-shot Application workflow, not an agent claim or Task transition.
   It serializes with in-process Worktree lifecycle operations, inspects but never provisions or
   cleans the Worktree, inserts `RUNNING` before spawn, and finalizes the same immutable run through
@@ -156,7 +163,7 @@ of such orphan gate attempts is deferred; a retry must use a new run id and pres
 
 ## Next Step
 
-Bind startup session reconciliation, `loadAgentWorkspace`, `startTaskExecution`,
+Bind startup session reconciliation, artifact reads, `loadAgentWorkspace`, `startTaskExecution`,
 `retryTaskExecution`, and terminal attachment to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch

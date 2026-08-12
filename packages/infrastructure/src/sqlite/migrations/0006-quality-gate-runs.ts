@@ -97,5 +97,5 @@ export const qualityGateRunsMigration = {
     CREATE UNIQUE INDEX quality_gate_runs_task_ordinal_index
       ON quality_gate_runs(task_id, ordinal);
   `,
-  version: 5,
+  version: 6,
 } as const;

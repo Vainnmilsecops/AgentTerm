@@ -1,6 +1,7 @@
 import {
   AgentSessionStatus,
   type AgentSession,
+  type ExecutionArtifact,
   type Project,
   type QualityGateRun,
   type Task,
@@ -8,6 +9,7 @@ import {
 
 import type {
   AgentSessionRepository,
+  ExecutionArtifactRepository,
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
@@ -19,6 +21,7 @@ const maximumWorkspaceGateOutputCharacters = 4_096;
 
 export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
+  readonly artifacts: readonly ExecutionArtifact[];
   readonly canRetryExecution: boolean;
   readonly canStartExecution: boolean;
   readonly latestSession: AgentSessionSummary | undefined;
@@ -69,6 +72,7 @@ export async function loadAgentWorkspace(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
+  artifacts: ExecutionArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
 ): Promise<AgentWorkspaceOverview> {
   const recentProjects = await projects.listRecent();
@@ -77,8 +81,9 @@ export async function loadAgentWorkspace(
       const projectTasks = await tasks.listByProjectId(project.id);
       const taskOverviews = await Promise.all(
         projectTasks.map(async (task): Promise<WorkspaceTaskOverview> => {
-          const [history, gateHistory] = await Promise.all([
+          const [history, artifactHistory, gateHistory] = await Promise.all([
             sessions.listByTaskId(task.id),
+            artifacts.listByTaskId(task.id),
             qualityGateRuns.listByTaskId(task.id),
           ]);
           const activeSession = findLatestActiveSession(history);
@@ -86,6 +91,7 @@ export async function loadAgentWorkspace(
           const phaseAllowsExecution = canStartTaskExecution(task);
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
+            artifacts: Object.freeze([...artifactHistory]),
             canRetryExecution:
               phaseAllowsExecution && activeSession === undefined && isTerminal(latestSession),
             canStartExecution:
