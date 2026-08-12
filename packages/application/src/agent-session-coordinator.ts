@@ -13,6 +13,7 @@ import {
   AgentSessionRuntimeOwnershipError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
+  PtyRuntimeError,
 } from './errors';
 import type {
   AgentAdapter,
@@ -43,6 +44,18 @@ export interface ReportAgentSessionStatusInput {
   readonly status: AgentSessionActiveStatus;
 }
 
+export interface AttachAgentSessionTerminalInput {
+  readonly eventSink: PtyRuntimeEventSink;
+  readonly sessionId: string;
+}
+
+export interface AgentSessionTerminalAttachment {
+  /** Stops observing this runtime without stopping the Agent Session process. */
+  detach(): void;
+  resize(size: PtyTerminalSize): Promise<void>;
+  write(input: string): Promise<void>;
+}
+
 export interface AgentSessionCoordinatorDependencies {
   readonly adapter: AgentAdapter;
   readonly agentId: string;
@@ -53,8 +66,10 @@ export interface AgentSessionCoordinatorDependencies {
 }
 
 interface OwnedSessionRuntime {
+  acceptingTerminalInput: boolean;
   failure: AgentSessionPersistenceError | undefined;
   handle: PtyHandle | undefined;
+  readonly observers: Set<PtyRuntimeEventSink>;
   readonly runtimeEvents: Map<number, string>;
   stopAttempt: Promise<AgentSession> | undefined;
   stopRequested: boolean;
@@ -138,6 +153,61 @@ export class AgentSessionCoordinator {
     });
   }
 
+  public async attachTerminal(
+    input: AttachAgentSessionTerminalInput,
+  ): Promise<AgentSessionTerminalAttachment> {
+    let runtimeState = this.ownedRuntimes.get(input.sessionId);
+    const inFlightStart = this.starts.get(input.sessionId);
+    if (runtimeState === undefined && inFlightStart !== undefined) {
+      await inFlightStart;
+      runtimeState = this.ownedRuntimes.get(input.sessionId);
+    }
+
+    if (runtimeState === undefined) {
+      throw new AgentSessionRuntimeOwnershipError(input.sessionId);
+    }
+    await this.flush(input.sessionId);
+
+    const handle = runtimeState.handle;
+    if (
+      handle === undefined ||
+      !runtimeState.acceptingTerminalInput ||
+      this.ownedRuntimes.get(input.sessionId) !== runtimeState
+    ) {
+      throw new AgentSessionRuntimeOwnershipError(input.sessionId);
+    }
+
+    runtimeState.observers.add(input.eventSink);
+    let attached = true;
+    const requireAttachedHandle = (operation: 'resize' | 'write'): PtyHandle => {
+      if (
+        !attached ||
+        !runtimeState.acceptingTerminalInput ||
+        runtimeState.handle !== handle ||
+        this.ownedRuntimes.get(input.sessionId) !== runtimeState
+      ) {
+        throw new PtyRuntimeError(operation, 'NOT_RUNNING');
+      }
+      return handle;
+    };
+
+    return Object.freeze({
+      detach: (): void => {
+        if (!attached) {
+          return;
+        }
+        attached = false;
+        runtimeState.observers.delete(input.eventSink);
+      },
+      resize: async (size: PtyTerminalSize): Promise<void> => {
+        await requireAttachedHandle('resize').resize(size);
+      },
+      write: async (terminalInput: string): Promise<void> => {
+        await requireAttachedHandle('write').write(terminalInput);
+      },
+    });
+  }
+
   public async findById(id: string): Promise<AgentSession | undefined> {
     await this.flush(id);
     return this.sessions.findById(id);
@@ -199,15 +269,22 @@ export class AgentSessionCoordinator {
     const bufferedEvents: PtyRuntimeEvent[] = [];
     let buffering = true;
     const runtimeState: OwnedSessionRuntime = {
+      acceptingTerminalInput: true,
       failure: undefined,
       handle: undefined,
+      observers: new Set(input.eventSink === undefined ? [] : [input.eventSink]),
       runtimeEvents: new Map(),
       stopAttempt: undefined,
       stopRequested: false,
       tail: Promise.resolve(),
     };
     const sink = (event: PtyRuntimeEvent): void => {
-      safelyPublish(input.eventSink, event);
+      if (isTerminalRuntimeEvent(event)) {
+        runtimeState.acceptingTerminalInput = false;
+      }
+      for (const observer of [...runtimeState.observers]) {
+        safelyPublish(observer, event);
+      }
       if (event.kind === 'output') {
         return;
       }
@@ -499,4 +576,11 @@ function safelyPublish(sink: PtyRuntimeEventSink | undefined, event: PtyRuntimeE
   } catch {
     // Observers cannot break durable session tracking or native runtime cleanup.
   }
+}
+
+function isTerminalRuntimeEvent(event: PtyRuntimeEvent): boolean {
+  return (
+    event.kind === 'exited' ||
+    (event.kind === 'failed' && ['cleanup', 'runtime', 'spawn'].includes(event.operation))
+  );
 }

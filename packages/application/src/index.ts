@@ -20,7 +20,9 @@ export {
 } from './errors';
 export {
   AgentSessionCoordinator,
+  type AgentSessionTerminalAttachment,
   type AgentSessionCoordinatorDependencies,
+  type AttachAgentSessionTerminalInput,
   type ReportAgentSessionStatusInput,
   type StartAgentSessionInput,
   type StopAgentSessionInput,

@@ -116,8 +116,8 @@ class FakeAgentAdapter implements AgentAdapter {
 class FakePtyHandle implements PtyHandle {
   public readonly terminate = vi.fn(async () => undefined);
   public readonly dispose = vi.fn(async () => undefined);
-  public async write(): Promise<void> {}
-  public async resize(): Promise<void> {}
+  public readonly write = vi.fn(async () => undefined);
+  public readonly resize = vi.fn(async () => undefined);
 }
 
 class FakePtyRuntime implements PtyRuntime {
@@ -487,5 +487,80 @@ describe('AgentSessionCoordinator', () => {
     );
     expect(first.runtime.handle.terminate).not.toHaveBeenCalled();
     await expect(restarted.findById('session-1')).resolves.toMatchObject({ status: 'WORKING' });
+  });
+
+  it('attaches a live terminal observer and forwards Unicode input and resize to the owned PTY', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    await fixture.coordinator.start(launchInput);
+    const observed: PtyRuntimeEvent[] = [];
+
+    const attachment = await fixture.coordinator.attachTerminal({
+      eventSink: (event) => observed.push(event),
+      sessionId: 'session-1',
+    });
+    fixture.runtime.emit({ data: 'Xin chào 👋\r\n', kind: 'output', sequence: 2 });
+    await attachment.write('gõ tiếng Việt 🚀\r');
+    await attachment.resize({ columns: 101, rows: 31 });
+
+    expect(observed).toEqual([{ data: 'Xin chào 👋\r\n', kind: 'output', sequence: 2 }]);
+    expect(fixture.runtime.handle.write).toHaveBeenCalledWith('gõ tiếng Việt 🚀\r');
+    expect(fixture.runtime.handle.resize).toHaveBeenCalledWith({ columns: 101, rows: 31 });
+  });
+
+  it('detaches a terminal idempotently without terminating the session runtime', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    await fixture.coordinator.start(launchInput);
+    const observed: PtyRuntimeEvent[] = [];
+    const attachment = await fixture.coordinator.attachTerminal({
+      eventSink: (event) => observed.push(event),
+      sessionId: 'session-1',
+    });
+
+    attachment.detach();
+    attachment.detach();
+    fixture.runtime.emit({ data: 'not rendered', kind: 'output', sequence: 2 });
+
+    expect(observed).toEqual([]);
+    await expect(attachment.write('ignored')).rejects.toMatchObject({
+      operation: 'write',
+      reason: 'NOT_RUNNING',
+    });
+    await expect(attachment.resize({ columns: 80, rows: 24 })).rejects.toMatchObject({
+      operation: 'resize',
+      reason: 'NOT_RUNNING',
+    });
+    expect(fixture.runtime.handle.terminate).not.toHaveBeenCalled();
+    expect(fixture.runtime.handle.dispose).not.toHaveBeenCalled();
+  });
+
+  it('closes terminal input on process exit without changing the Task phase', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    await fixture.coordinator.start(launchInput);
+    const observed: PtyRuntimeEvent[] = [];
+    const attachment = await fixture.coordinator.attachTerminal({
+      eventSink: (event) => observed.push(event),
+      sessionId: 'session-1',
+    });
+
+    fixture.runtime.emit({ exitCode: 0, kind: 'exited', sequence: 2 });
+
+    await expect(attachment.write('after exit')).rejects.toMatchObject({
+      operation: 'write',
+      reason: 'NOT_RUNNING',
+    });
+    expect(observed).toEqual([{ exitCode: 0, kind: 'exited', sequence: 2 }]);
+    expect(fixture.tasks.update).not.toHaveBeenCalled();
+    await expect(fixture.tasks.findById(task.id)).resolves.toEqual(task);
+  });
+
+  it('refuses terminal attachment when this coordinator does not own a live runtime', async () => {
+    const fixture = createFixture();
+
+    await expect(
+      fixture.coordinator.attachTerminal({ eventSink: () => undefined, sessionId: 'session-1' }),
+    ).rejects.toBeInstanceOf(AgentSessionRuntimeOwnershipError);
   });
 });
