@@ -9,6 +9,7 @@ import {
   type ProjectRepository,
   type RecordProjectOpenInput,
   type TaskRepository,
+  type TaskCatalog,
   TaskWorktreeMetadataConflictError,
   type TaskWorktree,
   type TaskWorktreeLifecycleState,
@@ -168,9 +169,10 @@ export class SqliteProjectRepository
   }
 }
 
-export class SqliteTaskRepository implements TaskRepository {
+export class SqliteTaskRepository implements TaskCatalog, TaskRepository {
   private readonly findByIdStatement: StatementSync;
   private readonly insertStatement: StatementSync;
+  private readonly listByProjectIdStatement: StatementSync;
   private readonly updateStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
@@ -179,6 +181,9 @@ export class SqliteTaskRepository implements TaskRepository {
     );
     this.insertStatement = database.prepare(
       'INSERT INTO tasks (id, project_id, title, phase) VALUES (?, ?, ?, ?)',
+    );
+    this.listByProjectIdStatement = database.prepare(
+      'SELECT id, project_id, title, phase FROM tasks WHERE project_id = ? ORDER BY id',
     );
     this.updateStatement = database.prepare(
       'UPDATE tasks SET project_id = ?, title = ?, phase = ? WHERE id = ?',
@@ -200,6 +205,10 @@ export class SqliteTaskRepository implements TaskRepository {
 
       throw error;
     }
+  }
+
+  public async listByProjectId(projectId: string): Promise<readonly Task[]> {
+    return this.listByProjectIdStatement.all(projectId).map(mapTaskRow);
   }
 
   public async update(task: Task): Promise<void> {

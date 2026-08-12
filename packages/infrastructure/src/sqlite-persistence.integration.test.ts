@@ -148,6 +148,35 @@ describe('SQLite persistence', () => {
     });
   });
 
+  it('lists every Task for one Project in deterministic identity order', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const persistence = openSqlitePersistence(databasePath);
+
+      try {
+        const firstProject = createDomainProject({ id: 'project-1', name: 'Dự án chính' });
+        const secondProject = createDomainProject({ id: 'project-2', name: 'Other' });
+        await persistence.projects.insert(firstProject);
+        await persistence.projects.insert(secondProject);
+        await persistence.tasks.insert(
+          createDomainTask({ id: 'task-b', projectId: firstProject.id, title: 'Việc B' }),
+        );
+        await persistence.tasks.insert(
+          createDomainTask({ id: 'task-a', projectId: firstProject.id, title: 'Việc A' }),
+        );
+        await persistence.tasks.insert(
+          createDomainTask({ id: 'task-other', projectId: secondProject.id, title: 'Other' }),
+        );
+
+        await expect(persistence.tasks.listByProjectId(firstProject.id)).resolves.toMatchObject([
+          { id: 'task-a', projectId: firstProject.id, title: 'Việc A' },
+          { id: 'task-b', projectId: firstProject.id, title: 'Việc B' },
+        ]);
+      } finally {
+        persistence.close();
+      }
+    });
+  });
+
   it('enables Project foreign-key enforcement on the repository connection', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       const persistence = openSqlitePersistence(databasePath);

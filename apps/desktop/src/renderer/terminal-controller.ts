@@ -35,6 +35,7 @@ export class TerminalController {
   private generation = 0;
   private inputSubscription: (() => void) | undefined;
   private resizeSubscription: (() => void) | undefined;
+  private readonly eventObserver: ((event: PtyRuntimeEvent) => void) | undefined;
   private readonly stateSink: ((state: TerminalConnectionState) => void) | undefined;
   private readonly surface: TerminalSurface;
   public state: TerminalConnectionState = 'empty';
@@ -42,9 +43,11 @@ export class TerminalController {
   public constructor(
     surface: TerminalSurface,
     stateSink?: (state: TerminalConnectionState) => void,
+    eventObserver?: (event: PtyRuntimeEvent) => void,
   ) {
     this.surface = surface;
     this.stateSink = stateSink;
+    this.eventObserver = eventObserver;
   }
 
   public mount(container: HTMLElement): void {
@@ -99,6 +102,7 @@ export class TerminalController {
       if (this.disposed || generation !== this.generation) {
         return;
       }
+      safelyPublishEvent(this.eventObserver, event);
       if (event.kind === 'output') {
         this.surface.write(event.data);
         return;
@@ -177,6 +181,17 @@ export class TerminalController {
     }
     this.state = state;
     this.stateSink?.(state);
+  }
+}
+
+function safelyPublishEvent(
+  observer: ((event: PtyRuntimeEvent) => void) | undefined,
+  event: PtyRuntimeEvent,
+): void {
+  try {
+    observer?.(event);
+  } catch {
+    // Workspace observers cannot interrupt terminal rendering or attachment cleanup.
   }
 }
 

@@ -62,6 +62,7 @@ export type {
   ProjectRepository,
   RecordProjectOpenInput,
   TaskRepository,
+  TaskCatalog,
   TaskWorktree,
   TaskWorktreeCleanupResult,
   TaskWorktreeEnsureResult,
@@ -71,6 +72,13 @@ export type {
   TaskWorktreeRepository,
   TaskWorktreeStatus,
 } from './ports';
+export {
+  loadAgentWorkspace,
+  type AgentSessionSummary,
+  type AgentWorkspaceOverview,
+  type WorkspaceProjectOverview,
+  type WorkspaceTaskOverview,
+} from './workspace-overview';
 export { createTask, transitionTask, type TransitionTaskInput } from './task-use-cases';
 export {
   startTaskExecution,

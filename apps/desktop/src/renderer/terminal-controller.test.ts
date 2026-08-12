@@ -170,6 +170,23 @@ describe('TerminalController', () => {
     expect(controller.state).toBe('failed');
   });
 
+  it('publishes provider-neutral runtime events for workspace status refresh', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const events: PtyRuntimeEvent[] = [];
+    const controller = new TerminalController(surface, undefined, (event) => events.push(event));
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    client.emit({ kind: 'started', sequence: 1 });
+    client.emit({ exitCode: 0, kind: 'exited', sequence: 2 });
+
+    expect(events).toEqual([
+      { kind: 'started', sequence: 1 },
+      { exitCode: 0, kind: 'exited', sequence: 2 },
+    ]);
+  });
+
   it('cleans subscriptions and late attachments idempotently on unmount', async () => {
     const surface = new FakeTerminalSurface();
     const attachment = new FakeTerminalAttachment();

@@ -20,6 +20,7 @@ Updated: 2026-08-12
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application now exposes `startTaskExecution`: it accepts a `PLANNING` or already-`RUNNING` Task, ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
+- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes a minimal start-execution action through an application-shaped client.
 
 ## Decisions
 
@@ -85,6 +86,13 @@ Updated: 2026-08-12
   controller consumes only the Application session attachment contract; detach is observer cleanup,
   not stop, and an exit disables input while preserving the visible terminal buffer. Output is a
   live stream and is not persisted or replayed after a later attachment.
+- Workspace reads use the Application `loadAgentWorkspace` use case over `ProjectCatalog`,
+  `TaskCatalog`, and immutable session history. The read model selects the latest nonterminal
+  session independently from the newest historical session, so a `FAILED` or `EXITED` attempt never
+  relabels its Task as `DONE`; it also publishes execution availability without exposing local
+  Project paths. React owns only loading, selection, action, and error presentation state;
+  execution orchestration remains behind its client interface. Terminal lifecycle evidence triggers
+  a read-model refresh rather than a Presentation-owned business transition.
 
 ## Blockers
 
@@ -101,13 +109,17 @@ Electron 43 development runtime but not yet from an installed artifact. The Infr
 copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
 `node-pty` module outside ASAR. PTY children run with the desktop process's privileges; executable
 and environment policy belongs to the future session/agent coordinator.
-The renderer-side terminal contract is implemented, but the sandboxed Electron renderer still has no
-validated preload/IPC binding to the main-process execution coordinator. Until that composition is
-added, the desktop shell intentionally renders the terminal's unattached state.
+The renderer-side workspace and terminal contracts are implemented, but the sandboxed Electron
+renderer still has no validated preload/IPC binding to the main-process repositories and execution
+coordinator. Until that composition and its database/worktree/environment policy are added, the
+desktop shell intentionally renders a recoverable connection-unavailable state rather than using
+demo data or exposing Infrastructure to React.
 
 ## Next Step
 
-Compose `startTaskExecution`, session stop/status operations, and the new terminal attachment in the
-Electron main process behind narrow validated IPC. The renderer must not receive raw filesystem,
-Git, database, process, or environment capability. Full restart/recovery, resume policy, output
-replay, and cross-process execution reconciliation remain later lifecycle slices.
+Bind `loadAgentWorkspace`, `startTaskExecution`, and terminal attachment to the sandboxed renderer
+through a narrow validated preload/IPC adapter in the Electron main process. That composition must
+own session identifiers, approved launch environment, database path, and managed Worktree root; the
+renderer must not receive raw filesystem, Git, database, process, or environment capability. Full
+restart/recovery, resume policy, output replay, and cross-process execution reconciliation remain
+later lifecycle slices.

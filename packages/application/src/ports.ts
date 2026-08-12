@@ -45,6 +45,7 @@ export interface AgentSessionRepository {
   insert(session: AgentSession): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;
+  /** Returns session attempts from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly AgentSession[]>;
 }
 
@@ -284,4 +285,8 @@ export interface TaskRepository {
   insert(task: Task): Promise<void>;
   /** Replaces an existing Task and must not create a missing identity. */
   update(task: Task): Promise<void>;
+}
+
+export interface TaskCatalog {
+  listByProjectId(projectId: string): Promise<readonly Task[]>;
 }

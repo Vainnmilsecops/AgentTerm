@@ -99,9 +99,13 @@ function assertNewSessionId(sessionId: string): void {
 }
 
 function validateExecutionPhase(task: Task): void {
-  if (task.phase !== TaskPhase.RUNNING) {
+  if (!canStartTaskExecution(task)) {
     transitionTask(task, TaskPhase.RUNNING);
   }
+}
+
+export function canStartTaskExecution(task: Pick<Task, 'phase'>): boolean {
+  return task.phase === TaskPhase.PLANNING || task.phase === TaskPhase.RUNNING;
 }
 
 function toRunning(task: Task): Task {
