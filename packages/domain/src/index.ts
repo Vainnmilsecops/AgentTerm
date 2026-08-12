@@ -19,6 +19,24 @@ export {
 } from './agent-session';
 export { TaskPhase } from './task-phase';
 export {
+  completeQualityGateRun,
+  createQualityGate,
+  InvalidQualityGateRunTransitionError,
+  QualityGateKind,
+  QualityGateRunStatus,
+  startQualityGateRun,
+  type CompleteQualityGateRunInput,
+  type QualityGate,
+  type QualityGateCommand,
+  type QualityGateFailureCategory,
+  type QualityGateKind as QualityGateKindValue,
+  type QualityGateOutput,
+  type QualityGateRun,
+  type QualityGateRunStatus as QualityGateRunStatusValue,
+  type QualityGateWorktree,
+  type StartQualityGateRunInput,
+} from './quality-gate';
+export {
   createTask,
   InvalidTaskPhaseTransitionError,
   transitionTask,

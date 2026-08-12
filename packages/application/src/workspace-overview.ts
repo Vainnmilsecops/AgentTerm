@@ -1,7 +1,21 @@
-import { AgentSessionStatus, type AgentSession, type Project, type Task } from '@agentterm/domain';
+import {
+  AgentSessionStatus,
+  type AgentSession,
+  type Project,
+  type QualityGateRun,
+  type Task,
+} from '@agentterm/domain';
 
-import type { AgentSessionRepository, ProjectCatalog, TaskCatalog } from './ports';
+import type {
+  AgentSessionRepository,
+  ProjectCatalog,
+  QualityGateRunRepository,
+  TaskCatalog,
+} from './ports';
 import { canStartTaskExecution } from './task-execution';
+
+const maximumWorkspaceGateRuns = 20;
+const maximumWorkspaceGateOutputCharacters = 4_096;
 
 export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
@@ -9,7 +23,27 @@ export interface WorkspaceTaskOverview {
   readonly canStartExecution: boolean;
   readonly latestSession: AgentSessionSummary | undefined;
   readonly previousSession: AgentSessionSummary | undefined;
+  readonly qualityGateRuns: readonly QualityGateRunSummary[];
   readonly task: Task;
+}
+
+export interface QualityGateRunSummary {
+  readonly durationMs: number | undefined;
+  readonly exitCode: number | undefined;
+  readonly failureCategory: QualityGateRun['failureCategory'];
+  readonly finishedAt: number | undefined;
+  readonly gateId: string;
+  readonly id: string;
+  readonly kind: QualityGateRun['gate']['kind'];
+  readonly output:
+    | {
+        readonly text: string;
+        readonly truncated: boolean;
+      }
+    | undefined;
+  readonly startedAt: number;
+  readonly status: QualityGateRun['status'];
+  readonly taskId: string;
 }
 
 export interface AgentSessionSummary {
@@ -35,6 +69,7 @@ export async function loadAgentWorkspace(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
+  qualityGateRuns: QualityGateRunRepository,
 ): Promise<AgentWorkspaceOverview> {
   const recentProjects = await projects.listRecent();
   const projectOverviews = await Promise.all(
@@ -42,7 +77,10 @@ export async function loadAgentWorkspace(
       const projectTasks = await tasks.listByProjectId(project.id);
       const taskOverviews = await Promise.all(
         projectTasks.map(async (task): Promise<WorkspaceTaskOverview> => {
-          const history = await sessions.listByTaskId(task.id);
+          const [history, gateHistory] = await Promise.all([
+            sessions.listByTaskId(task.id),
+            qualityGateRuns.listByTaskId(task.id),
+          ]);
           const activeSession = findLatestActiveSession(history);
           const latestSession = history.at(-1);
           const phaseAllowsExecution = canStartTaskExecution(task);
@@ -54,6 +92,9 @@ export async function loadAgentWorkspace(
               phaseAllowsExecution && activeSession === undefined && latestSession === undefined,
             latestSession: summarizeSession(latestSession),
             previousSession: summarizeSession(history.at(-2)),
+            qualityGateRuns: Object.freeze(
+              gateHistory.slice(-maximumWorkspaceGateRuns).map(summarizeQualityGateRun),
+            ),
             task,
           });
         }),
@@ -66,6 +107,32 @@ export async function loadAgentWorkspace(
   );
 
   return Object.freeze({ projects: Object.freeze(projectOverviews) });
+}
+
+function summarizeQualityGateRun(run: QualityGateRun): QualityGateRunSummary {
+  const outputCharacters = run.output === undefined ? undefined : Array.from(run.output.text);
+  const outputText = outputCharacters?.slice(0, maximumWorkspaceGateOutputCharacters).join('');
+  return Object.freeze({
+    durationMs: run.durationMs,
+    exitCode: run.exitCode,
+    failureCategory: run.failureCategory,
+    finishedAt: run.finishedAt,
+    gateId: run.gate.id,
+    id: run.id,
+    kind: run.gate.kind,
+    output:
+      run.output === undefined
+        ? undefined
+        : Object.freeze({
+            text: outputText ?? '',
+            truncated:
+              run.output.truncated ||
+              (outputCharacters?.length ?? 0) > maximumWorkspaceGateOutputCharacters,
+          }),
+    startedAt: run.startedAt,
+    status: run.status,
+    taskId: run.taskId,
+  });
 }
 
 function isTerminal(session: AgentSession | undefined): boolean {

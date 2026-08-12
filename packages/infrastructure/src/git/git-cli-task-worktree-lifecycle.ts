@@ -396,7 +396,12 @@ export class GitCliTaskWorktreeLifecycle implements GitTaskWorktreeLifecycle {
     });
 
     return Object.freeze({
-      inspection: Object.freeze({ kind: 'present', status, worktree }),
+      inspection: Object.freeze({
+        headCommitId: repository.repository.head.commitId,
+        kind: 'present',
+        status,
+        worktree,
+      }),
       registered: pathMatch,
     });
   }

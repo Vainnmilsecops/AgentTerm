@@ -8,6 +8,8 @@ export {
   GitRepositoryInspectionError,
   ProjectOpenError,
   PtyRuntimeError,
+  QualityGateExecutionError,
+  QualityGatePersistenceError,
   TaskWorktreeLifecycleError,
   TaskWorktreeMetadataConflictError,
   TaskWorktreePersistenceError,
@@ -17,6 +19,7 @@ export {
   type AgentAdapterFailureReason,
   type GitRepositoryInspectionFailure,
   type ProjectOpenFailure,
+  type QualityGateExecutionFailure,
   type TaskWorktreeLifecycleFailure,
   type TaskExecutionStartStage,
   type TaskExecutionRetryFailure,
@@ -36,6 +39,12 @@ export {
   type RestoreAgentSessionsResult,
 } from './agent-session-restore';
 export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
+export {
+  listQualityGateRuns,
+  runQualityGate,
+  type RunQualityGateDependencies,
+  type RunQualityGateInput,
+} from './quality-gate-use-cases';
 export { listRecentProjects, openProject, type OpenProjectInput } from './project-management';
 export { createProject } from './project-use-cases';
 export type {
@@ -65,6 +74,11 @@ export type {
   PtyRuntimeFailureReason,
   PtyRuntimeOperation,
   PtyTerminalSize,
+  QualityGateCatalog,
+  QualityGateProcessRequest,
+  QualityGateProcessResult,
+  QualityGateProcessRunner,
+  QualityGateRunRepository,
   ProjectCatalog,
   ProjectDiscovery,
   ProjectRepository,
@@ -84,6 +98,7 @@ export {
   loadAgentWorkspace,
   type AgentSessionSummary,
   type AgentWorkspaceOverview,
+  type QualityGateRunSummary,
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,
 } from './workspace-overview';

@@ -43,6 +43,35 @@ const workingSession: NonNullable<WorkspaceTaskOverview['activeSession']> = Obje
   status: 'WORKING',
   taskId: runningTask.id,
 });
+const passedLintRun: WorkspaceTaskOverview['qualityGateRuns'][number] = Object.freeze({
+  durationMs: 120,
+  exitCode: 0,
+  failureCategory: undefined,
+  finishedAt: 1_800_000_000_120,
+  gateId: 'gate-lint',
+  id: 'gate-run-lint',
+  kind: 'LINT',
+  output: Object.freeze({ text: 'Khong co loi lint.', truncated: false }),
+  startedAt: 1_800_000_000_000,
+  status: 'PASSED',
+  taskId: runningTask.id,
+});
+const failedTestRun: WorkspaceTaskOverview['qualityGateRuns'][number] = Object.freeze({
+  durationMs: 1_250,
+  exitCode: 1,
+  failureCategory: 'COMMAND',
+  finishedAt: 1_800_000_002_250,
+  gateId: 'gate-test',
+  id: 'gate-run-test',
+  kind: 'TEST',
+  output: Object.freeze({
+    text: 'Ki\u1ec3m th\u1eed th\u1ea5t b\u1ea1i: <script>secret()</script>',
+    truncated: true,
+  }),
+  startedAt: 1_800_000_001_000,
+  status: 'FAILED',
+  taskId: runningTask.id,
+});
 const planningOverview: AgentWorkspaceOverview = Object.freeze({
   projects: [
     {
@@ -54,6 +83,7 @@ const planningOverview: AgentWorkspaceOverview = Object.freeze({
           canStartExecution: true,
           latestSession: undefined,
           previousSession: undefined,
+          qualityGateRuns: [],
           task: planningTask,
         },
       ],
@@ -71,6 +101,7 @@ const failedOverview: AgentWorkspaceOverview = Object.freeze({
           canStartExecution: false,
           latestSession: failedSession,
           previousSession: undefined,
+          qualityGateRuns: [],
           task: runningTask,
         },
       ],
@@ -142,6 +173,7 @@ describe('WorkspaceController', () => {
                 canStartExecution: true,
                 latestSession: undefined,
                 previousSession: undefined,
+                qualityGateRuns: [],
                 task: planningTask,
               },
               {
@@ -150,6 +182,7 @@ describe('WorkspaceController', () => {
                 canStartExecution: false,
                 latestSession: undefined,
                 previousSession: undefined,
+                qualityGateRuns: [],
                 task: secondTask,
               },
             ],
@@ -200,6 +233,7 @@ describe('WorkspaceController', () => {
               canStartExecution: false,
               latestSession: workingSession,
               previousSession: failedSession,
+              qualityGateRuns: [],
               task: runningTask,
             },
           ],
@@ -315,6 +349,7 @@ describe('WorkspaceController', () => {
               canStartExecution: true,
               latestSession: undefined,
               previousSession: undefined,
+              qualityGateRuns: [],
               task: planningTask,
             },
             {
@@ -323,6 +358,7 @@ describe('WorkspaceController', () => {
               canStartExecution: true,
               latestSession: undefined,
               previousSession: undefined,
+              qualityGateRuns: [],
               task: secondTask,
             },
           ],
@@ -359,6 +395,7 @@ describe('WorkspaceController', () => {
               canStartExecution: false,
               latestSession: workingSession,
               previousSession: undefined,
+              qualityGateRuns: [],
               task: runningTask,
             },
           ],
@@ -376,6 +413,7 @@ describe('WorkspaceController', () => {
               canStartExecution: false,
               latestSession: { ...workingSession, endedAt: 1_800_000_000_100, status: 'EXITED' },
               previousSession: undefined,
+              qualityGateRuns: [],
               task: runningTask,
             },
           ],
@@ -449,6 +487,7 @@ describe('AgentWorkspaceView', () => {
               canStartExecution: false,
               latestSession: workingSession,
               previousSession: failedSession,
+              qualityGateRuns: [],
               task: runningTask,
             },
           ],
@@ -477,6 +516,76 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('Previous session');
     expect(markup).toContain('FAILED · session-failed');
     expect(markup).toContain('codex · session-working');
+  });
+
+  it('renders immutable Quality Gate history newest-first without treating it as Task completion', () => {
+    const failedTask = failedOverview.projects[0]!.tasks[0]!;
+    const overview: AgentWorkspaceOverview = {
+      projects: [
+        {
+          project,
+          tasks: [{ ...failedTask, qualityGateRuns: [passedLintRun, failedTestRun] }],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onRefresh: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          kind: 'ready',
+          overview,
+          selectedTaskId: runningTask.id,
+          startingTaskId: undefined,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Recorded evidence');
+    expect(markup).toContain('Quality gates');
+    expect(markup).toContain('2 runs');
+    expect(markup.indexOf('gate-run-test')).toBeLessThan(markup.indexOf('gate-run-lint'));
+    expect(markup).toContain('FAILED');
+    expect(markup).toContain('Exit 1');
+    expect(markup).toContain('1.3 s');
+    expect(markup).toContain('output truncated');
+    expect(markup).toContain(
+      'Ki\u1ec3m th\u1eed th\u1ea5t b\u1ea1i: &lt;script&gt;secret()&lt;/script&gt;',
+    );
+    expect(markup).not.toContain('<script>secret()</script>');
+    expect(markup).toContain('Task phase</span><strong>RUNNING');
+    expect(markup).not.toContain('Task phase</span><strong>DONE');
+    expect(markup).not.toContain('output-test');
+    expect(markup).not.toContain('D:\\worktrees');
+  });
+
+  it('states clearly when AgentTerm has not recorded Quality Gate evidence', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onRefresh: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          kind: 'ready',
+          overview: planningOverview,
+          selectedTaskId: planningTask.id,
+          startingTaskId: undefined,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('No AgentTerm-recorded gate evidence for this Task yet.');
   });
 
   it('renders loading, empty, and recoverable error states', () => {

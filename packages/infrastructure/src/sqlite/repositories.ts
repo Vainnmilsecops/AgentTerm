@@ -8,6 +8,7 @@ import {
   type LocalProjectLocator,
   type ProjectCatalog,
   type ProjectRepository,
+  type QualityGateRunRepository,
   type RecordProjectOpenInput,
   type TaskRepository,
   type TaskCatalog,
@@ -17,13 +18,22 @@ import {
   type TaskWorktreeRecord,
   type TaskWorktreeRepository,
 } from '@agentterm/application';
-import type { AgentSession, AgentSessionEvent, Project, Task } from '@agentterm/domain';
+import {
+  QualityGateRunStatus,
+  startQualityGateRun,
+  type AgentSession,
+  type AgentSessionEvent,
+  type Project,
+  type QualityGateRun,
+  type Task,
+} from '@agentterm/domain';
 
 import { SqlitePersistenceError } from './errors';
 import {
   mapAgentSessionRows,
   mapLocalProjectRow,
   mapProjectRow,
+  mapQualityGateRunRow,
   mapTaskRow,
   mapTaskWorktreeRow,
 } from './mapping';
@@ -339,6 +349,158 @@ export class SqliteTaskWorktreeRepository implements TaskWorktreeRepository {
   }
 }
 
+export class SqliteQualityGateRunRepository implements QualityGateRunRepository {
+  private readonly database: DatabaseSync;
+  private readonly finalizeStatement: StatementSync;
+  private readonly findByIdStatement: StatementSync;
+  private readonly insertStatement: StatementSync;
+  private readonly listByTaskIdStatement: StatementSync;
+  private readonly nextOrdinalStatement: StatementSync;
+
+  public constructor(database: DatabaseSync) {
+    this.database = database;
+    const selectedColumns = `
+      id, task_id, ordinal, gate_id, gate_kind, executable_path, arguments_json,
+      timeout_ms, worktree_path_identity, worktree_path, worktree_branch_name,
+      worktree_base_commit_id, worktree_head_commit_id, status, started_at,
+      finished_at, duration_ms, exit_code,
+      failure_category, output_reference, output_text, output_truncated`;
+    this.findByIdStatement = database.prepare(
+      `SELECT ${selectedColumns} FROM quality_gate_runs WHERE id = ?`,
+    );
+    this.listByTaskIdStatement = database.prepare(
+      `SELECT ${selectedColumns}
+       FROM quality_gate_runs WHERE task_id = ? ORDER BY ordinal`,
+    );
+    this.nextOrdinalStatement = database.prepare(
+      `SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
+       FROM quality_gate_runs WHERE task_id = ?`,
+    );
+    this.insertStatement = database.prepare(
+      `INSERT INTO quality_gate_runs (
+         id, task_id, ordinal, gate_id, gate_kind, executable_path, arguments_json,
+         timeout_ms, worktree_path_identity, worktree_path, worktree_branch_name,
+         worktree_base_commit_id, worktree_head_commit_id, status, started_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RUNNING', ?)`,
+    );
+    this.finalizeStatement = database.prepare(
+      `UPDATE quality_gate_runs
+       SET status = ?, finished_at = ?, duration_ms = ?, exit_code = ?, failure_category = ?,
+           output_reference = ?, output_text = ?, output_truncated = ?
+       WHERE id = ? AND status = ?`,
+    );
+  }
+
+  public async findById(id: string): Promise<QualityGateRun | undefined> {
+    const row = this.findByIdStatement.get(id);
+    return row === undefined ? undefined : mapQualityGateRunRow(row);
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly QualityGateRun[]> {
+    return this.listByTaskIdStatement.all(taskId).map(mapQualityGateRunRow);
+  }
+
+  public async insert(run: QualityGateRun): Promise<void> {
+    assertRunningQualityGateRun(run);
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      if (this.findByIdStatement.get(run.id) !== undefined) {
+        throw new EntityAlreadyExistsError('QualityGateRun', run.id);
+      }
+      const ordinalRow = this.nextOrdinalStatement.get(run.taskId);
+      const ordinal = ordinalRow?.next_ordinal;
+      if (typeof ordinal !== 'number' || !Number.isSafeInteger(ordinal) || ordinal <= 0) {
+        throw new SqlitePersistenceError('Could not allocate the next Quality Gate Run ordinal.');
+      }
+      this.insertStatement.run(
+        run.id,
+        run.taskId,
+        ordinal,
+        run.gate.id,
+        run.gate.kind,
+        run.gate.command.executablePath,
+        JSON.stringify(run.gate.command.arguments),
+        run.gate.timeoutMs,
+        run.worktree.pathIdentity,
+        run.worktree.worktreePath,
+        run.worktree.branchName,
+        run.worktree.baseCommitId,
+        run.worktree.headCommitIdAtStart,
+        run.startedAt,
+      );
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof EntityAlreadyExistsError || error instanceof SqlitePersistenceError) {
+        throw error;
+      }
+      if (isSqliteErrorCode(error, primaryKeyConstraintCode)) {
+        throw new EntityAlreadyExistsError('QualityGateRun', run.id);
+      }
+      throw new SqlitePersistenceError('Failed to insert Quality Gate Run.', { cause: error });
+    }
+  }
+
+  public async finalize(run: QualityGateRun, expectedStatus: 'RUNNING'): Promise<void> {
+    if (
+      expectedStatus !== QualityGateRunStatus.RUNNING ||
+      run.status === QualityGateRunStatus.RUNNING
+    ) {
+      throw new SqlitePersistenceError('Quality Gate Run finalize evidence is invalid.');
+    }
+
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const storedRow = this.findByIdStatement.get(run.id);
+      if (storedRow === undefined) {
+        throw new SqlitePersistenceError('Quality Gate Run finalize target is missing.');
+      }
+      const stored = mapQualityGateRunRow(storedRow);
+      if (stored.status !== expectedStatus) {
+        if (sameQualityGateRun(stored, run)) {
+          this.database.exec('COMMIT');
+          return;
+        }
+        throw new SqlitePersistenceError('Quality Gate Run is already finalized differently.');
+      }
+      if (!sameQualityGateRunIdentity(stored, run) || run.output === undefined) {
+        throw new SqlitePersistenceError(
+          'Quality Gate Run terminal evidence does not match its stored identity.',
+        );
+      }
+      const result = this.finalizeStatement.run(
+        run.status,
+        run.finishedAt ?? null,
+        run.durationMs ?? null,
+        run.exitCode ?? null,
+        run.failureCategory ?? null,
+        run.output.reference,
+        run.output.text,
+        Number(run.output.truncated),
+        run.id,
+        expectedStatus,
+      );
+      if (result.changes === 0 || result.changes === 0n) {
+        throw new SqlitePersistenceError('Quality Gate Run finalize revision is stale.');
+      }
+      const finalizedRow = this.findByIdStatement.get(run.id);
+      if (
+        finalizedRow === undefined ||
+        !sameQualityGateRun(mapQualityGateRunRow(finalizedRow), run)
+      ) {
+        throw new SqlitePersistenceError('Quality Gate Run finalize evidence did not persist.');
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof SqlitePersistenceError) {
+        throw error;
+      }
+      throw new SqlitePersistenceError('Failed to finalize Quality Gate Run.', { cause: error });
+    }
+  }
+}
+
 export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly database: DatabaseSync;
   private readonly appendSnapshotStatement: StatementSync;
@@ -552,6 +714,66 @@ function assertInitialSession(session: AgentSession): void {
   ) {
     throw new SqlitePersistenceError('New Agent Session must contain only STARTING history.');
   }
+}
+
+function assertRunningQualityGateRun(run: QualityGateRun): void {
+  let reconstructed: QualityGateRun;
+  try {
+    reconstructed = startQualityGateRun({
+      gate: run.gate,
+      id: run.id,
+      startedAt: run.startedAt,
+      taskId: run.taskId,
+      worktree: run.worktree,
+    });
+  } catch (error) {
+    throw new SqlitePersistenceError('New Quality Gate Run identity is invalid.', {
+      cause: error,
+    });
+  }
+  if (!sameQualityGateRun(reconstructed, run)) {
+    throw new SqlitePersistenceError(
+      'New Quality Gate Run must be RUNNING without terminal evidence.',
+    );
+  }
+}
+
+function sameQualityGateRun(left: QualityGateRun, right: QualityGateRun): boolean {
+  return (
+    sameQualityGateRunIdentity(left, right) &&
+    left.status === right.status &&
+    left.finishedAt === right.finishedAt &&
+    left.durationMs === right.durationMs &&
+    left.exitCode === right.exitCode &&
+    left.failureCategory === right.failureCategory &&
+    ((left.output === undefined && right.output === undefined) ||
+      (left.output !== undefined &&
+        right.output !== undefined &&
+        left.output.reference === right.output.reference &&
+        left.output.text === right.output.text &&
+        left.output.truncated === right.output.truncated))
+  );
+}
+
+function sameQualityGateRunIdentity(left: QualityGateRun, right: QualityGateRun): boolean {
+  return (
+    left.id === right.id &&
+    left.taskId === right.taskId &&
+    left.startedAt === right.startedAt &&
+    left.gate.id === right.gate.id &&
+    left.gate.kind === right.gate.kind &&
+    left.gate.command.executablePath === right.gate.command.executablePath &&
+    left.gate.timeoutMs === right.gate.timeoutMs &&
+    left.gate.command.arguments.length === right.gate.command.arguments.length &&
+    left.gate.command.arguments.every(
+      (argument, index) => argument === right.gate.command.arguments[index],
+    ) &&
+    left.worktree.pathIdentity === right.worktree.pathIdentity &&
+    left.worktree.worktreePath === right.worktree.worktreePath &&
+    left.worktree.branchName === right.worktree.branchName &&
+    left.worktree.baseCommitId === right.worktree.baseCommitId &&
+    left.worktree.headCommitIdAtStart === right.worktree.headCommitIdAtStart
+  );
 }
 
 interface SerializedAgentSessionEvent {

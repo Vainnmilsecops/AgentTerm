@@ -5,14 +5,19 @@ import type {
 } from '@agentterm/application';
 import {
   createAgentSession,
+  completeQualityGateRun,
   createProject,
+  createQualityGate,
   createTask,
+  QualityGateRunStatus,
+  startQualityGateRun,
   TaskPhase,
   transitionTask,
   recordAgentSessionEvent,
   type AgentSession,
   type AgentSessionEvent,
   type Project,
+  type QualityGateRun,
   type Task,
   type TaskPhase as TaskPhaseValue,
 } from '@agentterm/domain';
@@ -144,6 +149,138 @@ export function mapAgentSessionRows(
     throw new SqlitePersistenceError('Agent Session snapshot does not match its event history.');
   }
   return session;
+}
+
+export function mapQualityGateRunRow(row: SqliteRow): QualityGateRun {
+  let argumentsValue: unknown;
+  try {
+    argumentsValue = JSON.parse(readText(row, 'arguments_json', 'Quality Gate Run'));
+  } catch (error) {
+    throw new SqlitePersistenceError('Quality Gate Run arguments are not valid JSON.', {
+      cause: error,
+    });
+  }
+  if (
+    !Array.isArray(argumentsValue) ||
+    !argumentsValue.every((argument): argument is string => typeof argument === 'string')
+  ) {
+    throw new SqlitePersistenceError('Quality Gate Run arguments are not a string array.');
+  }
+
+  let running: QualityGateRun;
+  try {
+    running = startQualityGateRun({
+      gate: createQualityGate({
+        command: {
+          arguments: argumentsValue,
+          executablePath: readNonBlankText(row, 'executable_path', 'Quality Gate Run'),
+        },
+        id: readNonBlankText(row, 'gate_id', 'Quality Gate Run'),
+        kind: readText(row, 'gate_kind', 'Quality Gate Run') as QualityGateRun['gate']['kind'],
+        timeoutMs: readSafePositiveInteger(row, 'timeout_ms', 'Quality Gate Run'),
+      }),
+      id: readNonBlankText(row, 'id', 'Quality Gate Run'),
+      startedAt: readSafeNonNegativeInteger(row, 'started_at', 'Quality Gate Run'),
+      taskId: readNonBlankText(row, 'task_id', 'Quality Gate Run'),
+      worktree: {
+        baseCommitId: readNonBlankText(row, 'worktree_base_commit_id', 'Quality Gate Run'),
+        branchName: readNonBlankText(row, 'worktree_branch_name', 'Quality Gate Run'),
+        headCommitIdAtStart: readNonBlankText(row, 'worktree_head_commit_id', 'Quality Gate Run'),
+        pathIdentity: readNonBlankText(row, 'worktree_path_identity', 'Quality Gate Run'),
+        worktreePath: readNonBlankText(row, 'worktree_path', 'Quality Gate Run'),
+      },
+    });
+  } catch (error) {
+    throw new SqlitePersistenceError('Quality Gate Run identity is invalid.', { cause: error });
+  }
+
+  const storedStatus = readText(row, 'status', 'Quality Gate Run');
+  if (storedStatus === QualityGateRunStatus.RUNNING) {
+    assertQualityGateRunSnapshotMatches(running, row);
+    return running;
+  }
+
+  const finishedAt = readSafeNonNegativeInteger(row, 'finished_at', 'Quality Gate Run');
+  const output = {
+    reference: readNonBlankText(row, 'output_reference', 'Quality Gate Run'),
+    text: readText(row, 'output_text', 'Quality Gate Run'),
+    truncated: readBooleanInteger(row, 'output_truncated', 'Quality Gate Run'),
+  };
+  let completed: QualityGateRun;
+  try {
+    switch (storedStatus) {
+      case QualityGateRunStatus.PASSED:
+      case QualityGateRunStatus.FAILED:
+        completed = completeQualityGateRun(running, {
+          exitCode: readInteger(row, 'exit_code', 'Quality Gate Run'),
+          finishedAt,
+          kind: 'exited',
+          output,
+        });
+        break;
+      case QualityGateRunStatus.TIMED_OUT:
+        completed = completeQualityGateRun(running, { finishedAt, kind: 'timed-out', output });
+        break;
+      case QualityGateRunStatus.LAUNCH_FAILED:
+        completed = completeQualityGateRun(running, {
+          finishedAt,
+          kind: 'launch-failed',
+          output,
+        });
+        break;
+      case QualityGateRunStatus.INFRASTRUCTURE_FAILED:
+        completed = completeQualityGateRun(running, {
+          finishedAt,
+          kind: 'infrastructure-failed',
+          output,
+        });
+        break;
+      default:
+        throw new SqlitePersistenceError(`Quality Gate Run status is invalid: ${storedStatus}.`);
+    }
+  } catch (error) {
+    if (error instanceof SqlitePersistenceError) {
+      throw error;
+    }
+    throw new SqlitePersistenceError('Quality Gate Run terminal evidence is invalid.', {
+      cause: error,
+    });
+  }
+  assertQualityGateRunSnapshotMatches(completed, row);
+  return completed;
+}
+
+function assertQualityGateRunSnapshotMatches(run: QualityGateRun, row: SqliteRow): void {
+  const durationMs = readNullableSafeNonNegativeInteger(row, 'duration_ms', 'Quality Gate Run');
+  const exitCode = readNullableInteger(row, 'exit_code', 'Quality Gate Run');
+  const failureCategory = readNullableText(row, 'failure_category', 'Quality Gate Run');
+  const finishedAt = readNullableSafeNonNegativeInteger(row, 'finished_at', 'Quality Gate Run');
+  if (
+    run.status !== readText(row, 'status', 'Quality Gate Run') ||
+    run.durationMs !== durationMs ||
+    run.exitCode !== exitCode ||
+    run.failureCategory !== failureCategory ||
+    run.finishedAt !== finishedAt
+  ) {
+    throw new SqlitePersistenceError('Quality Gate Run snapshot does not match Domain evidence.');
+  }
+  if (run.output === undefined) {
+    if (
+      row.output_reference !== null ||
+      row.output_text !== null ||
+      row.output_truncated !== null
+    ) {
+      throw new SqlitePersistenceError('RUNNING Quality Gate Run contains terminal output.');
+    }
+    return;
+  }
+  if (
+    run.output.reference !== readNonBlankText(row, 'output_reference', 'Quality Gate Run') ||
+    run.output.text !== readText(row, 'output_text', 'Quality Gate Run') ||
+    run.output.truncated !== readBooleanInteger(row, 'output_truncated', 'Quality Gate Run')
+  ) {
+    throw new SqlitePersistenceError('Quality Gate Run output does not match Domain evidence.');
+  }
 }
 
 function mapAgentSessionEventInput(row: SqliteRow): Parameters<typeof recordAgentSessionEvent>[1] {
@@ -280,6 +417,18 @@ function readSafePositiveInteger(row: SqliteRow, column: string, entity: string)
 
 function readNullableInteger(row: SqliteRow, column: string, entity: string): number | undefined {
   return row[column] === null ? undefined : readInteger(row, column, entity);
+}
+
+function readNullableText(row: SqliteRow, column: string, entity: string): string | undefined {
+  return row[column] === null ? undefined : readNonBlankText(row, column, entity);
+}
+
+function readBooleanInteger(row: SqliteRow, column: string, entity: string): boolean {
+  const value = readInteger(row, column, entity);
+  if (value !== 0 && value !== 1) {
+    throw new SqlitePersistenceError(`${entity} row contains an invalid ${column} boolean.`);
+  }
+  return value === 1;
 }
 
 function readNullableSafePositiveInteger(

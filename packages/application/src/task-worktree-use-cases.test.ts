@@ -198,7 +198,12 @@ class InMemoryGitTaskWorktreeLifecycle implements GitTaskWorktreeLifecycle {
       return { kind: 'missing', worktree: this.worktree };
     }
 
-    return { kind: 'present', status: this.status, worktree: this.worktree };
+    return {
+      headCommitId: this.worktree.baseCommitId,
+      kind: 'present',
+      status: this.status,
+      worktree: this.worktree,
+    };
   }
 
   public async ensure(
@@ -440,7 +445,12 @@ describe('ensureTaskWorktree', () => {
     await expect(worktrees.findByTaskId(task.id)).resolves.toEqual(worktreeRecord('PROVISIONING'));
     await expect(
       git.inspect({ taskId: task.id, repositoryRootPath: localProject.rootPath }),
-    ).resolves.toEqual({ kind: 'present', status: cleanStatus, worktree });
+    ).resolves.toEqual({
+      headCommitId: worktree.baseCommitId,
+      kind: 'present',
+      status: cleanStatus,
+      worktree,
+    });
     expect(events).toEqual(['persistence:PROVISIONING', 'git:ensure']);
   });
 
@@ -488,7 +498,7 @@ describe('inspectTaskWorktree', () => {
     );
 
     expect(result).toEqual({
-      actual: { kind: 'present', status, worktree },
+      actual: { headCommitId: worktree.baseCommitId, kind: 'present', status, worktree },
       persistedState: 'PRESENT',
     });
   });
