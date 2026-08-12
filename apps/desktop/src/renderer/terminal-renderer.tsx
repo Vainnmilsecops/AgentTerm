@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { PtyRuntimeEvent } from '@agentterm/application';
+
 import {
   TerminalController,
   type TerminalConnectionState,
@@ -9,12 +11,18 @@ import { XtermTerminalSurface } from './xterm-terminal-surface';
 
 export interface TerminalRendererProps {
   readonly client?: TerminalSessionClient;
+  readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
   readonly sessionId?: string;
 }
 
-export function TerminalRenderer({ client, sessionId }: TerminalRendererProps) {
+export function TerminalRenderer({ client, onRuntimeEvent, sessionId }: TerminalRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const runtimeEventRef = useRef(onRuntimeEvent);
   const [state, setState] = useState<TerminalConnectionState>('empty');
+
+  useEffect(() => {
+    runtimeEventRef.current = onRuntimeEvent;
+  }, [onRuntimeEvent]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -22,7 +30,9 @@ export function TerminalRenderer({ client, sessionId }: TerminalRendererProps) {
       return;
     }
 
-    const controller = new TerminalController(new XtermTerminalSurface(), setState);
+    const controller = new TerminalController(new XtermTerminalSurface(), setState, (event) =>
+      runtimeEventRef.current?.(event),
+    );
     controller.mount(container);
     void controller.setSession(sessionId, client);
     return () => controller.dispose();

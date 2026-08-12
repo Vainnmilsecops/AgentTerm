@@ -10,7 +10,7 @@ function createWindow(): void {
     backgroundColor: '#0b0d10',
     height: 720,
     minHeight: 480,
-    minWidth: 720,
+    minWidth: 520,
     show: false,
     title: 'AgentTerm',
     webPreferences: {

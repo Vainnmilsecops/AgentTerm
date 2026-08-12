@@ -2,24 +2,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import './styles.css';
-import { TerminalRenderer } from './terminal-renderer';
+import { AgentWorkspace } from './agent-workspace';
+import type { AgentWorkspaceClient } from './workspace-controller';
 
-function DesktopShell() {
-  return (
-    <main className="shell">
-      <header className="shell__header">
-        <div>
-          <p className="eyebrow">Active terminal</p>
-          <h1>AgentTerm</h1>
-        </div>
-        <p className="summary">
-          One focused terminal surface for the active Agent Session. Process exit never marks its
-          Task done.
-        </p>
-      </header>
-      <TerminalRenderer />
-    </main>
-  );
+declare global {
+  interface Window {
+    readonly agenttermWorkspace?: AgentWorkspaceClient;
+  }
 }
 
 const rootElement = document.getElementById('root');
@@ -30,6 +19,8 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <DesktopShell />
+    <AgentWorkspace
+      {...(window.agenttermWorkspace === undefined ? {} : { client: window.agenttermWorkspace })}
+    />
   </StrictMode>,
 );

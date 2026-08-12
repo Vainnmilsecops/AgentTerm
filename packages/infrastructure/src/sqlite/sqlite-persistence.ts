@@ -6,6 +6,7 @@ import type {
   ProjectCatalog,
   ProjectRepository,
   TaskRepository,
+  TaskCatalog,
   TaskWorktreeRepository,
 } from '@agentterm/application';
 
@@ -25,7 +26,7 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSq
 export interface SqlitePersistence {
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   readonly sessions: AgentSessionRepository;
-  readonly tasks: TaskRepository;
+  readonly tasks: TaskCatalog & TaskRepository;
   readonly worktrees: TaskWorktreeRepository;
   close(): void;
 }
@@ -42,7 +43,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   });
   let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   let sessions: AgentSessionRepository;
-  let tasks: TaskRepository;
+  let tasks: TaskCatalog & TaskRepository;
   let worktrees: TaskWorktreeRepository;
 
   try {
