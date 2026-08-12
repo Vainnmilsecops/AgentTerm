@@ -345,6 +345,7 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly findByIdStatement: StatementSync;
   private readonly insertEventStatement: StatementSync;
   private readonly insertSessionStatement: StatementSync;
+  private readonly listActiveStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
 
@@ -357,6 +358,12 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     this.listByTaskIdStatement = database.prepare(
       `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
        FROM agent_sessions WHERE task_id = ? ORDER BY ordinal`,
+    );
+    this.listActiveStatement = database.prepare(
+      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
+       FROM agent_sessions
+       WHERE status IN ('STARTING', 'WORKING', 'IDLE', 'WAITING_INPUT')
+       ORDER BY task_id, ordinal`,
     );
     this.eventsBySessionIdStatement = database.prepare(
       `SELECT
@@ -393,6 +400,10 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
 
   public async listByTaskId(taskId: string): Promise<readonly AgentSession[]> {
     return this.listByTaskIdStatement.all(taskId).map((row) => this.mapSession(row));
+  }
+
+  public async listActive(): Promise<readonly AgentSession[]> {
+    return this.listActiveStatement.all().map((row) => this.mapSession(row));
   }
 
   public async insert(session: AgentSession): Promise<void> {

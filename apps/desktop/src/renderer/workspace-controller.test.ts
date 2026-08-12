@@ -29,6 +29,7 @@ const failedSession: NonNullable<WorkspaceTaskOverview['latestSession']> = Objec
   agentId: 'codex',
   createdAt: 1_800_000_000_000,
   endedAt: 1_800_000_000_001,
+  failureCode: 'RUNTIME_OWNERSHIP_LOST',
   id: 'session-failed',
   status: 'FAILED',
   taskId: runningTask.id,
@@ -37,6 +38,7 @@ const workingSession: NonNullable<WorkspaceTaskOverview['activeSession']> = Obje
   agentId: 'codex',
   createdAt: 1_800_000_000_000,
   endedAt: undefined,
+  failureCode: undefined,
   id: 'session-working',
   status: 'WORKING',
   taskId: runningTask.id,
@@ -356,6 +358,8 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('RUNNING');
     expect(markup).toContain('Latest session');
     expect(markup).toContain('FAILED');
+    expect(markup).toContain('interrupted when AgentTerm restarted');
+    expect(markup).toContain('Task phase remains RUNNING');
     expect(markup).not.toContain('Task phase</span><strong>DONE');
     expect(markup).toContain('Nối terminal tiếng Việt');
   });

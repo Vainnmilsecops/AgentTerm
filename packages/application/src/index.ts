@@ -27,6 +27,11 @@ export {
   type StartAgentSessionInput,
   type StopAgentSessionInput,
 } from './agent-session-coordinator';
+export {
+  restoreAgentWorkspaceAfterRestart,
+  restoreAgentSessionsAfterRestart,
+  type RestoreAgentSessionsResult,
+} from './agent-session-restore';
 export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
 export { listRecentProjects, openProject, type OpenProjectInput } from './project-management';
 export { createProject } from './project-use-cases';

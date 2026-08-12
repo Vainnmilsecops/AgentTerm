@@ -193,6 +193,12 @@ class MemoryAgentSessionRepository implements AgentSessionRepository {
     this.stored.set(session.id, session);
   }
 
+  public async listActive(): Promise<readonly AgentSession[]> {
+    return [...this.stored.values()].filter(
+      (session) => session.status !== 'EXITED' && session.status !== 'FAILED',
+    );
+  }
+
   public async listByTaskId(taskId: string): Promise<readonly AgentSession[]> {
     return [...this.stored.values()].filter((session) => session.taskId === taskId);
   }
