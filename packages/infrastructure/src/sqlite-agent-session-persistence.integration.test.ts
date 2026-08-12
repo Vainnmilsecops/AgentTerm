@@ -87,17 +87,57 @@ describe('SQLite Agent Session persistence', () => {
       const persistence = openSqlitePersistence(databasePath);
       try {
         const first = startingSession('session-1');
+        const firstExited = recordAgentSessionEvent(first, {
+          exitCode: 0,
+          kind: 'PROCESS_EXITED',
+          occurredAt: createdAt + 1,
+          reason: 'PROCESS_EXIT',
+          runtimeSequence: 1,
+        });
         const second = startingSession('session-2');
         await persistence.sessions.insert(first);
+        await persistence.sessions.append(firstExited, 1);
         await persistence.sessions.insert(second);
 
-        await expect(persistence.sessions.listByTaskId('task-1')).resolves.toEqual([first, second]);
+        await expect(persistence.sessions.listByTaskId('task-1')).resolves.toEqual([
+          firstExited,
+          second,
+        ]);
         await expect(
           persistence.sessions.insert({ ...first, agentId: 'replacement' }),
         ).rejects.toBeInstanceOf(EntityAlreadyExistsError);
-        await expect(persistence.sessions.listByTaskId('task-1')).resolves.toEqual([first, second]);
+        await expect(persistence.sessions.listByTaskId('task-1')).resolves.toEqual([
+          firstExited,
+          second,
+        ]);
       } finally {
         persistence.close();
+      }
+    });
+  });
+
+  it('atomically admits only one active Session per Task across connections', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath);
+      const firstConnection = openSqlitePersistence(databasePath);
+      const secondConnection = openSqlitePersistence(databasePath);
+      try {
+        const results = await Promise.allSettled([
+          firstConnection.sessions.insert(startingSession('session-1')),
+          secondConnection.sessions.insert(startingSession('session-2')),
+        ]);
+
+        expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+        expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
+        const sessions = await firstConnection.sessions.listByTaskId('task-1');
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({ status: 'STARTING', taskId: 'task-1' });
+        expect(results.find(({ status }) => status === 'rejected')).toMatchObject({
+          reason: { name: 'AgentSessionActiveConflictError', taskId: 'task-1' },
+        });
+      } finally {
+        secondConnection.close();
+        firstConnection.close();
       }
     });
   });

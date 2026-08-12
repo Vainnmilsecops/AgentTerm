@@ -41,7 +41,7 @@ export interface AgentAdapter {
 
 export interface AgentSessionRepository {
   findById(id: string): Promise<AgentSession | undefined>;
-  /** Inserts one new attempt and must never replace an existing session. */
+  /** Inserts one new attempt and must never replace history or admit a second active attempt for its Task. */
   insert(session: AgentSession): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;

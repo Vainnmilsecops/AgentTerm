@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -8,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentSessionCoordinator,
   createTask,
+  retryTaskExecution,
   startTaskExecution,
   transitionTask,
   type PtyHandle,
@@ -60,7 +68,7 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
       writeFileSync(join(repositoryPath, 'tracked.txt'), 'initial\n');
       commitAll(repositoryPath);
       const canonicalRepositoryPath = realpathSync.native(repositoryPath);
-      const persistence = openSqlitePersistence(databasePath);
+      let persistence = openSqlitePersistence(databasePath);
 
       try {
         await persistence.projects.recordOpen({
@@ -110,14 +118,43 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         const first = await startTaskExecution(input, dependencies);
         runtime.emit(0, { exitCode: 0, kind: 'exited', sequence: 2 });
         await sessions.findById(input.sessionId);
-        const second = await startTaskExecution(
+        const trackedPath = join(first.worktree.worktree.worktreePath, 'tracked.txt');
+        const untrackedPath = join(first.worktree.worktree.worktreePath, 'recovery-notes.txt');
+        writeFileSync(trackedPath, 'uncommitted retry work\n');
+        writeFileSync(untrackedPath, 'preserve this Vietnamese recovery note\n');
+        persistence.close();
+        persistence = openSqlitePersistence(databasePath);
+        const recoveredSessions = new AgentSessionCoordinator({
+          adapter,
+          agentId: 'codex',
+          clock: () => now++,
+          runtime,
+          sessions: persistence.sessions,
+          tasks: persistence.tasks,
+        });
+        const second = await retryTaskExecution(
           { ...input, sessionId: 'session-execution-2' },
-          dependencies,
+          {
+            git: new GitCliTaskWorktreeLifecycle(worktreesRoot),
+            localProjects: persistence.projects,
+            sessionCoordinator: recoveredSessions,
+            tasks: persistence.tasks,
+            worktrees: persistence.worktrees,
+          },
         );
 
         expect(first.worktree.kind).toBe('created');
         expect(second.worktree.kind).toBe('reused');
         expect(second.worktree.worktree).toEqual(first.worktree.worktree);
+        expect(second.worktree.status).toMatchObject({
+          isDirty: true,
+          unstagedPaths: ['tracked.txt'],
+          untrackedPaths: ['recovery-notes.txt'],
+        });
+        expect(readFileSync(trackedPath, 'utf8')).toBe('uncommitted retry work\n');
+        expect(readFileSync(untrackedPath, 'utf8')).toBe(
+          'preserve this Vietnamese recovery note\n',
+        );
         expect(existsSync(first.worktree.worktree.worktreePath)).toBe(true);
         expect(runtime.specs).toHaveLength(2);
         for (const spec of runtime.specs) {

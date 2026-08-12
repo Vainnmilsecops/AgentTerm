@@ -19,7 +19,8 @@ Updated: 2026-08-12
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application startup reconciliation now finds persisted active Agent Sessions and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
-- Application now exposes `startTaskExecution`: it accepts a `PLANNING` or already-`RUNNING` Task, ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
+- Application now exposes `startTaskExecution` for a history-free `PLANNING` or already-`RUNNING` Task: it ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
+- Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, reuses the primary Worktree without cleaning dirty code, and creates a new Session for the same agent.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes a minimal start-execution action through an application-shaped client.
 
@@ -88,6 +89,11 @@ Updated: 2026-08-12
   persist `RUNNING`, then create and launch a new Session. A later failure preserves the ready
   Worktree and durable Task/Session checkpoint for inspection; it never deletes Git state or
   pretends SQLite can roll back Git or a spawned process. Reusing an old Session id is rejected.
+- Retry serializes execution admission per Task and rejects missing history, agent mismatch, any
+  active Session, or a locally owned failed runtime still awaiting exit before Git mutation. An
+  atomic SQLite admission check is the cross-process backstop. Earlier attempts remain immutable;
+  a failed retry is another truthful Session checkpoint
+  and never completes the Task or triggers an automatic retry loop.
 - Terminal rendering uses `@xterm/xterm` with the fit addon and a renderer-local controller. The
   controller consumes only the Application session attachment contract; detach is observer cleanup,
   not stop, and an exit disables input while preserving the visible terminal buffer. Output is a
@@ -99,6 +105,9 @@ Updated: 2026-08-12
   Project paths. React owns only loading, selection, action, and error presentation state;
   execution orchestration remains behind its client interface. Terminal lifecycle evidence triggers
   a read-model refresh rather than a Presentation-owned business transition.
+- The workspace read model exposes Start and Retry availability separately. The desktop retry action
+  is disabled while a Session is active and shows the previous attempt beside the newly active/latest
+  Session after recovery.
 - The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
   check verifies nonempty rendered content instead of accepting `did-finish-load` alone. The CSP
   permits only the inline style elements/attributes required by xterm while scripts remain self-only.
@@ -112,7 +121,7 @@ untrusted repositories is deferred; current inspection must follow an explicit u
 Worktree checkout can likewise execute configured clean/smudge/process filters even though hooks are
 disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator owns PTY
 handles, and startup can now reconcile persisted sessions that no longer have ownership.
-Reattaching to an old process, full retry/resume recovery, and exclusive Worktree-cleanup
+Reattaching to an old process, provider-native resume, automatic retry policy, and exclusive Worktree-cleanup
 coordination remain deferred; another writer could otherwise race the final dirty/ignored-file inspection.
 The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
@@ -127,10 +136,10 @@ demo data or exposing Infrastructure to React.
 
 ## Next Step
 
-Bind startup session reconciliation, `loadAgentWorkspace`, `startTaskExecution`, and terminal
-attachment to the sandboxed renderer through a narrow validated preload/IPC adapter in the Electron
-main process. Reconciliation must finish before new runtime launches or workspace reads. That
-composition must own session identifiers, approved launch environment, database path, and managed Worktree root; the
-renderer must not receive raw filesystem, Git, database, process, or environment capability. Full
-restart/recovery, resume policy, output replay, and cross-process execution reconciliation remain
-later lifecycle slices.
+Bind startup session reconciliation, `loadAgentWorkspace`, `startTaskExecution`,
+`retryTaskExecution`, and terminal attachment to the sandboxed renderer through a narrow validated
+preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
+launches or workspace reads. That composition must own session identifiers, approved launch
+environment, database path, and managed Worktree root; the renderer must not receive raw filesystem,
+Git, database, process, or environment capability. Process reattachment, provider-native resume,
+output replay, and cross-process live-execution reconciliation remain later lifecycle slices.

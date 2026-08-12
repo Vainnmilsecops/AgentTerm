@@ -50,8 +50,10 @@ const planningOverview: AgentWorkspaceOverview = Object.freeze({
       tasks: [
         {
           activeSession: undefined,
+          canRetryExecution: false,
           canStartExecution: true,
           latestSession: undefined,
+          previousSession: undefined,
           task: planningTask,
         },
       ],
@@ -65,8 +67,10 @@ const failedOverview: AgentWorkspaceOverview = Object.freeze({
       tasks: [
         {
           activeSession: undefined,
-          canStartExecution: true,
+          canRetryExecution: true,
+          canStartExecution: false,
           latestSession: failedSession,
+          previousSession: undefined,
           task: runningTask,
         },
       ],
@@ -84,6 +88,9 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public loadFailure: Error | undefined;
   public startGate: Promise<void> | undefined;
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
+    async () => undefined,
+  );
+  public readonly retryTaskExecution = vi.fn<AgentWorkspaceClient['retryTaskExecution']>(
     async () => undefined,
   );
 
@@ -131,14 +138,18 @@ describe('WorkspaceController', () => {
             tasks: [
               {
                 activeSession: undefined,
+                canRetryExecution: false,
                 canStartExecution: true,
                 latestSession: undefined,
+                previousSession: undefined,
                 task: planningTask,
               },
               {
                 activeSession: undefined,
+                canRetryExecution: false,
                 canStartExecution: false,
                 latestSession: undefined,
+                previousSession: undefined,
                 task: secondTask,
               },
             ],
@@ -177,6 +188,45 @@ describe('WorkspaceController', () => {
     });
   });
 
+  it('retries a terminal attempt once and selects the newly active Session', async () => {
+    const recoveredOverview: AgentWorkspaceOverview = {
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              activeSession: workingSession,
+              canRetryExecution: false,
+              canStartExecution: false,
+              latestSession: workingSession,
+              previousSession: failedSession,
+              task: runningTask,
+            },
+          ],
+        },
+      ],
+    };
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [failedOverview, recoveredOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await Promise.all([controller.retrySelectedTask(), controller.retrySelectedTask()]);
+
+    expect(client.retryTaskExecution).toHaveBeenCalledOnce();
+    expect(client.retryTaskExecution).toHaveBeenCalledWith({ taskId: 'task-1' });
+    expect(client.startTaskExecution).not.toHaveBeenCalled();
+    expect(controller.snapshot).toMatchObject({
+      actionError: undefined,
+      selectedTaskId: 'task-1',
+      terminalSessionId: workingSession.id,
+    });
+    expect(selectedTask(controller.snapshot)).toMatchObject({
+      activeSession: { id: workingSession.id, status: 'WORKING' },
+      previousSession: { id: failedSession.id, status: 'FAILED' },
+    });
+  });
+
   it('shows sanitized load and start errors without leaking native messages', async () => {
     const loadClient = new FakeWorkspaceClient();
     loadClient.loadFailure = new Error('secret path D:\\private\\agentterm.db');
@@ -200,6 +250,19 @@ describe('WorkspaceController', () => {
       selectedTaskId: 'task-1',
     });
     expect(JSON.stringify(startController.snapshot)).not.toContain('OPENAI_API_KEY');
+
+    const retryClient = new FakeWorkspaceClient();
+    retryClient.loadResults = [failedOverview];
+    retryClient.retryTaskExecution.mockRejectedValueOnce(new Error('D:\\secret\\worktree'));
+    const retryController = new WorkspaceController(retryClient);
+    await retryController.load();
+    await retryController.retrySelectedTask();
+
+    expect(retryController.snapshot).toMatchObject({
+      actionError: 'Task execution could not be retried.',
+      kind: 'ready',
+    });
+    expect(JSON.stringify(retryController.snapshot)).not.toContain('secret');
   });
 
   it('does not report a successful execution side effect as failed when only refresh fails', async () => {
@@ -248,14 +311,18 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: undefined,
+              canRetryExecution: false,
               canStartExecution: true,
               latestSession: undefined,
+              previousSession: undefined,
               task: planningTask,
             },
             {
               activeSession: undefined,
+              canRetryExecution: false,
               canStartExecution: true,
               latestSession: undefined,
+              previousSession: undefined,
               task: secondTask,
             },
           ],
@@ -288,8 +355,10 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: workingSession,
-              canStartExecution: true,
+              canRetryExecution: false,
+              canStartExecution: false,
               latestSession: workingSession,
+              previousSession: undefined,
               task: runningTask,
             },
           ],
@@ -303,8 +372,10 @@ describe('WorkspaceController', () => {
           tasks: [
             {
               activeSession: undefined,
-              canStartExecution: true,
+              canRetryExecution: true,
+              canStartExecution: false,
               latestSession: { ...workingSession, endedAt: 1_800_000_000_100, status: 'EXITED' },
+              previousSession: undefined,
               task: runningTask,
             },
           ],
@@ -348,6 +419,7 @@ describe('AgentWorkspaceView', () => {
         client,
         onRefresh: () => undefined,
         onRetry: () => undefined,
+        onRetryTask: () => undefined,
         onSelectTask: () => undefined,
         onStartTask: () => undefined,
         snapshot,
@@ -360,8 +432,51 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('FAILED');
     expect(markup).toContain('interrupted when AgentTerm restarted');
     expect(markup).toContain('Task phase remains RUNNING');
+    expect(markup).toContain('Retry execution');
     expect(markup).not.toContain('Task phase</span><strong>DONE');
     expect(markup).toContain('Nối terminal tiếng Việt');
+  });
+
+  it('shows the prior failed attempt separately from the newly active Session', () => {
+    const overview: AgentWorkspaceOverview = {
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              activeSession: workingSession,
+              canRetryExecution: false,
+              canStartExecution: false,
+              latestSession: workingSession,
+              previousSession: failedSession,
+              task: runningTask,
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onRefresh: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          kind: 'ready',
+          overview,
+          selectedTaskId: runningTask.id,
+          startingTaskId: undefined,
+          terminalSessionId: workingSession.id,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Previous session');
+    expect(markup).toContain('FAILED · session-failed');
+    expect(markup).toContain('codex · session-working');
   });
 
   it('renders loading, empty, and recoverable error states', () => {
@@ -370,6 +485,7 @@ describe('AgentWorkspaceView', () => {
       client,
       onRefresh: () => undefined,
       onRetry: () => undefined,
+      onRetryTask: () => undefined,
       onSelectTask: () => undefined,
       onStartTask: () => undefined,
     };

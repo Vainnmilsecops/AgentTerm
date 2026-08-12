@@ -16,6 +16,7 @@ export interface AgentWorkspaceProps {
 export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onRefresh: () => void;
   readonly onRetry: () => void;
+  readonly onRetryTask: () => void;
   readonly onSelectTask: (taskId: string) => void;
   readonly onStartTask: () => void;
   readonly snapshot: WorkspaceSnapshot;
@@ -46,6 +47,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       {...(client === undefined ? {} : { client })}
       onRefresh={() => void controller?.refresh()}
       onRetry={() => void controller?.load()}
+      onRetryTask={() => void controller?.retrySelectedTask()}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
       onStartTask={() => void controller?.startSelectedTask()}
       snapshot={snapshot}
@@ -57,6 +59,7 @@ export function AgentWorkspaceView({
   client,
   onRefresh,
   onRetry,
+  onRetryTask,
   onSelectTask,
   onStartTask,
   snapshot,
@@ -111,15 +114,17 @@ export function AgentWorkspaceView({
               </button>
               <button
                 className="primary-action"
-                disabled={!canStart(selected) || snapshot.startingTaskId !== undefined}
-                onClick={onStartTask}
+                disabled={!canExecute(selected) || snapshot.startingTaskId !== undefined}
+                onClick={selected.canRetryExecution ? onRetryTask : onStartTask}
                 title={startActionTitle(selected)}
                 type="button"
               >
                 {snapshot.startingTaskId === selected.task.id
-                  ? 'Starting…'
-                  : selected.task.phase === 'RUNNING'
-                    ? 'Start new session'
+                  ? selected.canRetryExecution
+                    ? 'Retrying…'
+                    : 'Starting…'
+                  : selected.canRetryExecution
+                    ? 'Retry execution'
                     : 'Start execution'}
               </button>
             </div>
@@ -151,6 +156,14 @@ export function AgentWorkspaceView({
                   : `${selected.latestSession.agentId} · ${selected.latestSession.id}`}
               </strong>
             </div>
+            {selected.previousSession === undefined ? null : (
+              <div className="previous-session">
+                <span>Previous session</span>
+                <strong>
+                  {selected.previousSession.status} · {selected.previousSession.id}
+                </strong>
+              </div>
+            )}
             {selected.latestSession?.failureCode === 'RUNTIME_OWNERSHIP_LOST' ? (
               <p className="restore-state" role="status">
                 The previous Agent Session was interrupted when AgentTerm restarted. Task phase
@@ -268,14 +281,19 @@ function WorkspaceMessage({
   );
 }
 
-function canStart(task: WorkspaceTaskOverview): boolean {
-  return task.canStartExecution;
+function canExecute(task: WorkspaceTaskOverview): boolean {
+  return task.canStartExecution || task.canRetryExecution;
 }
 
 function startActionTitle(task: WorkspaceTaskOverview): string {
-  return canStart(task)
+  if (task.canRetryExecution) {
+    return 'Reuse the primary Task Worktree and launch a new Agent Session attempt.';
+  }
+  return task.canStartExecution
     ? 'Provision or reuse the Task Worktree and launch a new Agent Session.'
-    : 'The Task must be in PLANNING or RUNNING before execution can start.';
+    : task.activeSession === undefined
+      ? 'The Task must be in PLANNING or RUNNING before execution can start.'
+      : 'The Task already has an active Agent Session.';
 }
 
 function findTask(

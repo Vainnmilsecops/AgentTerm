@@ -44,6 +44,8 @@ export type TaskWorktreeLifecycleFailure =
   | 'WORKTREE_MISMATCH';
 
 export type TaskExecutionStartStage = 'SESSION_START' | 'TASK_STATE';
+export type TaskExecutionRetryFailure =
+  'ACTIVE_SESSION_EXISTS' | 'AGENT_MISMATCH' | 'NO_RETRYABLE_SESSION' | 'RETRY_REQUIRED';
 
 export class AgentAdapterError extends Error {
   public readonly reason: AgentAdapterFailureReason;
@@ -75,6 +77,16 @@ export class AgentSessionRuntimeOwnershipError extends Error {
   }
 }
 
+export class AgentSessionActiveConflictError extends Error {
+  public readonly taskId: string;
+
+  public constructor(taskId: string) {
+    super(`Task ${taskId} already has an active Agent Session.`);
+    this.name = 'AgentSessionActiveConflictError';
+    this.taskId = taskId;
+  }
+}
+
 export class TaskExecutionStartError extends Error {
   public readonly session: AgentSession | undefined;
   public readonly sessionId: string;
@@ -101,6 +113,27 @@ export class TaskExecutionStartError extends Error {
     this.stage = stage;
     this.taskId = taskId;
     this.worktree = worktree;
+  }
+}
+
+export class TaskExecutionRetryError extends Error {
+  public readonly activeSessionId: string | undefined;
+  public readonly reason: TaskExecutionRetryFailure;
+  public readonly sessionId: string;
+  public readonly taskId: string;
+
+  public constructor(
+    reason: TaskExecutionRetryFailure,
+    taskId: string,
+    sessionId: string,
+    options: { readonly activeSessionId?: string } = {},
+  ) {
+    super(taskExecutionRetryFailureMessage(reason));
+    this.name = 'TaskExecutionRetryError';
+    this.activeSessionId = options.activeSessionId;
+    this.reason = reason;
+    this.sessionId = sessionId;
+    this.taskId = taskId;
   }
 }
 
@@ -318,5 +351,18 @@ function taskWorktreeLifecycleFailureMessage(reason: TaskWorktreeLifecycleFailur
       return 'The Task Project does not have a persisted local Git root.';
     case 'WORKTREE_MISMATCH':
       return 'The registered Worktree does not match the expected Task branch and repository.';
+  }
+}
+
+function taskExecutionRetryFailureMessage(reason: TaskExecutionRetryFailure): string {
+  switch (reason) {
+    case 'ACTIVE_SESSION_EXISTS':
+      return 'The Task already has an active Agent Session.';
+    case 'AGENT_MISMATCH':
+      return 'The previous Agent Session belongs to a different agent.';
+    case 'NO_RETRYABLE_SESSION':
+      return 'The Task does not have a failed or exited Agent Session to retry.';
+    case 'RETRY_REQUIRED':
+      return 'The Task already has Session history and must use the Retry action.';
   }
 }

@@ -4,6 +4,7 @@ import type { TerminalSessionClient } from './terminal-controller';
 
 export interface AgentWorkspaceClient extends TerminalSessionClient {
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
+  retryTaskExecution(input: { readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly taskId: string }): Promise<void>;
 }
 
@@ -95,6 +96,14 @@ export class WorkspaceController {
   }
 
   public startSelectedTask(): Promise<void> {
+    return this.executeSelectedTask('start');
+  }
+
+  public retrySelectedTask(): Promise<void> {
+    return this.executeSelectedTask('retry');
+  }
+
+  private executeSelectedTask(operation: 'retry' | 'start'): Promise<void> {
     if (this.startAttempt !== undefined) {
       return this.startAttempt;
     }
@@ -103,7 +112,15 @@ export class WorkspaceController {
     }
 
     const taskId = this.snapshot.selectedTaskId;
-    const attempt = this.startTask(taskId);
+    const selected = findTask(this.snapshot.overview, taskId);
+    if (
+      selected === undefined ||
+      (operation === 'start' && !selected.canStartExecution) ||
+      (operation === 'retry' && !selected.canRetryExecution)
+    ) {
+      return Promise.resolve();
+    }
+    const attempt = this.startTask(taskId, operation);
     this.startAttempt = attempt;
     void attempt
       .finally(() => {
@@ -120,7 +137,7 @@ export class WorkspaceController {
     this.loadGeneration += 1;
   }
 
-  private async startTask(taskId: string): Promise<void> {
+  private async startTask(taskId: string, operation: 'retry' | 'start'): Promise<void> {
     const current = this.snapshot;
     if (current.kind !== 'ready') {
       return;
@@ -134,7 +151,11 @@ export class WorkspaceController {
       }),
     );
     try {
-      await this.client.startTaskExecution({ taskId });
+      if (operation === 'retry') {
+        await this.client.retryTaskExecution({ taskId });
+      } else {
+        await this.client.startTaskExecution({ taskId });
+      }
       executionStarted = true;
       const overview = await this.client.loadWorkspace();
       if (!this.disposed) {
@@ -150,7 +171,9 @@ export class WorkspaceController {
             ...latest,
             actionError: executionStarted
               ? 'Task execution started, but workspace status could not be refreshed.'
-              : 'Task execution could not be started.',
+              : operation === 'retry'
+                ? 'Task execution could not be retried.'
+                : 'Task execution could not be started.',
             selectedTaskId: latest.selectedTaskId ?? taskId,
             startingTaskId: undefined,
           }),
