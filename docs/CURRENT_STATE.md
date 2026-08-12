@@ -19,6 +19,7 @@ Updated: 2026-08-12
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application now exposes `startTaskExecution`: it accepts a `PLANNING` or already-`RUNNING` Task, ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
+- The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
 
 ## Decisions
 
@@ -27,7 +28,7 @@ Updated: 2026-08-12
 - Task transitions load and persist state through `TaskRepository`, while transition validity remains owned by Domain.
 - The PTY port is runtime-only: Infrastructure owns `node-pty` and ConPTY mechanics, while process
   exit remains evidence and never changes `TaskPhase`. Agent-specific commands, session policy,
-  validated IPC, and terminal UI remain outside this slice.
+  and validated IPC remain outside that runtime layer.
 - SQLite uses the built-in `node:sqlite` module and explicit prepared SQL; no ORM or additional runtime dependency was added.
 - Persisted rows are reconstructed through Domain factories and valid transitions rather than trusted casts.
 - Domain `Project` remains filesystem/Git-agnostic; Application owns `ProjectDiscovery` and `ProjectCatalog` ports.
@@ -80,6 +81,10 @@ Updated: 2026-08-12
   persist `RUNNING`, then create and launch a new Session. A later failure preserves the ready
   Worktree and durable Task/Session checkpoint for inspection; it never deletes Git state or
   pretends SQLite can roll back Git or a spawned process. Reusing an old Session id is rejected.
+- Terminal rendering uses `@xterm/xterm` with the fit addon and a renderer-local controller. The
+  controller consumes only the Application session attachment contract; detach is observer cleanup,
+  not stop, and an exit disables input while preserving the visible terminal buffer. Output is a
+  live stream and is not persisted or replayed after a later attachment.
 
 ## Blockers
 
@@ -96,10 +101,13 @@ Electron 43 development runtime but not yet from an installed artifact. The Infr
 copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
 `node-pty` module outside ASAR. PTY children run with the desktop process's privileges; executable
 and environment policy belongs to the future session/agent coordinator.
+The renderer-side terminal contract is implemented, but the sandboxed Electron renderer still has no
+validated preload/IPC binding to the main-process execution coordinator. Until that composition is
+added, the desktop shell intentionally renders the terminal's unattached state.
 
 ## Next Step
 
-Compose `startTaskExecution`, session stop/status operations, and terminal I/O in the Electron main
-process behind narrow validated IPC. The renderer must not receive raw filesystem, Git, database,
-process, or environment capability. Full restart/recovery, resume policy, and cross-process
-execution reconciliation remain later lifecycle slices.
+Compose `startTaskExecution`, session stop/status operations, and the new terminal attachment in the
+Electron main process behind narrow validated IPC. The renderer must not receive raw filesystem,
+Git, database, process, or environment capability. Full restart/recovery, resume policy, output
+replay, and cross-process execution reconciliation remain later lifecycle slices.
