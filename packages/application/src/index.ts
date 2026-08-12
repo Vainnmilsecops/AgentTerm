@@ -10,11 +10,13 @@ export {
   TaskWorktreeLifecycleError,
   TaskWorktreeMetadataConflictError,
   TaskWorktreePersistenceError,
+  TaskExecutionStartError,
   type EntityKind,
   type AgentAdapterFailureReason,
   type GitRepositoryInspectionFailure,
   type ProjectOpenFailure,
   type TaskWorktreeLifecycleFailure,
+  type TaskExecutionStartStage,
 } from './errors';
 export {
   AgentSessionCoordinator,
@@ -68,6 +70,12 @@ export type {
   TaskWorktreeStatus,
 } from './ports';
 export { createTask, transitionTask, type TransitionTaskInput } from './task-use-cases';
+export {
+  startTaskExecution,
+  type StartTaskExecutionDependencies,
+  type StartTaskExecutionInput,
+  type TaskExecutionStartResult,
+} from './task-execution';
 export {
   cleanupTaskWorktree,
   ensureTaskWorktree,
