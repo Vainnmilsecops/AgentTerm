@@ -1,5 +1,44 @@
 import type { Project, Task } from '@agentterm/domain';
 
+export interface AgentVersion {
+  readonly major: number;
+  readonly minor: number;
+  readonly patch: number;
+  readonly raw: string;
+}
+
+export interface AgentCapabilities {
+  readonly resume: boolean;
+}
+
+export type AgentAvailability =
+  | {
+      readonly capabilities: AgentCapabilities;
+      readonly executablePath: string;
+      readonly kind: 'available';
+      readonly version?: AgentVersion;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: 'EXECUTABLE_NOT_FOUND' | 'INSPECTION_FAILED';
+    };
+
+export interface AgentLaunchRequest {
+  /** The complete environment passed to the agent process. */
+  readonly environment: Readonly<Record<string, string>>;
+  readonly workingDirectory: string;
+}
+
+export interface AgentLaunchCommand extends AgentLaunchRequest {
+  readonly arguments: readonly string[];
+  readonly executablePath: string;
+}
+
+export interface AgentAdapter {
+  inspect(): Promise<AgentAvailability>;
+  buildLaunchCommand(request: AgentLaunchRequest): Promise<AgentLaunchCommand>;
+}
+
 export interface PtyTerminalSize {
   readonly columns: number;
   readonly rows: number;
