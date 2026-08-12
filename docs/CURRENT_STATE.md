@@ -23,6 +23,8 @@ Updated: 2026-08-12
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, reuses the primary Worktree without cleaning dirty code, and creates a new Session for the same agent.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes a minimal start-execution action through an application-shaped client.
+- Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
+- Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
 
 ## Decisions
 
@@ -108,6 +110,11 @@ Updated: 2026-08-12
 - The workspace read model exposes Start and Retry availability separately. The desktop retry action
   is disabled while a Session is active and shows the previous attempt beside the newly active/latest
   Session after recovery.
+- Execution Artifacts are structured evidence, never Task transitions. Their identity is insert-only;
+  repeated canonical outputs receive new identities and per-Task ordinals rather than overwriting
+  history. SQLite stores validated text and fixed contract metadata directly, so this slice adds no
+  user-controlled filesystem path. Metadata excludes environment and credential data, and the
+  desktop renders artifact content as escaped plain text instead of executable HTML.
 - The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
   check verifies nonempty rendered content instead of accepting `did-finish-load` alone. The CSP
   permits only the inline style elements/attributes required by xterm while scripts remain self-only.
@@ -136,7 +143,7 @@ demo data or exposing Infrastructure to React.
 
 ## Next Step
 
-Bind startup session reconciliation, `loadAgentWorkspace`, `startTaskExecution`,
+Bind startup session reconciliation, artifact reads, `loadAgentWorkspace`, `startTaskExecution`,
 `retryTaskExecution`, and terminal attachment to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch

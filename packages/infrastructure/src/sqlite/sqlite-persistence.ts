@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 
 import type {
   AgentSessionRepository,
+  ExecutionArtifactRepository,
   LocalProjectLocator,
   ProjectCatalog,
   ProjectRepository,
@@ -14,6 +15,7 @@ import { migrateSqliteDatabase } from './migrate';
 import {
   SqliteProjectRepository,
   SqliteAgentSessionRepository,
+  SqliteExecutionArtifactRepository,
   SqliteTaskRepository,
   SqliteTaskWorktreeRepository,
 } from './repositories';
@@ -24,6 +26,7 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
+  readonly artifacts: ExecutionArtifactRepository;
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   readonly sessions: AgentSessionRepository;
   readonly tasks: TaskCatalog & TaskRepository;
@@ -42,6 +45,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     enableForeignKeyConstraints: true,
   });
   let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
+  let artifacts: ExecutionArtifactRepository;
   let sessions: AgentSessionRepository;
   let tasks: TaskCatalog & TaskRepository;
   let worktrees: TaskWorktreeRepository;
@@ -54,6 +58,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
       PRAGMA trusted_schema = OFF;
     `);
     migrateSqliteDatabase(database);
+    artifacts = new SqliteExecutionArtifactRepository(database);
     projects = new SqliteProjectRepository(database);
     sessions = new SqliteAgentSessionRepository(database);
     tasks = new SqliteTaskRepository(database);
@@ -66,6 +71,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let isClosed = false;
 
   return Object.freeze({
+    artifacts,
     projects,
     sessions,
     tasks,

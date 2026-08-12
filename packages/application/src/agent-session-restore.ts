@@ -1,7 +1,12 @@
 import { AgentSessionStatus, recordAgentSessionEvent, type AgentSession } from '@agentterm/domain';
 
 import { AgentSessionPersistenceError } from './errors';
-import type { AgentSessionRepository, ProjectCatalog, TaskCatalog } from './ports';
+import type {
+  AgentSessionRepository,
+  ExecutionArtifactRepository,
+  ProjectCatalog,
+  TaskCatalog,
+} from './ports';
 import { loadAgentWorkspace, type AgentWorkspaceOverview } from './workspace-overview';
 
 export interface RestoreAgentSessionsResult {
@@ -54,10 +59,11 @@ export async function restoreAgentWorkspaceAfterRestart(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
+  artifacts: ExecutionArtifactRepository,
   clock: () => number,
 ): Promise<AgentWorkspaceOverview> {
   await restoreAgentSessionsAfterRestart(sessions, clock);
-  return loadAgentWorkspace(projects, tasks, sessions);
+  return loadAgentWorkspace(projects, tasks, sessions, artifacts);
 }
 
 async function readLatest(

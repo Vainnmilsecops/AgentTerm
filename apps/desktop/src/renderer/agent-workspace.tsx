@@ -172,6 +172,8 @@ export function AgentWorkspaceView({
             ) : null}
           </div>
 
+          <ArtifactHistory artifacts={selected.artifacts} />
+
           <TerminalRenderer
             {...(client === undefined ? {} : { client })}
             {...(snapshot.terminalSessionId === undefined
@@ -186,6 +188,45 @@ export function AgentWorkspaceView({
         </section>
       )}
     </main>
+  );
+}
+
+function ArtifactHistory({
+  artifacts,
+}: {
+  readonly artifacts: WorkspaceTaskOverview['artifacts'];
+}) {
+  return (
+    <section className="artifact-history" aria-label="Execution artifacts">
+      <header className="artifact-history__header">
+        <div>
+          <p className="eyebrow">Execution evidence</p>
+          <h3>Execution artifacts</h3>
+        </div>
+        <span>{artifacts.length}</span>
+      </header>
+      {artifacts.length === 0 ? (
+        <p className="artifact-history__empty">No structured artifacts for this Task yet.</p>
+      ) : (
+        <ol className="artifact-list">
+          {artifacts.map((artifact) => (
+            <li className="artifact-card" key={artifact.id}>
+              <header>
+                <div>
+                  <strong>{artifact.kind}</strong>
+                  <span>{artifact.canonicalName}</span>
+                </div>
+                <div className="artifact-card__provenance">
+                  <span>{artifact.phase}</span>
+                  <span>{artifact.sessionId ?? 'Task-level'}</span>
+                </div>
+              </header>
+              <pre>{artifact.content}</pre>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 

@@ -9,6 +9,7 @@ import { openSqlitePersistence, SqlitePersistenceError } from './index';
 import { projectsAndTasksMigration } from './sqlite/migrations/0001-projects-and-tasks';
 import { projectRootsMigration } from './sqlite/migrations/0002-project-roots';
 import { taskWorktreesMigration } from './sqlite/migrations/0003-task-worktrees';
+import { agentSessionsMigration } from './sqlite/migrations/0004-agent-sessions';
 
 async function withTemporaryDatabase(run: (databasePath: string) => Promise<void>): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'agentterm-sqlite-migration-'));
@@ -22,7 +23,7 @@ async function withTemporaryDatabase(run: (databasePath: string) => Promise<void
 }
 
 describe('SQLite migrations', () => {
-  it('applies the current Project, Task, Worktree, and Agent Session schema once', async () => {
+  it('applies the current Project, Task, Worktree, Session, and Artifact schema once', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       openSqlitePersistence(databasePath).close();
       openSqlitePersistence(databasePath).close();
@@ -50,6 +51,8 @@ describe('SQLite migrations', () => {
                AND name IN (
                  'agent_session_events_runtime_sequence_index',
                  'agent_sessions_task_ordinal_index',
+                 'agent_sessions_identity_task_index',
+                 'execution_artifacts_task_history_index',
                  'tasks_project_id_index',
                  'project_roots_recent_index'
                )
@@ -61,6 +64,7 @@ describe('SQLite migrations', () => {
           '_agentterm_migrations',
           'agent_session_events',
           'agent_sessions',
+          'execution_artifacts',
           'project_roots',
           'projects',
           'task_worktrees',
@@ -71,10 +75,13 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
+          { name: 'execution-artifacts', version: 5 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
+          { name: 'agent_sessions_identity_task_index' },
           { name: 'agent_sessions_task_ordinal_index' },
+          { name: 'execution_artifacts_task_history_index' },
           { name: 'project_roots_recent_index' },
           { name: 'tasks_project_id_index' },
         ]);
@@ -256,6 +263,7 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
+          { name: 'execution-artifacts', version: 5 },
         ]);
       } finally {
         migrated.close();
@@ -324,6 +332,81 @@ describe('SQLite migrations', () => {
           { name: 'project-roots', version: 2 },
           { name: 'task-worktrees', version: 3 },
           { name: 'agent-sessions', version: 4 },
+          { name: 'execution-artifacts', version: 5 },
+        ]);
+      } finally {
+        migrated.close();
+      }
+    });
+  });
+
+  it('upgrades a v4 database without changing Agent Session history', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+      try {
+        database.exec(`
+          CREATE TABLE _agentterm_migrations (
+            version INTEGER PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL UNIQUE,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          ) STRICT;
+          ${projectsAndTasksMigration.sql}
+          ${projectRootsMigration.sql}
+          ${taskWorktreesMigration.sql}
+          ${agentSessionsMigration.sql}
+          INSERT INTO _agentterm_migrations (version, name)
+          VALUES
+            (1, 'projects-and-tasks'),
+            (2, 'project-roots'),
+            (3, 'task-worktrees'),
+            (4, 'agent-sessions');
+          INSERT INTO projects (id, name) VALUES ('project-1', 'AgentTerm');
+          INSERT INTO tasks (id, project_id, title, phase)
+          VALUES ('task-1', 'project-1', 'Keep Session', 'RUNNING');
+          INSERT INTO agent_sessions (
+            id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
+          ) VALUES ('session-1', 'task-1', 'codex', 1, 'STARTING', 10, NULL, 1);
+          INSERT INTO agent_session_events (
+            session_id, sequence, kind, status, occurred_at, runtime_sequence,
+            source, failure_code, fatal, stage, exit_code, exit_reason, signal
+          ) VALUES (
+            'session-1', 1, 'START_REQUESTED', 'STARTING', 10, NULL,
+            NULL, NULL, NULL, NULL, NULL, NULL, NULL
+          );
+        `);
+      } finally {
+        database.close();
+      }
+
+      openSqlitePersistence(databasePath).close();
+      const migrated = new DatabaseSync(databasePath, { readOnly: true });
+      try {
+        expect(
+          migrated
+            .prepare('SELECT id, task_id, agent_id, status, history_sequence FROM agent_sessions')
+            .all(),
+        ).toEqual([
+          {
+            agent_id: 'codex',
+            history_sequence: 1,
+            id: 'session-1',
+            status: 'STARTING',
+            task_id: 'task-1',
+          },
+        ]);
+        expect(migrated.prepare('SELECT count(*) AS count FROM execution_artifacts').get()).toEqual(
+          { count: 0 },
+        );
+        expect(
+          migrated
+            .prepare('SELECT version, name FROM _agentterm_migrations ORDER BY version')
+            .all(),
+        ).toEqual([
+          { name: 'projects-and-tasks', version: 1 },
+          { name: 'project-roots', version: 2 },
+          { name: 'task-worktrees', version: 3 },
+          { name: 'agent-sessions', version: 4 },
+          { name: 'execution-artifacts', version: 5 },
         ]);
       } finally {
         migrated.close();

@@ -1,10 +1,22 @@
-import { AgentSessionStatus, type AgentSession, type Project, type Task } from '@agentterm/domain';
+import {
+  AgentSessionStatus,
+  type AgentSession,
+  type ExecutionArtifact,
+  type Project,
+  type Task,
+} from '@agentterm/domain';
 
-import type { AgentSessionRepository, ProjectCatalog, TaskCatalog } from './ports';
+import type {
+  AgentSessionRepository,
+  ExecutionArtifactRepository,
+  ProjectCatalog,
+  TaskCatalog,
+} from './ports';
 import { canStartTaskExecution } from './task-execution';
 
 export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
+  readonly artifacts: readonly ExecutionArtifact[];
   readonly canRetryExecution: boolean;
   readonly canStartExecution: boolean;
   readonly latestSession: AgentSessionSummary | undefined;
@@ -35,6 +47,7 @@ export async function loadAgentWorkspace(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
+  artifacts: ExecutionArtifactRepository,
 ): Promise<AgentWorkspaceOverview> {
   const recentProjects = await projects.listRecent();
   const projectOverviews = await Promise.all(
@@ -43,11 +56,13 @@ export async function loadAgentWorkspace(
       const taskOverviews = await Promise.all(
         projectTasks.map(async (task): Promise<WorkspaceTaskOverview> => {
           const history = await sessions.listByTaskId(task.id);
+          const artifactHistory = await artifacts.listByTaskId(task.id);
           const activeSession = findLatestActiveSession(history);
           const latestSession = history.at(-1);
           const phaseAllowsExecution = canStartTaskExecution(task);
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
+            artifacts: Object.freeze([...artifactHistory]),
             canRetryExecution:
               phaseAllowsExecution && activeSession === undefined && isTerminal(latestSession),
             canStartExecution:
