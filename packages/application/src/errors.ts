@@ -2,8 +2,10 @@ import type {
   PtyRuntimeFailureReason,
   PtyRuntimeOperation,
   TaskWorktree,
+  TaskWorktreeEnsureResult,
   TaskWorktreeStatus,
 } from './ports';
+import type { AgentSession } from '@agentterm/domain';
 
 export type EntityKind = 'AgentSession' | 'Project' | 'Task';
 
@@ -41,6 +43,8 @@ export type TaskWorktreeLifecycleFailure =
   | 'PROJECT_NOT_LOCAL'
   | 'WORKTREE_MISMATCH';
 
+export type TaskExecutionStartStage = 'SESSION_START' | 'TASK_STATE';
+
 export class AgentAdapterError extends Error {
   public readonly reason: AgentAdapterFailureReason;
 
@@ -68,6 +72,35 @@ export class AgentSessionRuntimeOwnershipError extends Error {
     super(`Agent Session ${sessionId} does not have a runtime owned by this coordinator.`);
     this.name = 'AgentSessionRuntimeOwnershipError';
     this.sessionId = sessionId;
+  }
+}
+
+export class TaskExecutionStartError extends Error {
+  public readonly session: AgentSession | undefined;
+  public readonly sessionId: string;
+  public readonly stage: TaskExecutionStartStage;
+  public readonly taskId: string;
+  public readonly worktree: TaskWorktreeEnsureResult;
+
+  public constructor(
+    stage: TaskExecutionStartStage,
+    taskId: string,
+    sessionId: string,
+    worktree: TaskWorktreeEnsureResult,
+    options: ErrorOptions & { readonly session?: AgentSession } = {},
+  ) {
+    super(
+      stage === 'TASK_STATE'
+        ? 'The Task Worktree is ready, but the Task execution state could not be confirmed.'
+        : 'The Task Worktree is ready, but the Agent Session did not start successfully.',
+      options,
+    );
+    this.name = 'TaskExecutionStartError';
+    this.session = options.session;
+    this.sessionId = sessionId;
+    this.stage = stage;
+    this.taskId = taskId;
+    this.worktree = worktree;
   }
 }
 

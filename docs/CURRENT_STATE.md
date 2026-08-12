@@ -18,6 +18,7 @@ Updated: 2026-08-12
 - Application now owns a minimal provider-neutral `AgentAdapter` contract and launch use case; Infrastructure provides the first `CodexAdapter` for CLI discovery, version/capability inspection, and structured interactive launch through the PTY runtime.
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
+- Application now exposes `startTaskExecution`: it accepts a `PLANNING` or already-`RUNNING` Task, ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
 
 ## Decisions
 
@@ -75,6 +76,10 @@ Updated: 2026-08-12
   Application coordinator persists `STARTING` before launch, serializes PTY evidence, retains
   owned handles for stop, and records exit/failure as session evidence only. Multiple sessions per
   Task are preserved; output is not persisted or interpreted as idle/input/completion state.
+- Task execution orders external effects deliberately: validate phase, ensure/reuse the Worktree,
+  persist `RUNNING`, then create and launch a new Session. A later failure preserves the ready
+  Worktree and durable Task/Session checkpoint for inspection; it never deletes Git state or
+  pretends SQLite can roll back Git or a spawned process. Reusing an old Session id is rejected.
 
 ## Blockers
 
@@ -94,7 +99,7 @@ and environment policy belongs to the future session/agent coordinator.
 
 ## Next Step
 
-Compose SQLite, Project Management, repository inspection, Task Worktree lifecycle, the Agent
-Session coordinator, Codex launch, and the PTY runtime in the Electron main process behind narrow
-validated IPC. The renderer must not receive raw filesystem, Git, database, process, or environment
-capability. Full restart/recovery and resume policy remain a later lifecycle slice.
+Compose `startTaskExecution`, session stop/status operations, and terminal I/O in the Electron main
+process behind narrow validated IPC. The renderer must not receive raw filesystem, Git, database,
+process, or environment capability. Full restart/recovery, resume policy, and cross-process
+execution reconciliation remain later lifecycle slices.
