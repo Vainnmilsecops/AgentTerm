@@ -1,4 +1,5 @@
 export {
+  AgentAdapterError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
   GitRepositoryInspectionError,
@@ -8,13 +9,21 @@ export {
   TaskWorktreeMetadataConflictError,
   TaskWorktreePersistenceError,
   type EntityKind,
+  type AgentAdapterFailureReason,
   type GitRepositoryInspectionFailure,
   type ProjectOpenFailure,
   type TaskWorktreeLifecycleFailure,
 } from './errors';
+export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
 export { listRecentProjects, openProject, type OpenProjectInput } from './project-management';
 export { createProject } from './project-use-cases';
 export type {
+  AgentAdapter,
+  AgentAvailability,
+  AgentCapabilities,
+  AgentLaunchCommand,
+  AgentLaunchRequest,
+  AgentVersion,
   DiscoveredProject,
   GitBaseBranch,
   GitHead,

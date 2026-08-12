@@ -1,3 +1,4 @@
+export { CodexAdapter } from './agent/codex-adapter';
 export { GitCliRepositoryInspector } from './git/git-cli-repository-inspector';
 export { GitCliTaskWorktreeLifecycle } from './git/git-cli-task-worktree-lifecycle';
 export { LocalGitProjectDiscovery } from './git/local-git-project-discovery';

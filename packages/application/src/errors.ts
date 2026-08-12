@@ -7,6 +7,9 @@ import type {
 
 export type EntityKind = 'Project' | 'Task';
 
+export type AgentAdapterFailureReason =
+  'EXECUTABLE_NOT_FOUND' | 'INSPECTION_FAILED' | 'INVALID_LAUNCH_REQUEST';
+
 export type ProjectOpenFailure =
   | 'GIT_INSPECTION_FAILED'
   | 'GIT_NOT_AVAILABLE'
@@ -37,6 +40,16 @@ export type TaskWorktreeLifecycleFailure =
   | 'PATH_COLLISION'
   | 'PROJECT_NOT_LOCAL'
   | 'WORKTREE_MISMATCH';
+
+export class AgentAdapterError extends Error {
+  public readonly reason: AgentAdapterFailureReason;
+
+  public constructor(reason: AgentAdapterFailureReason) {
+    super(agentAdapterFailureMessage(reason));
+    this.name = 'AgentAdapterError';
+    this.reason = reason;
+  }
+}
 
 export class EntityAlreadyExistsError extends Error {
   public readonly entity: EntityKind;
@@ -170,6 +183,17 @@ function gitRepositoryInspectionFailureMessage(reason: GitRepositoryInspectionFa
       return 'Git 2.45 or newer is required for safe repository status inspection.';
     case 'GIT_INSPECTION_FAILED':
       return 'Git repository inspection failed.';
+  }
+}
+
+function agentAdapterFailureMessage(reason: AgentAdapterFailureReason): string {
+  switch (reason) {
+    case 'EXECUTABLE_NOT_FOUND':
+      return 'The coding-agent executable was not found.';
+    case 'INSPECTION_FAILED':
+      return 'The coding-agent installation could not be inspected.';
+    case 'INVALID_LAUNCH_REQUEST':
+      return 'The coding-agent launch request is invalid.';
   }
 }
 

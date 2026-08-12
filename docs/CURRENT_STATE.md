@@ -15,6 +15,7 @@ Updated: 2026-08-12
 - Temporary integration tests use real Git repositories, linked Worktrees, and SQLite databases, including collision, dirty-protection, and partial-persistence recovery cases.
 - Application now owns a PTY runtime port with structured launch input, sequenced runtime events, and an owned input/resize/terminate handle.
 - Infrastructure implements that port with Windows ConPTY through pinned `node-pty` 1.1.0 in one dedicated host process per terminal; real Windows and Electron 43 smoke tests cover input, output, resize, exit, cleanup, native loading, attached-child termination, and host/handle release.
+- Application now owns a minimal provider-neutral `AgentAdapter` contract and launch use case; Infrastructure provides the first `CodexAdapter` for CLI discovery, version/capability inspection, and structured interactive launch through the PTY runtime.
 
 ## Decisions
 
@@ -61,6 +62,12 @@ Updated: 2026-08-12
   experimental ConPTY DLL. The pinned dependency patch removes PID-based termination, releases its
   output worker after natural exit, converts output-worker startup/runtime failure into bounded
   cleanup evidence, and permits input, resize, and termination before first output.
+- Codex discovery accepts a configured native executable or a recognized `@openai/codex` npm layout from
+  absolute `PATH` entries. Npm command shims are never executed through a shell; the adapter validates
+  the package entrypoint and invokes it through `node.exe`, rejecting Node injection variables.
+  Provider flags stay in `CodexAdapter`; Task Worktree cwd is both the PTY cwd and the structured
+  `--cd` argument. The adapter forwards only the caller-approved complete environment, never
+  installs, logs in, reads credentials, or infers Task completion from runtime exit.
 
 ## Blockers
 
@@ -80,6 +87,7 @@ and environment policy belongs to the future session/agent coordinator.
 
 ## Next Step
 
-Compose SQLite, Project Management, repository inspection, Task Worktree lifecycle, and the PTY
-runtime in the Electron main process behind narrow validated IPC and explicit AgentSession policy.
-The renderer must not receive raw filesystem, Git, database, process, or environment capability.
+Compose SQLite, Project Management, repository inspection, Task Worktree lifecycle, Codex launch,
+and the PTY runtime in the Electron main process behind narrow validated IPC and explicit
+AgentSession policy. The renderer must not receive raw filesystem, Git, database, process, or
+environment capability.
