@@ -1,4 +1,4 @@
-import type { AgentSession, Project, Task } from '@agentterm/domain';
+import type { AgentSession, ExecutionArtifact, Project, Task } from '@agentterm/domain';
 
 export interface AgentVersion {
   readonly major: number;
@@ -49,6 +49,14 @@ export interface AgentSessionRepository {
   listActive(): Promise<readonly AgentSession[]>;
   /** Returns session attempts from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly AgentSession[]>;
+}
+
+export interface ExecutionArtifactRepository {
+  findById(id: string): Promise<ExecutionArtifact | undefined>;
+  /** Inserts one immutable artifact and must never replace an existing identity. */
+  insert(artifact: ExecutionArtifact): Promise<void>;
+  /** Returns Task artifact history from oldest to newest. */
+  listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]>;
 }
 
 export interface PtyTerminalSize {

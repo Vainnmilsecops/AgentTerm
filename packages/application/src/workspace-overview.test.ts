@@ -2,17 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createAgentSession,
+  createExecutionArtifact,
   createTask,
   recordAgentSessionEvent,
   TaskPhase,
   transitionTask,
   type AgentSession,
+  type ExecutionArtifact,
   type Task,
 } from '@agentterm/domain';
 
 import {
   loadAgentWorkspace,
   type AgentSessionRepository,
+  type ExecutionArtifactRepository,
   type LocalProject,
   type ProjectCatalog,
   type TaskCatalog,
@@ -64,6 +67,22 @@ class FakeSessionRepository implements AgentSessionRepository {
   }
 }
 
+class FakeArtifactRepository implements ExecutionArtifactRepository {
+  public constructor(private readonly artifacts: readonly ExecutionArtifact[]) {}
+
+  public async findById(id: string): Promise<ExecutionArtifact | undefined> {
+    return this.artifacts.find((artifact) => artifact.id === id);
+  }
+
+  public async insert(): Promise<never> {
+    throw new Error('insert is not used by the workspace overview');
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]> {
+    return this.artifacts.filter((artifact) => artifact.taskId === taskId);
+  }
+}
+
 describe('loadAgentWorkspace', () => {
   it('groups Tasks under recent Projects and keeps Task phase separate from active/latest Session status', async () => {
     const project: LocalProject = {
@@ -89,11 +108,28 @@ describe('loadAgentWorkspace', () => {
     const working = workSession(startSession('session-working', runningTask.id, 102), 103);
     const olderActive = workSession(startSession('session-active', secondTask.id, 104), 105);
     const latestFailed = failSession(startSession('session-failed', secondTask.id, 106), 107);
+    const plan = createExecutionArtifact({
+      content: '# Plan\n\nGiữ Task phase và Session status riêng biệt.',
+      createdAt: 108,
+      id: 'artifact-plan',
+      kind: 'plan',
+      sessionId: exited.id,
+      taskId: runningTask.id,
+    });
+    const summary = createExecutionArtifact({
+      content: '# Execution Summary\n\nĐã hoàn thành execution slice, chưa hoàn thành Task.',
+      createdAt: 109,
+      id: 'artifact-summary',
+      kind: 'execution-summary',
+      sessionId: working.id,
+      taskId: runningTask.id,
+    });
 
     const workspace = await loadAgentWorkspace(
       new FakeProjectCatalog([project]),
       new FakeTaskCatalog([runningTask, secondTask]),
       new FakeSessionRepository([exited, working, olderActive, latestFailed]),
+      new FakeArtifactRepository([plan, summary]),
     );
 
     const projectSummary = { id: project.id, name: project.name };
@@ -107,6 +143,7 @@ describe('loadAgentWorkspace', () => {
           tasks: [
             {
               activeSession: workingSummary,
+              artifacts: [plan, summary],
               canRetryExecution: false,
               canStartExecution: false,
               latestSession: workingSummary,
@@ -115,6 +152,7 @@ describe('loadAgentWorkspace', () => {
             },
             {
               activeSession: olderActiveSummary,
+              artifacts: [],
               canRetryExecution: false,
               canStartExecution: false,
               latestSession: latestFailedSummary,
@@ -151,6 +189,7 @@ describe('loadAgentWorkspace', () => {
         new FakeProjectCatalog([emptyProject]),
         new FakeTaskCatalog([]),
         new FakeSessionRepository([]),
+        new FakeArtifactRepository([]),
       ),
     ).resolves.toEqual({
       projects: [{ project: { id: emptyProject.id, name: emptyProject.name }, tasks: [] }],
@@ -173,6 +212,7 @@ describe('loadAgentWorkspace', () => {
       new FakeProjectCatalog([project]),
       new FakeTaskCatalog([backlog, planning]),
       new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
@@ -200,10 +240,12 @@ describe('loadAgentWorkspace', () => {
       new FakeProjectCatalog([project]),
       new FakeTaskCatalog([running]),
       new FakeSessionRepository([failed]),
+      new FakeArtifactRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
       activeSession: undefined,
+      artifacts: [],
       canRetryExecution: true,
       canStartExecution: false,
       latestSession: { id: failed.id, status: 'FAILED' },

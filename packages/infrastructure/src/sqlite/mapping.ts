@@ -5,6 +5,7 @@ import type {
 } from '@agentterm/application';
 import {
   createAgentSession,
+  createExecutionArtifact,
   createProject,
   createTask,
   TaskPhase,
@@ -12,6 +13,7 @@ import {
   recordAgentSessionEvent,
   type AgentSession,
   type AgentSessionEvent,
+  type ExecutionArtifact,
   type Project,
   type Task,
   type TaskPhase as TaskPhaseValue,
@@ -144,6 +146,49 @@ export function mapAgentSessionRows(
     throw new SqlitePersistenceError('Agent Session snapshot does not match its event history.');
   }
   return session;
+}
+
+export function mapExecutionArtifactRow(row: SqliteRow): ExecutionArtifact {
+  const sessionValue = row.session_id;
+  if (sessionValue !== null && typeof sessionValue !== 'string') {
+    throw new SqlitePersistenceError(
+      'Execution Artifact row contains an invalid session_id column.',
+    );
+  }
+  const kind = readText(row, 'kind', 'Execution Artifact');
+  if (!['execution-summary', 'plan', 'review'].includes(kind)) {
+    throw new SqlitePersistenceError(`Execution Artifact row contains an invalid kind: ${kind}.`);
+  }
+
+  let artifact: ExecutionArtifact;
+  try {
+    artifact = createExecutionArtifact({
+      content: readText(row, 'content', 'Execution Artifact'),
+      createdAt: readSafeNonNegativeInteger(row, 'created_at', 'Execution Artifact'),
+      id: readNonBlankText(row, 'id', 'Execution Artifact'),
+      kind: kind as ExecutionArtifact['kind'],
+      ...(sessionValue === null ? {} : { sessionId: sessionValue }),
+      taskId: readNonBlankText(row, 'task_id', 'Execution Artifact'),
+    });
+  } catch (error) {
+    throw new SqlitePersistenceError('Execution Artifact row contains invalid content.', {
+      cause: error,
+    });
+  }
+
+  if (
+    artifact.canonicalName !== readText(row, 'canonical_name', 'Execution Artifact') ||
+    artifact.phase !== readText(row, 'phase', 'Execution Artifact') ||
+    artifact.format !== readText(row, 'format', 'Execution Artifact') ||
+    artifact.schemaVersion !==
+      readSafePositiveInteger(row, 'schema_version', 'Execution Artifact') ||
+    artifact.validation !== readText(row, 'validation', 'Execution Artifact')
+  ) {
+    throw new SqlitePersistenceError(
+      'Execution Artifact persisted metadata does not match its Domain contract.',
+    );
+  }
+  return artifact;
 }
 
 function mapAgentSessionEventInput(row: SqliteRow): Parameters<typeof recordAgentSessionEvent>[1] {
