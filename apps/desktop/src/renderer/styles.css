@@ -225,6 +225,40 @@ button:focus-visible {
   gap: 0.55rem;
 }
 
+.agent-selector {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 11rem;
+}
+
+.agent-selector span {
+  color: #71808d;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-selector select {
+  min-width: 0;
+  border: 1px solid #343e47;
+  border-radius: 0.5rem;
+  padding: 0.53rem 2rem 0.53rem 0.68rem;
+  color: #d6dfe7;
+  background: #12171c;
+  font: inherit;
+}
+
+.agent-selector select:focus-visible {
+  outline: 2px solid #f2c879;
+  outline-offset: 2px;
+}
+
+.agent-selector select:disabled {
+  color: #69737c;
+  cursor: not-allowed;
+}
+
 .primary-action,
 .secondary-action {
   border-radius: 0.5rem;
@@ -896,6 +930,10 @@ button:focus-visible {
   }
 
   .task-actions {
+    width: 100%;
+  }
+
+  .agent-selector {
     width: 100%;
   }
 

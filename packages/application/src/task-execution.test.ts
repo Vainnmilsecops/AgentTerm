@@ -14,13 +14,16 @@ import {
 
 import {
   AgentAdapterError,
+  AgentNotConfiguredError,
   AgentSessionCoordinator,
+  ConfiguredAgentCatalog,
   PtyRuntimeError,
   TaskExecutionRetryError,
   TaskExecutionStartError,
   retryTaskExecution,
   startTaskExecution,
   type AgentAdapter,
+  type AgentIdentity,
   type AgentLaunchRequest,
   type AgentSessionRepository,
   type GitTaskWorktreeLifecycle,
@@ -60,10 +63,17 @@ const cleanStatus = Object.freeze({
   untrackedPaths: [],
 });
 const executionInput = Object.freeze({
+  agentId: 'codex',
   environment: { SystemRoot: 'C:\\Windows', USERPROFILE: 'C:\\Users\\AgentTerm' },
   initialSize: { columns: 120, rows: 36 },
   sessionId: 'session-1',
   taskId: primaryWorktree.taskId,
+});
+const retryInput = Object.freeze({
+  environment: executionInput.environment,
+  initialSize: executionInput.initialSize,
+  sessionId: executionInput.sessionId,
+  taskId: executionInput.taskId,
 });
 
 class MemoryTaskRepository implements TaskRepository {
@@ -223,10 +233,17 @@ class MemoryAgentSessionRepository implements AgentSessionRepository {
 }
 
 class FakeAgentAdapter implements AgentAdapter {
+  public readonly identity: AgentIdentity;
   public failure: Error | undefined;
   public readonly requests: AgentLaunchRequest[] = [];
 
-  public constructor(private readonly events: string[]) {}
+  public constructor(
+    private readonly events: string[],
+    id = 'codex',
+    private readonly executablePath = `C:\\tools\\${id}.exe`,
+  ) {
+    this.identity = Object.freeze({ displayName: id, id });
+  }
 
   public async inspect(): Promise<never> {
     throw new Error('inspection is not part of start execution');
@@ -241,7 +258,7 @@ class FakeAgentAdapter implements AgentAdapter {
     return {
       arguments: ['--cd', request.workingDirectory],
       environment: request.environment,
-      executablePath: 'C:\\tools\\codex.exe',
+      executablePath: this.executablePath,
       workingDirectory: request.workingDirectory,
     };
   }
@@ -307,11 +324,12 @@ function createFixture(phase: TaskPhaseValue = TaskPhase.PLANNING) {
   const git = new MemoryGitWorktreeLifecycle(events);
   const sessionRepository = new MemoryAgentSessionRepository(events);
   const adapter = new FakeAgentAdapter(events);
+  const otherAdapter = new FakeAgentAdapter(events, 'other-agent');
+  const agents = new ConfiguredAgentCatalog([adapter, otherAdapter]);
   const runtime = new FakePtyRuntime(events);
   let now = 1_800_000_000_000;
   const sessionCoordinator = new AgentSessionCoordinator({
-    adapter,
-    agentId: 'codex',
+    agents,
     clock: () => now++,
     runtime,
     sessions: sessionRepository,
@@ -320,9 +338,11 @@ function createFixture(phase: TaskPhaseValue = TaskPhase.PLANNING) {
   const dependencies = { git, localProjects, sessionCoordinator, tasks, worktrees };
   return {
     adapter,
+    agents,
     dependencies,
     events,
     git,
+    otherAdapter,
     runtime,
     sessionCoordinator,
     sessionRepository,
@@ -332,6 +352,32 @@ function createFixture(phase: TaskPhaseValue = TaskPhase.PLANNING) {
 }
 
 describe('startTaskExecution', () => {
+  it('rejects an unknown Agent before reading Task or Git state', async () => {
+    const fixture = createFixture();
+
+    await expect(
+      startTaskExecution({ ...executionInput, agentId: 'missing-agent' }, fixture.dependencies),
+    ).rejects.toBeInstanceOf(AgentNotConfiguredError);
+
+    expect(fixture.events).toEqual([]);
+    expect(fixture.git.ensureCalls).toBe(0);
+    expect(fixture.worktrees.record).toBeUndefined();
+  });
+
+  it('selects the requested configured Agent without provider branching', async () => {
+    const fixture = createFixture();
+
+    const execution = await startTaskExecution(
+      { ...executionInput, agentId: 'other-agent' },
+      fixture.dependencies,
+    );
+
+    expect(execution.session.agentId).toBe('other-agent');
+    expect(fixture.adapter.requests).toEqual([]);
+    expect(fixture.otherAdapter.requests).toHaveLength(1);
+    expect(fixture.runtime.specs[0]?.executablePath).toBe('C:\\tools\\other-agent.exe');
+  });
+
   it.each([TaskPhase.BACKLOG, TaskPhase.REVIEW, TaskPhase.DONE])(
     'rejects %s before provisioning a Worktree or creating a Session',
     async (phase) => {
@@ -653,7 +699,7 @@ describe('retryTaskExecution', () => {
       await fixture.sessionRepository.append(exited, 1);
       fixture.events.length = 0;
 
-      await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+      await expect(retryTaskExecution(retryInput, fixture.dependencies)).rejects.toMatchObject({
         name: 'TaskExecutionPhaseError',
         phase,
         taskId: executionInput.taskId,
@@ -667,7 +713,7 @@ describe('retryTaskExecution', () => {
   it('requires a previous FAILED or EXITED Session before touching Git', async () => {
     const fixture = createFixture(TaskPhase.RUNNING);
 
-    await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toEqual(
+    await expect(retryTaskExecution(retryInput, fixture.dependencies)).rejects.toEqual(
       new TaskExecutionRetryError(
         'NO_RETRYABLE_SESSION',
         executionInput.taskId,
@@ -686,7 +732,7 @@ describe('retryTaskExecution', () => {
     await fixture.sessionCoordinator.findById(executionInput.sessionId);
 
     const retried = await retryTaskExecution(
-      { ...executionInput, sessionId: 'session-2' },
+      { ...retryInput, sessionId: 'session-2' },
       fixture.dependencies,
     );
 
@@ -711,7 +757,7 @@ describe('retryTaskExecution', () => {
     const eventsBeforeRetry = [...fixture.events];
 
     await expect(
-      retryTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+      retryTaskExecution({ ...retryInput, sessionId: 'session-2' }, fixture.dependencies),
     ).rejects.toMatchObject({
       activeSessionId: 'session-1',
       name: 'TaskExecutionRetryError',
@@ -737,7 +783,7 @@ describe('retryTaskExecution', () => {
     const eventsBeforeRetry = [...fixture.events];
 
     await expect(
-      retryTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+      retryTaskExecution({ ...retryInput, sessionId: 'session-2' }, fixture.dependencies),
     ).rejects.toMatchObject({
       activeSessionId: 'session-1',
       name: 'TaskExecutionRetryError',
@@ -750,7 +796,7 @@ describe('retryTaskExecution', () => {
     fixture.runtime.emit(0, { exitCode: -1, kind: 'exited', sequence: 3 });
     await fixture.sessionCoordinator.findById('session-1');
     await expect(
-      retryTaskExecution({ ...executionInput, sessionId: 'session-2' }, fixture.dependencies),
+      retryTaskExecution({ ...retryInput, sessionId: 'session-2' }, fixture.dependencies),
     ).resolves.toMatchObject({
       previousSession: { id: 'session-1', status: AgentSessionStatus.FAILED },
       session: { id: 'session-2', status: AgentSessionStatus.WORKING },
@@ -777,7 +823,7 @@ describe('retryTaskExecution', () => {
     await fixture.sessionRepository.append(failed, 1);
     fixture.events.length = 0;
 
-    await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+    await expect(retryTaskExecution(retryInput, fixture.dependencies)).rejects.toMatchObject({
       activeSessionId: failed.id,
       name: 'TaskExecutionRetryError',
       reason: 'ACTIVE_SESSION_EXISTS',
@@ -787,7 +833,7 @@ describe('retryTaskExecution', () => {
     expect(fixture.git.ensureCalls).toBe(0);
   });
 
-  it('rejects retry through a different agent coordinator without touching the Worktree', async () => {
+  it('retries with the same configured Agent recorded by the latest terminal Session', async () => {
     const fixture = createFixture(TaskPhase.RUNNING);
     const otherAgentStarting = createAgentSession({
       agentId: 'other-agent',
@@ -806,9 +852,37 @@ describe('retryTaskExecution', () => {
     await fixture.sessionRepository.append(otherAgentExited, 1);
     fixture.events.length = 0;
 
-    await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+    const retried = await retryTaskExecution(retryInput, fixture.dependencies);
+
+    expect(retried.previousSession.agentId).toBe('other-agent');
+    expect(retried.session.agentId).toBe('other-agent');
+    expect(fixture.adapter.requests).toEqual([]);
+    expect(fixture.otherAdapter.requests).toHaveLength(1);
+    expect(fixture.runtime.specs[0]?.executablePath).toBe('C:\\tools\\other-agent.exe');
+  });
+
+  it('rejects retry for an unconfigured historical Agent before touching Git', async () => {
+    const fixture = createFixture(TaskPhase.RUNNING);
+    const starting = createAgentSession({
+      agentId: 'removed-agent',
+      createdAt: 1_800_000_000_000,
+      id: 'session-removed-agent',
+      taskId: executionInput.taskId,
+    });
+    const exited = recordAgentSessionEvent(starting, {
+      exitCode: 0,
+      kind: 'PROCESS_EXITED',
+      occurredAt: 1_800_000_000_001,
+      reason: 'PROCESS_EXIT',
+      runtimeSequence: 1,
+    });
+    await fixture.sessionRepository.insert(starting);
+    await fixture.sessionRepository.append(exited, 1);
+    fixture.events.length = 0;
+
+    await expect(retryTaskExecution(retryInput, fixture.dependencies)).rejects.toMatchObject({
       name: 'TaskExecutionRetryError',
-      reason: 'AGENT_MISMATCH',
+      reason: 'AGENT_NOT_CONFIGURED',
     });
 
     expect(fixture.events).toEqual([]);
@@ -823,7 +897,7 @@ describe('retryTaskExecution', () => {
     fixture.adapter.failure = new AgentAdapterError('EXECUTABLE_NOT_FOUND');
 
     const failure = await retryTaskExecution(
-      { ...executionInput, sessionId: 'session-2' },
+      { ...retryInput, sessionId: 'session-2' },
       fixture.dependencies,
     ).catch((error: unknown) => error);
 
@@ -833,7 +907,7 @@ describe('retryTaskExecution', () => {
     });
     fixture.adapter.failure = undefined;
     const recovered = await retryTaskExecution(
-      { ...executionInput, sessionId: 'session-3' },
+      { ...retryInput, sessionId: 'session-3' },
       fixture.dependencies,
     );
     expect(recovered.session).toMatchObject({

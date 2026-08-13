@@ -4,7 +4,12 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { loadAgentWorkspace, restoreAgentSessionsAfterRestart } from '@agentterm/application';
+import {
+  ConfiguredAgentCatalog,
+  loadAgentWorkspace,
+  restoreAgentSessionsAfterRestart,
+  type AgentAdapter,
+} from '@agentterm/application';
 import {
   createAgentSession,
   createProject,
@@ -17,6 +22,17 @@ import {
 import { openSqlitePersistence } from './index';
 
 const createdAt = 1_800_000_000_000;
+const codexAdapter: AgentAdapter = {
+  identity: { displayName: 'Codex', id: 'codex' },
+  inspect: async () => ({
+    capabilities: ['SESSION_RESUME'],
+    executablePath: 'D:\\private\\codex.exe',
+    kind: 'available',
+  }),
+  buildLaunchCommand: async () => {
+    throw new Error('buildLaunchCommand is not used during workspace restore');
+  },
+};
 
 describe('Agent Session startup restore with SQLite', () => {
   it('reopens active history, records lost ownership, and exposes FAILED without completing Task', async () => {
@@ -95,6 +111,7 @@ describe('Agent Session startup restore with SQLite', () => {
           reopened.artifacts,
           reopened.qualityGateRuns,
           reopened.reviews,
+          new ConfiguredAgentCatalog([codexAdapter]),
         );
         const sessions = await reopened.sessions.listByTaskId('task-1');
 

@@ -1,5 +1,6 @@
 export {
   AgentAdapterError,
+  AgentNotConfiguredError,
   ArtifactProvenanceError,
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
@@ -51,6 +52,7 @@ export {
   type RestoreAgentSessionsResult,
 } from './agent-session-restore';
 export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
+export { ConfiguredAgentCatalog, listAgentSummaries, type AgentSummary } from './agent-catalog';
 export {
   listQualityGateRuns,
   runQualityGate,
@@ -62,7 +64,9 @@ export { createProject } from './project-use-cases';
 export type {
   AgentAdapter,
   AgentAvailability,
-  AgentCapabilities,
+  AgentCapability,
+  AgentCatalog,
+  AgentIdentity,
   AgentLaunchCommand,
   AgentLaunchRequest,
   AgentVersion,
@@ -143,6 +147,7 @@ export {
   retryTaskExecution,
   startTaskExecution,
   type StartTaskExecutionDependencies,
+  type RetryTaskExecutionInput,
   type StartTaskExecutionInput,
   type TaskExecutionStartResult,
   type TaskExecutionRetryResult,

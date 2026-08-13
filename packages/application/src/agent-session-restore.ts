@@ -3,6 +3,7 @@ import { recordAgentSessionEvent, type AgentSession } from '@agentterm/domain';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import { AgentSessionPersistenceError } from './errors';
 import type {
+  AgentCatalog,
   AgentSessionRepository,
   ExecutionArtifactRepository,
   ProjectCatalog,
@@ -65,10 +66,11 @@ export async function restoreAgentWorkspaceAfterRestart(
   artifacts: ExecutionArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
   reviews: TaskReviewRepository,
+  agents: AgentCatalog,
   clock: () => number,
 ): Promise<AgentWorkspaceOverview> {
   await restoreAgentSessionsAfterRestart(sessions, clock);
-  return loadAgentWorkspace(projects, tasks, sessions, artifacts, qualityGateRuns, reviews);
+  return loadAgentWorkspace(projects, tasks, sessions, artifacts, qualityGateRuns, reviews, agents);
 }
 
 async function readLatest(

@@ -137,10 +137,12 @@ describe('CodexAdapter inspection', () => {
     const executablePath = createExecutable(join(root, 'Codex bin'));
     enqueue(successful('codex-cli 0.147.0\r\n'), successful('Resume a previous session\r\n'));
 
-    const availability = await new CodexAdapter(executablePath).inspect();
+    const adapter = new CodexAdapter(executablePath);
+    const availability = await adapter.inspect();
 
+    expect(adapter.identity).toEqual({ displayName: 'Codex', id: 'codex' });
     expect(availability).toEqual({
-      capabilities: { resume: true },
+      capabilities: ['SESSION_RESUME'],
       executablePath,
       kind: 'available',
       version: { major: 0, minor: 147, patch: 0, raw: 'codex-cli 0.147.0' },
@@ -152,7 +154,7 @@ describe('CodexAdapter inspection', () => {
     enqueue(successful('codex-cli 0.147.0\n'), failed(2));
 
     await expect(new CodexAdapter(executablePath).inspect()).resolves.toMatchObject({
-      capabilities: { resume: false },
+      capabilities: [],
       kind: 'available',
     });
   });
@@ -240,7 +242,7 @@ describe('CodexAdapter inspection', () => {
     enqueue(successful('Codex version latest\n'), successful('resume help\n'));
 
     await expect(new CodexAdapter(executablePath).inspect()).resolves.toEqual({
-      capabilities: { resume: true },
+      capabilities: ['SESSION_RESUME'],
       executablePath,
       kind: 'available',
     });

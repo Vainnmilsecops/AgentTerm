@@ -25,6 +25,9 @@ import type {
 const PROBE_MAX_BUFFER = 64 * 1024;
 const PROBE_TIMEOUT_MS = 5_000;
 const PACKAGE_MANIFEST_MAX_BYTES = 64 * 1024;
+const CODEX_IDENTITY = Object.freeze({ displayName: 'Codex', id: 'codex' });
+const CODEX_RESUME_CAPABILITIES = Object.freeze(['SESSION_RESUME'] as const);
+const NO_CAPABILITIES = Object.freeze([]);
 const probeEnvironmentAllowlist = new Set([
   'COMSPEC',
   'PATH',
@@ -56,6 +59,8 @@ interface ResolvedCodexInvocation {
 }
 
 export class CodexAdapter implements AgentAdapter {
+  public readonly identity = CODEX_IDENTITY;
+
   public constructor(private readonly configuredExecutable = 'codex') {}
 
   public async inspect(): Promise<AgentAvailability> {
@@ -85,7 +90,7 @@ export class CodexAdapter implements AgentAdapter {
       );
 
       return {
-        capabilities: { resume: resumeProbe?.exitCode === 0 },
+        capabilities: resumeProbe?.exitCode === 0 ? CODEX_RESUME_CAPABILITIES : NO_CAPABILITIES,
         executablePath: invocation.identityPath,
         kind: 'available',
         ...(version === undefined ? {} : { version }),

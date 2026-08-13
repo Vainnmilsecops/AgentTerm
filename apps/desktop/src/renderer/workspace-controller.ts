@@ -8,7 +8,7 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
   retryTaskExecution(input: { readonly taskId: string }): Promise<void>;
-  startTaskExecution(input: { readonly taskId: string }): Promise<void>;
+  startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
 }
 
 export type WorkspaceActionKind =
@@ -27,6 +27,7 @@ export type WorkspaceSnapshot =
       readonly activeAction: WorkspaceAction | undefined;
       readonly kind: 'ready';
       readonly overview: AgentWorkspaceOverview;
+      readonly selectedAgentId: string | undefined;
       readonly selectedTaskId: string | undefined;
       readonly terminalSessionId: string | undefined;
     };
@@ -106,6 +107,19 @@ export class WorkspaceController {
     );
   }
 
+  public selectAgent(agentId: string): void {
+    if (this.snapshot.kind !== 'ready' || !isAvailableAgentId(this.snapshot.overview, agentId)) {
+      return;
+    }
+    this.publish(
+      Object.freeze({
+        ...this.snapshot,
+        actionError: undefined,
+        selectedAgentId: agentId,
+      }),
+    );
+  }
+
   public startSelectedTask(): Promise<void> {
     return this.executeSelectedAction('start-execution');
   }
@@ -135,6 +149,7 @@ export class WorkspaceController {
     }
 
     const taskId = this.snapshot.selectedTaskId;
+    const selectedAgentId = this.snapshot.selectedAgentId;
     const selected = findTask(this.snapshot.overview, taskId);
     if (selected === undefined || !canRunAction(selected, kind)) {
       return Promise.resolve();
@@ -147,8 +162,11 @@ export class WorkspaceController {
     if ((kind === 'approve-review' || kind === 'request-changes') && reviewId === undefined) {
       return Promise.resolve();
     }
+    if (kind === 'start-execution' && selectedAgentId === undefined) {
+      return Promise.resolve();
+    }
 
-    const attempt = this.performAction({ kind, taskId }, reviewId);
+    const attempt = this.performAction({ kind, taskId }, reviewId, selectedAgentId);
     this.actionAttempt = attempt;
     void attempt
       .finally(() => {
@@ -168,6 +186,7 @@ export class WorkspaceController {
   private async performAction(
     action: WorkspaceAction,
     reviewId: string | undefined,
+    agentId: string | undefined,
   ): Promise<void> {
     const current = this.snapshot;
     if (current.kind !== 'ready') {
@@ -182,7 +201,7 @@ export class WorkspaceController {
       }),
     );
     try {
-      await runWorkspaceAction(this.client, action, reviewId);
+      await runWorkspaceAction(this.client, action, reviewId, agentId);
       sideEffectCompleted = true;
       const overview = await this.client.loadWorkspace();
       if (!this.disposed) {
@@ -213,6 +232,9 @@ export class WorkspaceController {
   ): void {
     const selectedTaskId = selectAvailableTaskId(overview, preferredTaskId);
     const selectedTask = findTask(overview, selectedTaskId);
+    const preferredAgentId =
+      this.snapshot.kind === 'ready' ? this.snapshot.selectedAgentId : undefined;
+    const selectedAgentId = selectAvailableAgentId(overview, preferredAgentId);
     const previousTerminalSessionId =
       this.snapshot.kind === 'ready' && this.snapshot.selectedTaskId === selectedTaskId
         ? this.snapshot.terminalSessionId
@@ -223,6 +245,7 @@ export class WorkspaceController {
         activeAction: undefined,
         kind: 'ready',
         overview,
+        selectedAgentId,
         selectedTaskId,
         terminalSessionId: selectedTask?.activeSession?.id ?? previousTerminalSessionId,
       }),
@@ -242,10 +265,11 @@ async function runWorkspaceAction(
   client: AgentWorkspaceClient,
   action: WorkspaceAction,
   reviewId: string | undefined,
+  agentId: string | undefined,
 ): Promise<void> {
   switch (action.kind) {
     case 'start-execution':
-      await client.startTaskExecution({ taskId: action.taskId });
+      await client.startTaskExecution({ agentId: requireAgentId(agentId), taskId: action.taskId });
       return;
     case 'retry-execution':
       await client.retryTaskExecution({ taskId: action.taskId });
@@ -265,6 +289,13 @@ async function runWorkspaceAction(
         taskId: action.taskId,
       });
   }
+}
+
+function requireAgentId(agentId: string | undefined): string {
+  if (agentId === undefined) {
+    throw new TypeError('An available coding agent is required.');
+  }
+  return agentId;
 }
 
 function canRunAction(
@@ -342,4 +373,19 @@ function selectAvailableTaskId(
     return preferredTaskId;
   }
   return overview.projects.flatMap((project) => project.tasks)[0]?.task.id;
+}
+
+function selectAvailableAgentId(
+  overview: AgentWorkspaceOverview,
+  preferredAgentId: string | undefined,
+): string | undefined {
+  const available = overview.agents.filter((agent) => agent.kind === 'available');
+  if (preferredAgentId !== undefined && available.some((agent) => agent.id === preferredAgentId)) {
+    return preferredAgentId;
+  }
+  return available[0]?.id;
+}
+
+function isAvailableAgentId(overview: AgentWorkspaceOverview, agentId: string): boolean {
+  return overview.agents.some((agent) => agent.id === agentId && agent.kind === 'available');
 }

@@ -12,6 +12,7 @@ import {
 } from '@agentterm/domain';
 
 import type {
+  AgentCatalog,
   AgentSessionRepository,
   ExecutionArtifactRepository,
   ProjectCatalog,
@@ -19,6 +20,7 @@ import type {
   TaskCatalog,
   TaskReviewRepository,
 } from './ports';
+import { listAgentSummaries, type AgentSummary } from './agent-catalog';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import { canStartTaskExecution } from './task-execution';
 
@@ -135,6 +137,7 @@ export interface WorkspaceProjectOverview {
 }
 
 export interface AgentWorkspaceOverview {
+  readonly agents: readonly AgentSummary[];
   readonly projects: readonly WorkspaceProjectOverview[];
 }
 
@@ -145,7 +148,12 @@ export async function loadAgentWorkspace(
   artifacts: ExecutionArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
   reviews: TaskReviewRepository,
+  agents: AgentCatalog,
 ): Promise<AgentWorkspaceOverview> {
+  const agentSummaries = await listAgentSummaries(agents);
+  const availableAgentIds = new Set(
+    agentSummaries.filter((agent) => agent.kind === 'available').map((agent) => agent.id),
+  );
   const recentProjects = await projects.listRecent();
   const projectOverviews = await Promise.all(
     recentProjects.map(async (project): Promise<WorkspaceProjectOverview> => {
@@ -197,7 +205,9 @@ export async function loadAgentWorkspace(
               phaseAllowsExecution &&
               activeSession === undefined &&
               !hasUnsettledReviewWriter &&
-              isTerminal(latestSession),
+              isTerminal(latestSession) &&
+              latestSession !== undefined &&
+              availableAgentIds.has(latestSession.agentId),
             canStartExecution:
               phaseAllowsExecution && activeSession === undefined && latestSession === undefined,
             latestSession: summarizeSession(latestSession),
@@ -216,7 +226,7 @@ export async function loadAgentWorkspace(
     }),
   );
 
-  return Object.freeze({ projects: Object.freeze(projectOverviews) });
+  return Object.freeze({ agents: agentSummaries, projects: Object.freeze(projectOverviews) });
 }
 
 function summarizeTaskReview(review: TaskReview): TaskReviewSummary {

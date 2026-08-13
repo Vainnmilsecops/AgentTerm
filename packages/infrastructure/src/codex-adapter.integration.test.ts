@@ -41,10 +41,11 @@ describe('CodexAdapter with real Windows ConPTY', () => {
       };
 
       try {
+        expect(adapter.identity).toEqual({ displayName: 'Codex', id: 'codex' });
         const availability = await adapter.inspect();
 
         expect(availability).toMatchObject({
-          capabilities: { resume: expect.any(Boolean) },
+          capabilities: expect.any(Array),
           executablePath,
           kind: 'available',
           version: {
@@ -58,6 +59,7 @@ describe('CodexAdapter with real Windows ConPTY', () => {
         if (availability.kind !== 'available' || availability.version === undefined) {
           throw new Error('Installed Codex CLI did not report a parseable version.');
         }
+        expect([[], ['SESSION_RESUME']]).toContainEqual(availability.capabilities);
 
         const command = await adapter.buildLaunchCommand({ environment, workingDirectory });
 

@@ -6,11 +6,28 @@ import {
   AgentSessionPersistenceError,
   restoreAgentWorkspaceAfterRestart,
   restoreAgentSessionsAfterRestart,
+  type AgentCatalog,
   type AgentSessionRepository,
 } from './index';
 import { createProject, createTask, TaskPhase, transitionTask } from '@agentterm/domain';
 
 const createdAt = 1_800_000_000_000;
+const agents: AgentCatalog = {
+  findById: (id) => (id === 'codex' ? agents.list()[0] : undefined),
+  list: () => [
+    {
+      identity: { displayName: 'Codex', id: 'codex' },
+      inspect: async () => ({
+        capabilities: ['SESSION_RESUME'],
+        executablePath: 'D:\\private\\codex.exe',
+        kind: 'available',
+      }),
+      buildLaunchCommand: async () => {
+        throw new Error('not used during restore');
+      },
+    },
+  ],
+};
 
 class MemoryAgentSessionRepository implements AgentSessionRepository {
   private readonly stored = new Map<string, AgentSession>();
@@ -225,9 +242,13 @@ describe('restoreAgentWorkspaceAfterRestart', () => {
         listByTaskId: async () => [],
         listRecentByTaskId: async () => [],
       },
+      agents,
       () => createdAt + 100,
     );
 
+    expect(overview.agents).toEqual([
+      { capabilities: ['SESSION_RESUME'], displayName: 'Codex', id: 'codex', kind: 'available' },
+    ]);
     expect(overview.projects[0]?.tasks[0]).toMatchObject({
       activeSession: undefined,
       canRetryExecution: true,

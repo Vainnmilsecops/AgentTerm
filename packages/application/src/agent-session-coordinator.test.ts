@@ -4,12 +4,15 @@ import { AgentSessionStatus, createTask, type AgentSession, type Task } from '@a
 
 import {
   AgentAdapterError,
+  AgentNotConfiguredError,
   AgentSessionCoordinator,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
   EntityAlreadyExistsError,
   PtyRuntimeError,
+  ConfiguredAgentCatalog,
   type AgentAdapter,
+  type AgentIdentity,
   type AgentLaunchRequest,
   type AgentSessionRepository,
   type PtyHandle,
@@ -22,6 +25,7 @@ import {
 
 const task = createTask({ id: 'task-1', projectId: 'project-1', title: 'Run Codex' });
 const launchInput = {
+  agentId: 'codex',
   environment: { SystemRoot: 'C:\\Windows' },
   initialSize: { columns: 100, rows: 30 },
   sessionId: 'session-1',
@@ -31,6 +35,7 @@ const launchInput = {
 
 class FakeTaskRepository implements TaskRepository {
   private readonly stored = new Map<string, Task>();
+  public findCalls = 0;
   public readonly update = vi.fn(async (next: Task) => {
     this.stored.set(next.id, next);
   });
@@ -42,6 +47,7 @@ class FakeTaskRepository implements TaskRepository {
   }
 
   public async findById(id: string): Promise<Task | undefined> {
+    this.findCalls += 1;
     return this.stored.get(id);
   }
 
@@ -96,9 +102,17 @@ class FakeAgentSessionRepository implements AgentSessionRepository {
 }
 
 class FakeAgentAdapter implements AgentAdapter {
+  public readonly identity: AgentIdentity;
   public readonly requests: AgentLaunchRequest[] = [];
   public failure: Error | undefined;
   public gate: Promise<void> | undefined;
+
+  public constructor(
+    id = 'codex',
+    private readonly executablePath = `C:\\tools\\${id}.exe`,
+  ) {
+    this.identity = { displayName: id, id };
+  }
 
   public async inspect(): Promise<never> {
     throw new Error('inspect is not used to start a session');
@@ -113,7 +127,7 @@ class FakeAgentAdapter implements AgentAdapter {
     return {
       arguments: ['--cd', request.workingDirectory],
       environment: request.environment,
-      executablePath: 'C:\\tools\\codex.exe',
+      executablePath: this.executablePath,
       workingDirectory: request.workingDirectory,
     };
   }
@@ -151,21 +165,70 @@ class FakePtyRuntime implements PtyRuntime {
 function createFixture(options: { readonly taskExists?: boolean } = {}) {
   let now = 1_800_000_000_000;
   const adapter = new FakeAgentAdapter();
+  const secondAdapter = new FakeAgentAdapter('second-agent');
+  const agents = new ConfiguredAgentCatalog([adapter, secondAdapter]);
   const runtime = new FakePtyRuntime();
   const sessions = new FakeAgentSessionRepository();
   const tasks = new FakeTaskRepository(options.taskExists === false ? [] : [task]);
   const coordinator = new AgentSessionCoordinator({
-    adapter,
-    agentId: 'codex',
+    agents,
     clock: () => now++,
     runtime,
     sessions,
     tasks,
   });
-  return { adapter, coordinator, runtime, sessions, tasks };
+  return { adapter, agents, coordinator, runtime, secondAdapter, sessions, tasks };
 }
 
 describe('AgentSessionCoordinator', () => {
+  it('rejects an unknown Agent before reading the Task or creating a Session', async () => {
+    const fixture = createFixture();
+
+    await expect(
+      fixture.coordinator.start({ ...launchInput, agentId: 'missing-agent' }),
+    ).rejects.toBeInstanceOf(AgentNotConfiguredError);
+
+    expect(fixture.tasks.findCalls).toBe(0);
+    expect(fixture.sessions.operations).toEqual([]);
+    expect(fixture.runtime.specs).toEqual([]);
+  });
+
+  it('uses the immutable catalog identity when an adapter mutates its source descriptor', async () => {
+    const fixture = createFixture();
+    let releaseLaunch = (): void => undefined;
+    fixture.adapter.gate = new Promise<void>((resolve) => {
+      releaseLaunch = resolve;
+    });
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    const startAttempt = fixture.coordinator.start(launchInput);
+
+    await vi.waitFor(() => expect(fixture.adapter.requests).toHaveLength(1));
+    (fixture.adapter.identity as { id: string }).id = 'mutated-agent';
+    releaseLaunch();
+
+    expect(fixture.coordinator.isAgentConfigured('codex')).toBe(true);
+    const session = await startAttempt;
+
+    expect(session.agentId).toBe('codex');
+    expect(fixture.adapter.requests).toHaveLength(1);
+    expect(fixture.runtime.specs).toHaveLength(1);
+  });
+
+  it('selects the adapter by id and persists that exact identity', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+
+    const session = await fixture.coordinator.start({
+      ...launchInput,
+      agentId: 'second-agent',
+    });
+
+    expect(session.agentId).toBe('second-agent');
+    expect(fixture.adapter.requests).toEqual([]);
+    expect(fixture.secondAdapter.requests).toHaveLength(1);
+    expect(fixture.runtime.specs[0]?.executablePath).toBe('C:\\tools\\second-agent.exe');
+  });
+
   it('rejects a missing Task before creating or launching a session', async () => {
     const fixture = createFixture({ taskExists: false });
 
@@ -498,8 +561,7 @@ describe('AgentSessionCoordinator', () => {
     first.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
     await first.coordinator.start(launchInput);
     const restarted = new AgentSessionCoordinator({
-      adapter: first.adapter,
-      agentId: 'codex',
+      agents: first.agents,
       clock: () => 1_800_000_000_100,
       runtime: first.runtime,
       sessions: first.sessions,
