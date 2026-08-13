@@ -9,6 +9,22 @@ import type {
 } from '@agentterm/application';
 
 import type { TerminalSessionClient } from './terminal-controller';
+import {
+  activateWorkspacePane,
+  activateWorkspaceTab,
+  closeWorkspacePane,
+  closeWorkspaceTab,
+  createWorkspaceLayout,
+  cycleWorkspacePane,
+  cycleWorkspaceTab,
+  findActiveWorkspacePane,
+  findActiveWorkspaceTab,
+  openWorkspaceTab,
+  reconcileWorkspaceLayout,
+  splitWorkspaceTerminal,
+  WorkspaceLayoutError,
+  type WorkspaceLayout,
+} from './workspace-layout';
 
 export interface AgentWorkspaceClient extends TerminalSessionClient {
   acceptTaskPlan(input: { readonly planId: string; readonly taskId: string }): Promise<void>;
@@ -79,6 +95,7 @@ export type WorkspaceSnapshot =
       readonly activeAction: WorkspaceAction | undefined;
       readonly changeInspection?: WorkspaceChangeInspection;
       readonly kind: 'ready';
+      readonly layout: WorkspaceLayout;
       readonly overview: AgentWorkspaceOverview;
       readonly qualityGates?: readonly QualityGateSummary[];
       readonly pullRequestInspection?: WorkspacePullRequestInspection;
@@ -162,17 +179,67 @@ export class WorkspaceController {
       return;
     }
     const selectedTask = findTask(this.snapshot.overview, taskId);
+    const layout = openTaskWorkspaceTab(
+      this.snapshot.layout,
+      taskId,
+      selectedTask?.activeSession?.id,
+    );
     this.publish(
       Object.freeze({
         ...this.snapshot,
         actionError: undefined,
         changeInspection: Object.freeze({ kind: 'idle' }),
         pullRequestInspection: Object.freeze({ kind: 'idle' }),
+        layout,
         selectedTaskId: taskId,
-        terminalSessionId: selectedTask?.activeSession?.id,
+        terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
       }),
     );
     void this.loadSelectedTaskChanges();
+  }
+
+  public selectWorkspaceTab(tabId: string): void {
+    this.publishWorkspaceLayout(activateWorkspaceTab(this.requireLayout(), tabId), true);
+  }
+
+  public closeWorkspaceTab(tabId: string): void {
+    this.publishWorkspaceLayout(closeWorkspaceTab(this.requireLayout(), tabId), true);
+  }
+
+  public cycleWorkspaceTab(delta: -1 | 1): void {
+    this.publishWorkspaceLayout(cycleWorkspaceTab(this.requireLayout(), delta), true);
+  }
+
+  public splitSelectedTerminal(sessionId: string): void {
+    if (this.snapshot.kind !== 'ready') {
+      return;
+    }
+    const task = findTaskByActiveSession(this.snapshot.overview, sessionId);
+    if (task === undefined) {
+      return;
+    }
+    try {
+      this.publishWorkspaceLayout(
+        splitWorkspaceTerminal(this.snapshot.layout, { sessionId, taskId: task.task.id }),
+        false,
+      );
+    } catch (error) {
+      if (!(error instanceof WorkspaceLayoutError)) {
+        throw error;
+      }
+    }
+  }
+
+  public selectWorkspacePane(paneId: string): void {
+    this.publishWorkspaceLayout(activateWorkspacePane(this.requireLayout(), paneId), false);
+  }
+
+  public closeWorkspacePane(paneId: string): void {
+    this.publishWorkspaceLayout(closeWorkspacePane(this.requireLayout(), paneId), false);
+  }
+
+  public cycleWorkspacePane(delta: -1 | 1): void {
+    this.publishWorkspaceLayout(cycleWorkspacePane(this.requireLayout(), delta), false);
   }
 
   public selectAgent(agentId: string): void {
@@ -417,29 +484,82 @@ export class WorkspaceController {
     qualityGates: readonly QualityGateSummary[],
     preferredTaskId: string | undefined,
   ): void {
-    const selectedTaskId = selectAvailableTaskId(overview, preferredTaskId);
-    const selectedTask = findTask(overview, selectedTaskId);
+    const preferredAvailableTaskId = selectAvailableTaskId(overview, preferredTaskId);
     const preferredAgentId =
       this.snapshot.kind === 'ready' ? this.snapshot.selectedAgentId : undefined;
     const selectedAgentId = selectAvailableAgentId(overview, preferredAgentId);
-    const previousTerminalSessionId =
-      this.snapshot.kind === 'ready' && this.snapshot.selectedTaskId === selectedTaskId
-        ? this.snapshot.terminalSessionId
+    let layout =
+      this.snapshot.kind === 'ready'
+        ? reconcileWorkspaceLayout(this.snapshot.layout, workspaceTaskSessionContexts(overview))
         : undefined;
+    if (preferredAvailableTaskId !== undefined) {
+      const preferredTask = findTask(overview, preferredAvailableTaskId);
+      layout = openWorkspaceTab(
+        layout ??
+          createWorkspaceLayout({
+            taskId: preferredAvailableTaskId,
+            ...(preferredTask?.activeSession?.id === undefined
+              ? {}
+              : { sessionId: preferredTask.activeSession.id }),
+          }),
+        {
+          taskId: preferredAvailableTaskId,
+          ...(preferredTask?.activeSession?.id === undefined
+            ? {}
+            : { sessionId: preferredTask.activeSession.id }),
+        },
+      );
+    }
+    layout ??= Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) });
+    const selectedTaskId = findActiveWorkspaceTab(layout)?.taskId;
     this.publish(
       Object.freeze({
         actionError: undefined,
         activeAction: undefined,
         changeInspection: Object.freeze({ kind: 'idle' }),
         kind: 'ready',
+        layout,
         overview,
         pullRequestInspection: Object.freeze({ kind: 'idle' }),
         qualityGates: Object.freeze([...qualityGates]),
         selectedAgentId,
         selectedTaskId,
-        terminalSessionId: selectedTask?.activeSession?.id ?? previousTerminalSessionId,
+        terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
       }),
     );
+  }
+
+  private requireLayout(): WorkspaceLayout {
+    return this.snapshot.kind === 'ready'
+      ? this.snapshot.layout
+      : Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) });
+  }
+
+  private publishWorkspaceLayout(layout: WorkspaceLayout, taskMayChange: boolean): void {
+    const current = this.snapshot;
+    if (current.kind !== 'ready' || layout === current.layout) {
+      return;
+    }
+    const selectedTaskId = findActiveWorkspaceTab(layout)?.taskId;
+    const taskChanged = taskMayChange && selectedTaskId !== current.selectedTaskId;
+    this.publish(
+      Object.freeze({
+        ...current,
+        actionError: undefined,
+        ...(taskChanged
+          ? {
+              changeInspection: Object.freeze({ kind: 'idle' } as const),
+              pullRequestInspection: Object.freeze({ kind: 'idle' } as const),
+            }
+          : {}),
+        layout,
+        selectedTaskId,
+        terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
+      }),
+    );
+    if (taskChanged) {
+      void this.loadSelectedTaskEvidence();
+    }
   }
 
   private async loadSelectedTaskEvidence(): Promise<void> {
@@ -736,6 +856,42 @@ function findTask(
   return overview.projects
     .flatMap((project) => project.tasks)
     .find((task) => task.task.id === taskId);
+}
+
+function findTaskByActiveSession(
+  overview: AgentWorkspaceOverview,
+  sessionId: string,
+): AgentWorkspaceOverview['projects'][number]['tasks'][number] | undefined {
+  return overview.projects
+    .flatMap((project) => project.tasks)
+    .find((task) => task.activeSession?.id === sessionId);
+}
+
+function workspaceTaskSessionContexts(overview: AgentWorkspaceOverview) {
+  return overview.projects.flatMap((project) =>
+    project.tasks.map((task) => ({
+      activeSessionId: task.activeSession?.id,
+      taskId: task.task.id,
+    })),
+  );
+}
+
+function openTaskWorkspaceTab(
+  layout: WorkspaceLayout,
+  taskId: string,
+  sessionId: string | undefined,
+): WorkspaceLayout {
+  try {
+    return openWorkspaceTab(layout, {
+      taskId,
+      ...(sessionId === undefined ? {} : { sessionId }),
+    });
+  } catch (error) {
+    if (!(error instanceof WorkspaceLayoutError) || error.reason !== 'SESSION_ALREADY_ATTACHED') {
+      throw error;
+    }
+    return openWorkspaceTab(layout, { taskId });
+  }
 }
 
 function selectAvailableTaskId(

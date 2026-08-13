@@ -58,7 +58,14 @@ export type CommandPaletteAction =
   | { readonly kind: 'SEARCH'; readonly query: string };
 
 export type WorkspaceGlobalShortcut =
-  'focus-sidebar' | 'focus-terminal' | 'focus-workspace' | 'open-palette';
+  | 'focus-sidebar'
+  | 'focus-terminal'
+  | 'focus-workspace'
+  | 'next-pane'
+  | 'next-tab'
+  | 'open-palette'
+  | 'previous-pane'
+  | 'previous-tab';
 
 export interface WorkspaceShortcutInput {
   readonly altKey?: boolean;
@@ -265,6 +272,12 @@ export function resolveWorkspaceGlobalShortcut(
 
   if (!alt && ctrl && !meta && shift && input.code === 'KeyP') {
     return 'open-palette';
+  }
+  if (alt && !ctrl && !meta && ['BracketLeft', 'BracketRight'].includes(input.code)) {
+    if (input.code === 'BracketLeft') {
+      return shift ? 'previous-pane' : 'previous-tab';
+    }
+    return shift ? 'next-pane' : 'next-tab';
   }
   if (!alt || ctrl || meta || shift) {
     return undefined;

@@ -6,6 +6,7 @@ import {
   AgentAdapterError,
   AgentNotConfiguredError,
   AgentSessionCoordinator,
+  AgentSessionTerminalAttachmentConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
   EntityAlreadyExistsError,
@@ -619,6 +620,64 @@ describe('AgentSessionCoordinator', () => {
     });
     expect(fixture.runtime.handle.terminate).not.toHaveBeenCalled();
     expect(fixture.runtime.handle.dispose).not.toHaveBeenCalled();
+  });
+
+  it('allows only one interactive terminal attachment and releases ownership on detach', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    await fixture.coordinator.start(launchInput);
+    const firstObserved: PtyRuntimeEvent[] = [];
+    const replacementObserved: PtyRuntimeEvent[] = [];
+
+    const first = await fixture.coordinator.attachTerminal({
+      eventSink: (event) => firstObserved.push(event),
+      sessionId: 'session-1',
+    });
+    await expect(
+      fixture.coordinator.attachTerminal({
+        eventSink: (event) => replacementObserved.push(event),
+        sessionId: 'session-1',
+      }),
+    ).rejects.toBeInstanceOf(AgentSessionTerminalAttachmentConflictError);
+
+    fixture.runtime.emit({ data: 'first only', kind: 'output', sequence: 2 });
+    first.detach();
+    const replacement = await fixture.coordinator.attachTerminal({
+      eventSink: (event) => replacementObserved.push(event),
+      sessionId: 'session-1',
+    });
+    fixture.runtime.emit({ data: 'replacement only', kind: 'output', sequence: 3 });
+
+    expect(firstObserved).toEqual([{ data: 'first only', kind: 'output', sequence: 2 }]);
+    expect(replacementObserved).toEqual([
+      { data: 'replacement only', kind: 'output', sequence: 3 },
+    ]);
+    expect(fixture.runtime.handle.terminate).not.toHaveBeenCalled();
+    replacement.detach();
+  });
+
+  it('does not duplicate or remove a matching non-interactive launch observer', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    const observed: PtyRuntimeEvent[] = [];
+    const eventSink = (event: PtyRuntimeEvent): void => {
+      observed.push(event);
+    };
+    await fixture.coordinator.start({ ...launchInput, eventSink });
+
+    const attachment = await fixture.coordinator.attachTerminal({
+      eventSink,
+      sessionId: 'session-1',
+    });
+    fixture.runtime.emit({ data: 'while attached', kind: 'output', sequence: 2 });
+    attachment.detach();
+    fixture.runtime.emit({ data: 'after detach', kind: 'output', sequence: 3 });
+
+    expect(observed).toEqual([
+      { kind: 'started', sequence: 1 },
+      { data: 'while attached', kind: 'output', sequence: 2 },
+      { data: 'after detach', kind: 'output', sequence: 3 },
+    ]);
   });
 
   it('closes terminal input on process exit without changing the Task phase', async () => {

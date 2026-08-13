@@ -5,6 +5,7 @@ export {
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
+  AgentSessionTerminalAttachmentConflictError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
   GitRepositoryInspectionError,

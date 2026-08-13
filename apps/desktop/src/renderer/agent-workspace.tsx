@@ -10,7 +10,7 @@ import type {
 } from '@agentterm/application';
 
 import { WorkspaceCommandPalette } from './command-palette';
-import { TerminalRenderer } from './terminal-renderer';
+import { WorkspaceTerminals } from './workspace-terminals';
 import {
   buildWorkspaceCommands,
   initialCommandPaletteState,
@@ -35,6 +35,10 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onAcceptPlan: () => void;
   readonly onApproveReview: () => void;
   readonly onCreatePullRequest: () => void;
+  readonly onCloseWorkspacePane: (paneId: string) => void;
+  readonly onCloseWorkspaceTab: (tabId: string) => void;
+  readonly onCycleWorkspacePane: (delta: -1 | 1) => void;
+  readonly onCycleWorkspaceTab: (delta: -1 | 1) => void;
   readonly onPushTaskBranch: () => void;
   readonly onRefresh: () => void;
   readonly onRequestChanges: () => void;
@@ -45,6 +49,9 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onSelectAgent?: (agentId: string) => void;
   readonly onSelectTaskChange: (change: TaskFileChange) => void;
   readonly onSelectTask: (taskId: string) => void;
+  readonly onSelectWorkspacePane: (paneId: string) => void;
+  readonly onSelectWorkspaceTab: (tabId: string) => void;
+  readonly onSplitTerminal: (sessionId: string) => void;
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
   readonly snapshot: WorkspaceSnapshot;
@@ -76,6 +83,10 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onAcceptPlan={() => void controller?.acceptSelectedPlan()}
       onApproveReview={() => void controller?.approveSelectedTaskReview()}
       onCreatePullRequest={() => void controller?.createSelectedTaskPullRequest()}
+      onCloseWorkspacePane={(paneId) => controller?.closeWorkspacePane(paneId)}
+      onCloseWorkspaceTab={(tabId) => controller?.closeWorkspaceTab(tabId)}
+      onCycleWorkspacePane={(delta) => controller?.cycleWorkspacePane(delta)}
+      onCycleWorkspaceTab={(delta) => controller?.cycleWorkspaceTab(delta)}
       onRefresh={() => void controller?.refresh()}
       onPushTaskBranch={() => void controller?.pushSelectedTaskBranch()}
       onRequestChanges={() => void controller?.requestSelectedTaskChanges()}
@@ -86,6 +97,9 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onSelectAgent={(agentId) => controller?.selectAgent(agentId)}
       onSelectTaskChange={(change) => void controller?.selectTaskChange(change)}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
+      onSelectWorkspacePane={(paneId) => controller?.selectWorkspacePane(paneId)}
+      onSelectWorkspaceTab={(tabId) => controller?.selectWorkspaceTab(tabId)}
+      onSplitTerminal={(sessionId) => controller?.splitSelectedTerminal(sessionId)}
       onStartTask={() => void controller?.startSelectedTask()}
       onStartPlanning={() => void controller?.startSelectedPlanning()}
       snapshot={snapshot}
@@ -98,6 +112,10 @@ export function AgentWorkspaceView({
   onAcceptPlan,
   onApproveReview,
   onCreatePullRequest,
+  onCloseWorkspacePane,
+  onCloseWorkspaceTab,
+  onCycleWorkspacePane,
+  onCycleWorkspaceTab,
   onRefresh,
   onPushTaskBranch,
   onRequestChanges,
@@ -108,6 +126,9 @@ export function AgentWorkspaceView({
   onSelectAgent,
   onSelectTaskChange,
   onSelectTask,
+  onSelectWorkspacePane,
+  onSelectWorkspaceTab,
+  onSplitTerminal,
   onStartTask,
   onStartPlanning,
   snapshot,
@@ -130,6 +151,16 @@ export function AgentWorkspaceView({
         paletteReturnFocus.current =
           document.activeElement instanceof HTMLElement ? document.activeElement : null;
         setPaletteState((current) => reduceCommandPalette(current, { kind: 'OPEN' }, 1));
+        return;
+      }
+      if (shortcut === 'previous-tab' || shortcut === 'next-tab') {
+        onCycleWorkspaceTab(shortcut === 'previous-tab' ? -1 : 1);
+        scheduleTerminalFocus();
+        return;
+      }
+      if (shortcut === 'previous-pane' || shortcut === 'next-pane') {
+        onCycleWorkspacePane(shortcut === 'previous-pane' ? -1 : 1);
+        scheduleTerminalFocus();
         return;
       }
       setPaletteState(initialCommandPaletteState);
@@ -450,16 +481,20 @@ export function AgentWorkspaceView({
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
 
-          <TerminalRenderer
+          <WorkspaceTerminals
             {...(client === undefined ? {} : { client })}
-            {...(snapshot.terminalSessionId === undefined
-              ? {}
-              : { sessionId: snapshot.terminalSessionId })}
+            layout={snapshot.layout}
+            onActivatePane={onSelectWorkspacePane}
+            onActivateTab={onSelectWorkspaceTab}
+            onClosePane={onCloseWorkspacePane}
+            onCloseTab={onCloseWorkspaceTab}
             onRuntimeEvent={(event) => {
               if (event.kind !== 'output') {
                 onRefresh();
               }
             }}
+            onSplit={onSplitTerminal}
+            overview={snapshot.overview}
           />
           <WorkspaceCommandPalette
             commands={commands}
@@ -1220,12 +1255,19 @@ const focusTargetIds: Readonly<Record<WorkspaceFocusTarget, string>> = Object.fr
   checks: 'workspace-checks',
   review: 'workspace-review',
   sidebar: 'workspace-sidebar',
-  terminal: 'workspace-terminal',
+  terminal: '',
   workspace: 'workspace-main',
 });
 
 function focusWorkspaceTarget(target: WorkspaceFocusTarget): void {
-  const element = document.getElementById(focusTargetIds[target]);
+  const element =
+    target === 'terminal'
+      ? document.querySelector<HTMLElement>('[data-active-terminal-pane="true"]')
+      : document.getElementById(focusTargetIds[target]);
   element?.focus({ preventScroll: true });
   element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function scheduleTerminalFocus(): void {
+  requestAnimationFrame(() => focusWorkspaceTarget('terminal'));
 }

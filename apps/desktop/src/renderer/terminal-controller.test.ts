@@ -13,6 +13,7 @@ class FakeTerminalSurface implements TerminalSurface {
   public readonly dispose = vi.fn();
   public readonly focus = vi.fn();
   public readonly open = vi.fn();
+  public readonly refresh = vi.fn();
   public readonly reset = vi.fn();
   public readonly write = vi.fn();
   public size: PtyTerminalSize = { columns: 80, rows: 24 };
@@ -115,6 +116,51 @@ describe('TerminalController', () => {
 
     expect(client.attachment.resize).toHaveBeenNthCalledWith(1, { columns: 92, rows: 27 });
     expect(client.attachment.resize).toHaveBeenNthCalledWith(2, { columns: 121, rows: 39 });
+  });
+
+  it('refits only the activated pane surface so its resulting resize reaches that PTY', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.refreshLayout();
+    surface.emitResize({ columns: 132, rows: 41 });
+    await Promise.resolve();
+
+    expect(surface.refresh).toHaveBeenCalledOnce();
+    expect(client.attachment.resize).toHaveBeenLastCalledWith({ columns: 132, rows: 41 });
+  });
+
+  it('keeps output, input, and resize isolated across two pane controllers', async () => {
+    const leftSurface = new FakeTerminalSurface();
+    const rightSurface = new FakeTerminalSurface();
+    const leftClient = new FakeTerminalSessionClient();
+    const rightClient = new FakeTerminalSessionClient();
+    const left = new TerminalController(leftSurface);
+    const right = new TerminalController(rightSurface);
+    left.mount({} as HTMLElement);
+    right.mount({} as HTMLElement);
+    await Promise.all([
+      left.setSession('session-left', leftClient),
+      right.setSession('session-right', rightClient),
+    ]);
+
+    leftClient.emit({ data: 'left output', kind: 'output', sequence: 1 });
+    rightClient.emit({ data: 'right output', kind: 'output', sequence: 1 });
+    leftSurface.emitInput('left input');
+    rightSurface.emitResize({ columns: 144, rows: 45 });
+    await Promise.resolve();
+
+    expect(leftSurface.write).toHaveBeenCalledWith('left output');
+    expect(leftSurface.write).not.toHaveBeenCalledWith('right output');
+    expect(rightSurface.write).toHaveBeenCalledWith('right output');
+    expect(rightSurface.write).not.toHaveBeenCalledWith('left output');
+    expect(leftClient.attachment.write).toHaveBeenCalledWith('left input');
+    expect(rightClient.attachment.write).not.toHaveBeenCalled();
+    expect(rightClient.attachment.resize).toHaveBeenLastCalledWith({ columns: 144, rows: 45 });
+    expect(leftClient.attachment.resize).not.toHaveBeenCalledWith({ columns: 144, rows: 45 });
   });
 
   it('detaches the prior session once and ignores its late events when switching sessions', async () => {

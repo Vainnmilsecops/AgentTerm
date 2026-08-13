@@ -14,6 +14,7 @@ import {
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
+  AgentSessionTerminalAttachmentConflictError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
   PtyRuntimeError,
@@ -75,6 +76,7 @@ interface OwnedSessionRuntime {
   acceptingTerminalInput: boolean;
   failure: AgentSessionPersistenceError | undefined;
   handle: PtyHandle | undefined;
+  interactiveAttachment: PtyRuntimeEventSink | undefined;
   readonly observers: Set<PtyRuntimeEventSink>;
   readonly runtimeEvents: Map<number, string>;
   stopAttempt: Promise<AgentSession> | undefined;
@@ -198,7 +200,15 @@ export class AgentSessionCoordinator {
       throw new AgentSessionRuntimeOwnershipError(input.sessionId);
     }
 
-    runtimeState.observers.add(input.eventSink);
+    if (runtimeState.interactiveAttachment !== undefined) {
+      throw new AgentSessionTerminalAttachmentConflictError(input.sessionId);
+    }
+
+    const ownsObserverRegistration = !runtimeState.observers.has(input.eventSink);
+    runtimeState.interactiveAttachment = input.eventSink;
+    if (ownsObserverRegistration) {
+      runtimeState.observers.add(input.eventSink);
+    }
     let attached = true;
     const requireAttachedHandle = (operation: 'resize' | 'write'): PtyHandle => {
       if (
@@ -218,7 +228,12 @@ export class AgentSessionCoordinator {
           return;
         }
         attached = false;
-        runtimeState.observers.delete(input.eventSink);
+        if (runtimeState.interactiveAttachment === input.eventSink) {
+          runtimeState.interactiveAttachment = undefined;
+        }
+        if (ownsObserverRegistration) {
+          runtimeState.observers.delete(input.eventSink);
+        }
       },
       resize: async (size: PtyTerminalSize): Promise<void> => {
         await requireAttachedHandle('resize').resize(size);
@@ -317,6 +332,7 @@ export class AgentSessionCoordinator {
       acceptingTerminalInput: true,
       failure: undefined,
       handle: undefined,
+      interactiveAttachment: undefined,
       observers: new Set(input.eventSink === undefined ? [] : [input.eventSink]),
       runtimeEvents: new Map(),
       stopAttempt: undefined,
