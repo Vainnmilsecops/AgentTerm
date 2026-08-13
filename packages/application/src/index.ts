@@ -19,6 +19,8 @@ export {
   TaskExecutionStartError,
   TaskExecutionRetryError,
   TaskExecutionPhaseError,
+  TaskChangeInspectionError,
+  type TaskChangeInspectionFailure,
   TaskPlanningFlowRequiredError,
   TaskPlanningPhaseError,
   TaskPlanReadinessError,
@@ -84,6 +86,13 @@ export type {
   GitRepositorySnapshot,
   GitWorkingTreeStatus,
   GitTaskWorktreeLifecycle,
+  TaskChangeInspector,
+  TaskChangeArea,
+  TaskChangeSet,
+  TaskFileChange,
+  TaskFileChangeKind,
+  TaskFileDiff,
+  TaskFileDiffRequest,
   InspectGitTaskWorktreeInput,
   LocalProject,
   LocalProjectLocator,
@@ -124,6 +133,12 @@ export type {
   TaskWorktreeRepository,
   TaskWorktreeStatus,
 } from './ports';
+export {
+  getTaskFileDiff,
+  listTaskChanges,
+  type GetTaskFileDiffInput,
+  type ListTaskChangesInput,
+} from './task-change-inspection';
 export {
   acceptTaskPlan,
   createTaskPlan,

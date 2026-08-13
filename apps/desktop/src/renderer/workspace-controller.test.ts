@@ -2,7 +2,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AgentWorkspaceOverview, WorkspaceTaskOverview } from '@agentterm/application';
+import type {
+  AgentWorkspaceOverview,
+  TaskChangeSet,
+  WorkspaceTaskOverview,
+} from '@agentterm/application';
 
 import {
   AgentWorkspaceView as AgentWorkspaceViewComponent,
@@ -14,12 +18,16 @@ import {
   type WorkspaceSnapshot,
 } from './workspace-controller';
 
-type TestWorkspaceViewProps = Omit<AgentWorkspaceViewProps, 'onAcceptPlan' | 'onStartPlanning'> &
-  Partial<Pick<AgentWorkspaceViewProps, 'onAcceptPlan' | 'onStartPlanning'>>;
+type TestWorkspaceViewProps = Omit<
+  AgentWorkspaceViewProps,
+  'onAcceptPlan' | 'onSelectTaskChange' | 'onStartPlanning'
+> &
+  Partial<Pick<AgentWorkspaceViewProps, 'onAcceptPlan' | 'onSelectTaskChange' | 'onStartPlanning'>>;
 
 function AgentWorkspaceView(props: TestWorkspaceViewProps) {
   return createElement(AgentWorkspaceViewComponent, {
     onAcceptPlan: () => undefined,
+    onSelectTaskChange: () => undefined,
     onStartPlanning: () => undefined,
     ...props,
   });
@@ -304,6 +312,30 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public loadResults: AgentWorkspaceOverview[] = [planningOverview];
   public loadFailure: Error | undefined;
   public startGate: Promise<void> | undefined;
+  public changeSet: TaskChangeSet = Object.freeze({
+    files: Object.freeze([]),
+    totalFiles: 0,
+    truncated: false,
+  });
+  public readonly listTaskChanges = vi.fn(async () => Promise.resolve(this.changeSet));
+  public readonly getTaskFileDiff = vi.fn(
+    async (input: {
+      readonly area: 'COMMITTED' | 'CONFLICTED' | 'STAGED' | 'UNSTAGED' | 'UNTRACKED';
+      readonly path: string;
+      readonly previousPath?: string;
+      readonly taskId: string;
+    }) =>
+      Promise.resolve({
+        additions: 1,
+        area: input.area,
+        binary: false,
+        deletions: 1,
+        kind: 'MODIFIED' as const,
+        patch: Object.freeze({ text: '-before\n+after\n', truncated: false as const }),
+        path: input.path,
+        ...(input.previousPath === undefined ? {} : { previousPath: input.previousPath }),
+      }),
+  );
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
     async () => undefined,
   );
@@ -353,6 +385,62 @@ describe('WorkspaceController', () => {
       selectedTaskId: 'task-1',
     });
     expect(selectedTask(controller.snapshot)?.task.title).toBe('Nối terminal tiếng Việt');
+  });
+
+  it('loads a bounded change list for the selected Task and fetches only the chosen patch', async () => {
+    const client = new FakeWorkspaceClient();
+    const modified = Object.freeze({
+      area: 'UNSTAGED' as const,
+      kind: 'MODIFIED' as const,
+      path: 'src/workspace.ts',
+    });
+    client.changeSet = Object.freeze({
+      files: Object.freeze([modified]),
+      totalFiles: 1,
+      truncated: false,
+    });
+    const controller = new WorkspaceController(client);
+
+    await controller.load();
+
+    expect(client.listTaskChanges).toHaveBeenCalledWith({ taskId: 'task-1' });
+    expect(client.getTaskFileDiff).not.toHaveBeenCalled();
+    expect(controller.snapshot).toMatchObject({
+      changeInspection: { kind: 'ready', result: { totalFiles: 1 }, taskId: 'task-1' },
+      kind: 'ready',
+    });
+
+    await controller.selectTaskChange(modified);
+
+    expect(client.getTaskFileDiff).toHaveBeenCalledWith({
+      area: 'UNSTAGED',
+      path: 'src/workspace.ts',
+      taskId: 'task-1',
+    });
+    expect(controller.snapshot).toMatchObject({
+      changeInspection: {
+        kind: 'ready',
+        selectedDiff: { patch: { text: '-before\n+after\n' }, path: 'src/workspace.ts' },
+      },
+    });
+  });
+
+  it('keeps workspace usable and sanitizes change inspection failures', async () => {
+    const client = new FakeWorkspaceClient();
+    client.listTaskChanges.mockRejectedValueOnce(new Error('D:\\secret\\repository'));
+    const controller = new WorkspaceController(client);
+
+    await controller.load();
+
+    expect(controller.snapshot).toMatchObject({
+      changeInspection: {
+        kind: 'error',
+        message: 'Task changes could not be loaded.',
+        taskId: 'task-1',
+      },
+      kind: 'ready',
+    });
+    expect(JSON.stringify(controller.snapshot)).not.toContain('secret');
   });
 
   it('changes the selected Task without loading or starting execution', async () => {
@@ -1207,6 +1295,61 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('No configured coding agent is currently available.');
     expect(markup).toMatch(/<button class="primary-action" disabled=""/u);
     expect(markup).toContain('Retry execution');
+  });
+
+  it('renders a keyboard-native changed file list and only the selected bounded patch', () => {
+    const changedFile = Object.freeze({
+      area: 'STAGED' as const,
+      kind: 'RENAMED' as const,
+      path: 'src/new-name.ts',
+      previousPath: 'src/old-name.ts',
+    });
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectAgent: () => undefined,
+        onSelectTask: () => undefined,
+        onSelectTaskChange: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          changeInspection: {
+            diffError: undefined,
+            diffLoading: false,
+            kind: 'ready',
+            result: { files: [changedFile], totalFiles: 1, truncated: false },
+            selectedDiff: {
+              ...changedFile,
+              additions: 2,
+              binary: false,
+              deletions: 1,
+              patch: { text: '-old\n+new\n', truncated: false },
+            },
+            selectedFile: changedFile,
+            taskId: runningTask.id,
+          },
+          kind: 'ready',
+          overview: runningStartOverview,
+          selectedAgentId: 'codex',
+          selectedTaskId: runningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Changed files');
+    expect(markup).toContain('src/old-name.ts -&gt; src/new-name.ts');
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup).toContain('-old\n+new');
+    expect(markup).toContain('+2');
+    expect(markup).toContain('-1');
   });
 
   it('offers an explicit Start review action only when Application marks RUNNING ready', () => {

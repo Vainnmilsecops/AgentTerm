@@ -1,10 +1,18 @@
-import type { AgentWorkspaceOverview } from '@agentterm/application';
+import type {
+  AgentWorkspaceOverview,
+  GetTaskFileDiffInput,
+  TaskChangeSet,
+  TaskFileChange,
+  TaskFileDiff,
+} from '@agentterm/application';
 
 import type { TerminalSessionClient } from './terminal-controller';
 
 export interface AgentWorkspaceClient extends TerminalSessionClient {
   acceptTaskPlan(input: { readonly planId: string; readonly taskId: string }): Promise<void>;
   approveTaskReview(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
+  getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
+  listTaskChanges(input: { readonly taskId: string }): Promise<TaskChangeSet>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
@@ -12,6 +20,20 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskPlanning(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
 }
+
+export type WorkspaceChangeInspection =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading'; readonly taskId: string }
+  | { readonly kind: 'error'; readonly message: string; readonly taskId: string }
+  | {
+      readonly diffError: string | undefined;
+      readonly diffLoading: boolean;
+      readonly kind: 'ready';
+      readonly result: TaskChangeSet;
+      readonly selectedDiff: TaskFileDiff | undefined;
+      readonly selectedFile: TaskFileChange | undefined;
+      readonly taskId: string;
+    };
 
 export type WorkspaceActionKind =
   | 'accept-plan'
@@ -33,6 +55,7 @@ export type WorkspaceSnapshot =
   | {
       readonly actionError: string | undefined;
       readonly activeAction: WorkspaceAction | undefined;
+      readonly changeInspection?: WorkspaceChangeInspection;
       readonly kind: 'ready';
       readonly overview: AgentWorkspaceOverview;
       readonly selectedAgentId: string | undefined;
@@ -42,6 +65,7 @@ export type WorkspaceSnapshot =
 
 export class WorkspaceController {
   private disposed = false;
+  private changeGeneration = 0;
   private loadGeneration = 0;
   private readonly client: AgentWorkspaceClient;
   private readonly sink: ((snapshot: WorkspaceSnapshot) => void) | undefined;
@@ -62,6 +86,7 @@ export class WorkspaceController {
         return;
       }
       this.publishReady(overview, undefined);
+      await this.loadSelectedTaskChanges();
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
         this.publish(
@@ -81,6 +106,7 @@ export class WorkspaceController {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : requestedTaskId;
         this.publishReady(overview, preferredTaskId);
+        await this.loadSelectedTaskChanges();
       }
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
@@ -109,10 +135,12 @@ export class WorkspaceController {
       Object.freeze({
         ...this.snapshot,
         actionError: undefined,
+        changeInspection: Object.freeze({ kind: 'idle' }),
         selectedTaskId: taskId,
         terminalSessionId: selectedTask?.activeSession?.id,
       }),
     );
+    void this.loadSelectedTaskChanges();
   }
 
   public selectAgent(agentId: string): void {
@@ -154,6 +182,77 @@ export class WorkspaceController {
 
   public requestSelectedTaskChanges(): Promise<void> {
     return this.executeSelectedAction('request-changes');
+  }
+
+  public async selectTaskChange(change: TaskFileChange): Promise<void> {
+    const current = this.snapshot;
+    const inspection = current.kind === 'ready' ? current.changeInspection : undefined;
+
+    if (
+      current.kind !== 'ready' ||
+      inspection?.kind !== 'ready' ||
+      !inspection.result.files.some((candidate) => sameFileChange(candidate, change))
+    ) {
+      return;
+    }
+
+    const generation = ++this.changeGeneration;
+    this.publish(
+      Object.freeze({
+        ...current,
+        changeInspection: Object.freeze({
+          ...inspection,
+          diffError: undefined,
+          diffLoading: true,
+          selectedDiff: undefined,
+          selectedFile: change,
+        }),
+      }),
+    );
+
+    try {
+      const selectedDiff = await this.client.getTaskFileDiff({
+        area: change.area,
+        path: change.path,
+        ...(change.previousPath === undefined ? {} : { previousPath: change.previousPath }),
+        taskId: inspection.taskId,
+      });
+      if (!this.isCurrentChangeRequest(generation, inspection.taskId)) {
+        return;
+      }
+      const latest = this.snapshot;
+      if (latest.kind !== 'ready' || latest.changeInspection?.kind !== 'ready') {
+        return;
+      }
+      this.publish(
+        Object.freeze({
+          ...latest,
+          changeInspection: Object.freeze({
+            ...latest.changeInspection,
+            diffLoading: false,
+            selectedDiff,
+          }),
+        }),
+      );
+    } catch {
+      if (!this.isCurrentChangeRequest(generation, inspection.taskId)) {
+        return;
+      }
+      const latest = this.snapshot;
+      if (latest.kind !== 'ready' || latest.changeInspection?.kind !== 'ready') {
+        return;
+      }
+      this.publish(
+        Object.freeze({
+          ...latest,
+          changeInspection: Object.freeze({
+            ...latest.changeInspection,
+            diffError: 'The selected file diff could not be loaded.',
+            diffLoading: false,
+          }),
+        }),
+      );
+    }
   }
 
   private executeSelectedAction(kind: WorkspaceActionKind): Promise<void> {
@@ -205,6 +304,7 @@ export class WorkspaceController {
   public dispose(): void {
     this.disposed = true;
     this.loadGeneration += 1;
+    this.changeGeneration += 1;
   }
 
   private async performAction(
@@ -232,6 +332,7 @@ export class WorkspaceController {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : action.taskId;
         this.publishReady(overview, preferredTaskId);
+        await this.loadSelectedTaskChanges();
       }
     } catch {
       if (!this.disposed) {
@@ -267,12 +368,81 @@ export class WorkspaceController {
       Object.freeze({
         actionError: undefined,
         activeAction: undefined,
+        changeInspection: Object.freeze({ kind: 'idle' }),
         kind: 'ready',
         overview,
         selectedAgentId,
         selectedTaskId,
         terminalSessionId: selectedTask?.activeSession?.id ?? previousTerminalSessionId,
       }),
+    );
+  }
+
+  private async loadSelectedTaskChanges(): Promise<void> {
+    const current = this.snapshot;
+    if (current.kind !== 'ready' || current.selectedTaskId === undefined) {
+      return;
+    }
+
+    const taskId = current.selectedTaskId;
+    const generation = ++this.changeGeneration;
+    this.publish(
+      Object.freeze({
+        ...current,
+        changeInspection: Object.freeze({ kind: 'loading', taskId }),
+      }),
+    );
+
+    try {
+      const result = await this.client.listTaskChanges({ taskId });
+      if (!this.isCurrentChangeRequest(generation, taskId)) {
+        return;
+      }
+      const latest = this.snapshot;
+      if (latest.kind !== 'ready') {
+        return;
+      }
+      this.publish(
+        Object.freeze({
+          ...latest,
+          changeInspection: Object.freeze({
+            diffError: undefined,
+            diffLoading: false,
+            kind: 'ready',
+            result,
+            selectedDiff: undefined,
+            selectedFile: undefined,
+            taskId,
+          }),
+        }),
+      );
+    } catch {
+      if (!this.isCurrentChangeRequest(generation, taskId)) {
+        return;
+      }
+      const latest = this.snapshot;
+      if (latest.kind !== 'ready') {
+        return;
+      }
+      this.publish(
+        Object.freeze({
+          ...latest,
+          changeInspection: Object.freeze({
+            kind: 'error',
+            message: 'Task changes could not be loaded.',
+            taskId,
+          }),
+        }),
+      );
+    }
+  }
+
+  private isCurrentChangeRequest(generation: number, taskId: string): boolean {
+    return (
+      !this.disposed &&
+      generation === this.changeGeneration &&
+      this.snapshot.kind === 'ready' &&
+      this.snapshot.selectedTaskId === taskId
     );
   }
 
@@ -437,4 +607,13 @@ function selectAvailableAgentId(
 
 function isAvailableAgentId(overview: AgentWorkspaceOverview, agentId: string): boolean {
   return overview.agents.some((agent) => agent.id === agentId && agent.kind === 'available');
+}
+
+function sameFileChange(left: TaskFileChange, right: TaskFileChange): boolean {
+  return (
+    left.area === right.area &&
+    left.kind === right.kind &&
+    left.path === right.path &&
+    left.previousPath === right.previousPath
+  );
 }

@@ -409,6 +409,28 @@ export class TaskWorktreeLifecycleError extends Error {
   }
 }
 
+export type TaskChangeInspectionFailure =
+  'CHANGE_NOT_FOUND' | 'GIT_INSPECTION_FAILED' | 'WORKTREE_NOT_READY';
+
+export class TaskChangeInspectionError extends Error {
+  public readonly reason: TaskChangeInspectionFailure;
+  public readonly taskId: string;
+
+  public constructor(reason: TaskChangeInspectionFailure, taskId: string, options?: ErrorOptions) {
+    super(
+      reason === 'CHANGE_NOT_FOUND'
+        ? 'The selected Task file change is no longer available.'
+        : reason === 'WORKTREE_NOT_READY'
+          ? 'The Task primary Worktree is not ready for change inspection.'
+          : 'Task changes could not be inspected.',
+      options,
+    );
+    this.name = 'TaskChangeInspectionError';
+    this.reason = reason;
+    this.taskId = taskId;
+  }
+}
+
 export class TaskWorktreeMetadataConflictError extends Error {
   public readonly taskId: string;
 

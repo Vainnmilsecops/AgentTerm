@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 
 import type {
   AgentWorkspaceOverview,
+  TaskFileChange,
+  TaskFileDiff,
   WorkspaceProjectOverview,
   WorkspaceTaskOverview,
 } from '@agentterm/application';
@@ -27,6 +29,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onRetry: () => void;
   readonly onRetryTask: () => void;
   readonly onSelectAgent?: (agentId: string) => void;
+  readonly onSelectTaskChange: (change: TaskFileChange) => void;
   readonly onSelectTask: (taskId: string) => void;
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
@@ -64,6 +67,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onRetry={() => void controller?.load()}
       onRetryTask={() => void controller?.retrySelectedTask()}
       onSelectAgent={(agentId) => controller?.selectAgent(agentId)}
+      onSelectTaskChange={(change) => void controller?.selectTaskChange(change)}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
       onStartTask={() => void controller?.startSelectedTask()}
       onStartPlanning={() => void controller?.startSelectedPlanning()}
@@ -82,6 +86,7 @@ export function AgentWorkspaceView({
   onRetry,
   onRetryTask,
   onSelectAgent,
+  onSelectTaskChange,
   onSelectTask,
   onStartTask,
   onStartPlanning,
@@ -292,6 +297,10 @@ export function AgentWorkspaceView({
           </div>
 
           <PlanningSummary plan={selected.latestPlan} />
+          <ChangeInspector
+            inspection={snapshot.changeInspection}
+            onSelectChange={onSelectTaskChange}
+          />
           <ReviewHistory reviews={selected.reviewHistory} />
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
@@ -311,6 +320,115 @@ export function AgentWorkspaceView({
       )}
     </main>
   );
+}
+
+function ChangeInspector({
+  inspection,
+  onSelectChange,
+}: {
+  readonly inspection: Extract<WorkspaceSnapshot, { readonly kind: 'ready' }>['changeInspection'];
+  readonly onSelectChange: (change: TaskFileChange) => void;
+}) {
+  return (
+    <section className="change-inspector" aria-labelledby="change-inspector-heading">
+      <header className="change-inspector__header">
+        <div>
+          <p className="eyebrow">Git evidence</p>
+          <h3 id="change-inspector-heading">Changed files</h3>
+        </div>
+        {inspection?.kind === 'ready' ? <span>{inspection.result.totalFiles}</span> : null}
+      </header>
+      {inspection === undefined || inspection.kind === 'idle' || inspection.kind === 'loading' ? (
+        <p className="change-inspector__empty" role="status">
+          Loading Task Worktree changes...
+        </p>
+      ) : inspection.kind === 'error' ? (
+        <p className="inline-error" role="alert">
+          {inspection.message}
+        </p>
+      ) : inspection.result.files.length === 0 ? (
+        <p className="change-inspector__empty">The Task Worktree is clean.</p>
+      ) : (
+        <div className="change-inspector__body">
+          <div>
+            <ul className="change-list" aria-label="Task Worktree changed files">
+              {inspection.result.files.map((change) => (
+                <li key={changeIdentity(change)}>
+                  <button
+                    aria-pressed={sameDisplayedChange(inspection.selectedFile, change)}
+                    onClick={() => onSelectChange(change)}
+                    type="button"
+                  >
+                    <span>{change.area}</span>
+                    <strong>{change.kind}</strong>
+                    <code>
+                      {change.previousPath === undefined
+                        ? change.path
+                        : `${change.previousPath} -> ${change.path}`}
+                    </code>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {inspection.result.truncated ? (
+              <p className="change-inspector__note">
+                Showing a bounded file list; {inspection.result.totalFiles} changes were found.
+              </p>
+            ) : null}
+          </div>
+          <div className="change-diff" aria-live="polite">
+            {inspection.diffLoading ? (
+              <p role="status">Loading selected diff...</p>
+            ) : inspection.diffError !== undefined ? (
+              <p className="inline-error" role="alert">
+                {inspection.diffError}
+              </p>
+            ) : inspection.selectedDiff === undefined ? (
+              <p>Select a changed file to load its bounded diff.</p>
+            ) : (
+              <FileDiff diff={inspection.selectedDiff} />
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function FileDiff({ diff }: { readonly diff: TaskFileDiff }) {
+  return (
+    <>
+      <header className="change-diff__header">
+        <strong>{diff.path}</strong>
+        <span>
+          {diff.additions === undefined ? '?' : `+${diff.additions}`} /{' '}
+          {diff.deletions === undefined ? '?' : `-${diff.deletions}`}
+        </span>
+      </header>
+      {diff.omittedReason === 'BINARY' ? (
+        <p>Binary diff omitted.</p>
+      ) : diff.omittedReason === 'TOO_LARGE' ? (
+        <p>Diff omitted because it exceeds the safe display limit.</p>
+      ) : diff.omittedReason === 'UNSUPPORTED' ? (
+        <p>This file type cannot be previewed safely.</p>
+      ) : diff.patch === undefined ? (
+        <p>No textual patch is available.</p>
+      ) : (
+        <pre>{diff.patch.text}</pre>
+      )}
+    </>
+  );
+}
+
+function changeIdentity(change: TaskFileChange): string {
+  return `${change.area}:${change.previousPath ?? ''}:${change.path}`;
+}
+
+function sameDisplayedChange(
+  selected: TaskFileChange | undefined,
+  candidate: TaskFileChange,
+): boolean {
+  return selected === undefined ? false : changeIdentity(selected) === changeIdentity(candidate);
 }
 
 function ReviewHistory({ reviews }: { readonly reviews: WorkspaceTaskOverview['reviewHistory'] }) {

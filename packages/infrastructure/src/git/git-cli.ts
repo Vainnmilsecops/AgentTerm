@@ -43,7 +43,7 @@ export class GitWorkingTreeAccessError extends Error {
 }
 
 export class GitCliError extends Error {
-  public constructor(public readonly reason: 'FAILED' | 'NOT_AVAILABLE') {
+  public constructor(public readonly reason: 'FAILED' | 'NOT_AVAILABLE' | 'OUTPUT_LIMIT') {
     super(reason);
     this.name = 'GitCliError';
   }
@@ -346,7 +346,13 @@ function executeGit(
           }
 
           reject(
-            new GitCliError(isUnavailableProcessError(errorCode) ? 'NOT_AVAILABLE' : 'FAILED'),
+            new GitCliError(
+              errorCode === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+                ? 'OUTPUT_LIMIT'
+                : isUnavailableProcessError(errorCode)
+                  ? 'NOT_AVAILABLE'
+                  : 'FAILED',
+            ),
           );
         },
       );
