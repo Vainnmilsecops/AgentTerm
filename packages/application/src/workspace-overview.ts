@@ -151,9 +151,6 @@ export async function loadAgentWorkspace(
   agents: AgentCatalog,
 ): Promise<AgentWorkspaceOverview> {
   const agentSummaries = await listAgentSummaries(agents);
-  const availableAgentIds = new Set(
-    agentSummaries.filter((agent) => agent.kind === 'available').map((agent) => agent.id),
-  );
   const recentProjects = await projects.listRecent();
   const projectOverviews = await Promise.all(
     recentProjects.map(async (project): Promise<WorkspaceProjectOverview> => {
@@ -206,8 +203,7 @@ export async function loadAgentWorkspace(
               activeSession === undefined &&
               !hasUnsettledReviewWriter &&
               isTerminal(latestSession) &&
-              latestSession !== undefined &&
-              availableAgentIds.has(latestSession.agentId),
+              latestSession !== undefined,
             canStartExecution:
               phaseAllowsExecution && activeSession === undefined && latestSession === undefined,
             latestSession: summarizeSession(latestSession),

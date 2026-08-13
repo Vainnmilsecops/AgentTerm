@@ -424,8 +424,14 @@ describe('WorkspaceController', () => {
   });
 
   it('retries a terminal attempt once and selects the newly active Session', async () => {
+    const alternateAgent = Object.freeze({
+      capabilities: Object.freeze([]),
+      displayName: 'Local Agent',
+      id: 'local-agent',
+      kind: 'available' as const,
+    });
     const recoveredOverview: AgentWorkspaceOverview = {
-      agents: availableAgents,
+      agents: [...availableAgents, alternateAgent],
       projects: [
         {
           project,
@@ -446,14 +452,21 @@ describe('WorkspaceController', () => {
       ],
     };
     const client = new FakeWorkspaceClient();
-    client.loadResults = [failedOverview, recoveredOverview];
+    client.loadResults = [
+      { ...failedOverview, agents: [...availableAgents, alternateAgent] },
+      recoveredOverview,
+    ];
     const controller = new WorkspaceController(client);
     await controller.load();
+    controller.selectAgent('local-agent');
 
     await Promise.all([controller.retrySelectedTask(), controller.retrySelectedTask()]);
 
     expect(client.retryTaskExecution).toHaveBeenCalledOnce();
-    expect(client.retryTaskExecution).toHaveBeenCalledWith({ taskId: 'task-1' });
+    expect(client.retryTaskExecution).toHaveBeenCalledWith({
+      agentId: 'local-agent',
+      taskId: 'task-1',
+    });
     expect(client.startTaskExecution).not.toHaveBeenCalled();
     expect(controller.snapshot).toMatchObject({
       actionError: undefined,
@@ -829,7 +842,7 @@ describe('WorkspaceController', () => {
 });
 
 describe('AgentWorkspaceView', () => {
-  it('renders an accessible agent selector and labels registered and historical session identities', () => {
+  it('enables the accessible agent selector for Retry and labels current and historical identities', () => {
     const historicalSession = Object.freeze({ ...failedSession, agentId: 'legacy-agent' });
     const overview: AgentWorkspaceOverview = {
       agents: availableAgents,
@@ -839,11 +852,11 @@ describe('AgentWorkspaceView', () => {
           tasks: [
             {
               ...emptyReviewState,
-              activeSession: workingSession,
+              activeSession: undefined,
               artifacts: [],
-              canRetryExecution: false,
+              canRetryExecution: true,
               canStartExecution: false,
-              latestSession: workingSession,
+              latestSession: failedSession,
               previousSession: historicalSession,
               qualityGateRuns: [],
               task: runningTask,
@@ -871,20 +884,22 @@ describe('AgentWorkspaceView', () => {
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
-          terminalSessionId: workingSession.id,
+          terminalSessionId: undefined,
         },
       }),
     );
 
     expect(markup).toContain('aria-label="Coding agent"');
-    expect(markup).toContain('Agent for fresh start');
-    expect(markup).toContain('Retry keeps the previous Session&#x27;s agent.');
-    expect(markup).toMatch(
+    expect(markup).toContain('Agent for next attempt');
+    expect(markup).toContain('Used for the next Start or Retry attempt.');
+    expect(markup).not.toMatch(
       /<select[^>]*disabled=""[^>]*aria-label="Coding agent"|<select[^>]*aria-label="Coding agent"[^>]*disabled=""/u,
     );
     expect(markup).toContain('Codex (codex)');
     expect(markup).toContain('Future Agent (future-agent)');
-    expect(markup).toContain('Codex (codex) · session-working');
+    expect(markup).toContain('Available · Session resume');
+    expect(markup).toContain('Unavailable · Executable not found');
+    expect(markup).toContain('Codex (codex) · session-failed');
     expect(markup).toContain('legacy-agent · session-failed');
   });
 
@@ -919,6 +934,40 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('No available agent');
     expect(markup).toContain('No configured coding agent is currently available.');
     expect(markup).toMatch(/<button class="primary-action" disabled=""/u);
+  });
+
+  it('disables Retry when the catalog has no available agent', () => {
+    const overview: AgentWorkspaceOverview = {
+      ...failedOverview,
+      agents: [availableAgents[1]!],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview,
+          selectedAgentId: undefined,
+          selectedTaskId: runningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('No available agent');
+    expect(markup).toContain('No configured coding agent is currently available.');
+    expect(markup).toMatch(/<button class="primary-action" disabled=""/u);
+    expect(markup).toContain('Retry execution');
   });
 
   it('offers an explicit Start review action only when Application marks RUNNING ready', () => {

@@ -588,7 +588,7 @@ describe('loadAgentWorkspace', () => {
     });
   });
 
-  it('does not offer retry when the persisted session agent is no longer configured or available', async () => {
+  it('offers retry with another available Agent when the historical Agent is missing or unavailable', async () => {
     const project: LocalProject = {
       id: 'project-agent-retry',
       name: 'Agent retry',
@@ -634,7 +634,7 @@ describe('loadAgentWorkspace', () => {
       );
 
       expect(workspace.projects[0]?.tasks[0]).toMatchObject({
-        canRetryExecution: false,
+        canRetryExecution: true,
         latestSession: { agentId: session.agentId },
         task: { phase: TaskPhase.RUNNING },
       });

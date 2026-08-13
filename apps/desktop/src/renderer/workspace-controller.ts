@@ -7,7 +7,7 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
-  retryTaskExecution(input: { readonly taskId: string }): Promise<void>;
+  retryTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
 }
 
@@ -162,7 +162,10 @@ export class WorkspaceController {
     if ((kind === 'approve-review' || kind === 'request-changes') && reviewId === undefined) {
       return Promise.resolve();
     }
-    if (kind === 'start-execution' && selectedAgentId === undefined) {
+    if (
+      (kind === 'start-execution' || kind === 'retry-execution') &&
+      selectedAgentId === undefined
+    ) {
       return Promise.resolve();
     }
 
@@ -272,7 +275,7 @@ async function runWorkspaceAction(
       await client.startTaskExecution({ agentId: requireAgentId(agentId), taskId: action.taskId });
       return;
     case 'retry-execution':
-      await client.retryTaskExecution({ taskId: action.taskId });
+      await client.retryTaskExecution({ agentId: requireAgentId(agentId), taskId: action.taskId });
       return;
     case 'request-review':
       await client.requestTaskReview({ taskId: action.taskId });

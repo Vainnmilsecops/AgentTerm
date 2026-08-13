@@ -139,6 +139,7 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         });
         const second = await retryTaskExecution(
           {
+            agentId: input.agentId,
             environment: input.environment,
             initialSize: input.initialSize,
             sessionId: 'session-execution-2',
@@ -234,6 +235,7 @@ describe('Task execution through the built-in agent catalog', () => {
           tasks: persistence.tasks,
           worktrees: persistence.worktrees,
         };
+        const worktreePaths = new Map<string, string>();
 
         for (const agentId of ['claude', 'gemini'] as const) {
           const taskId = `task-${agentId}`;
@@ -256,6 +258,7 @@ describe('Task execution through the built-in agent catalog', () => {
           );
 
           expect(result.session).toMatchObject({ agentId, status: AgentSessionStatus.WORKING });
+          worktreePaths.set(agentId, result.worktree.worktree.worktreePath);
           expect(runtime.specs.at(-1)).toMatchObject({
             arguments: [],
             executablePath: realpathSync.native(join(fixtureRoot, `${agentId}.exe`)),
@@ -265,6 +268,39 @@ describe('Task execution through the built-in agent catalog', () => {
             phase: TaskPhase.RUNNING,
           });
         }
+
+        runtime.emit(0, { exitCode: 0, kind: 'exited', sequence: 2 });
+        await sessions.findById('session-claude');
+        const switched = await retryTaskExecution(
+          {
+            agentId: 'gemini',
+            environment: { SystemRoot: 'C:\\Windows' },
+            initialSize: { columns: 100, rows: 30 },
+            sessionId: 'session-claude-retried-with-gemini',
+            taskId: 'task-claude',
+          },
+          dependencies,
+        );
+
+        expect(switched.worktree).toMatchObject({
+          kind: 'reused',
+          worktree: { worktreePath: worktreePaths.get('claude') },
+        });
+        expect(switched.previousSession).toMatchObject({ agentId: 'claude', id: 'session-claude' });
+        expect(switched.session).toMatchObject({
+          agentId: 'gemini',
+          id: 'session-claude-retried-with-gemini',
+          status: AgentSessionStatus.WORKING,
+        });
+        await expect(persistence.sessions.listByTaskId('task-claude')).resolves.toMatchObject([
+          { agentId: 'claude', id: 'session-claude', status: AgentSessionStatus.EXITED },
+          {
+            agentId: 'gemini',
+            id: 'session-claude-retried-with-gemini',
+            status: AgentSessionStatus.WORKING,
+          },
+        ]);
+        expect(countRegisteredWorktrees(canonicalRepositoryPath)).toBe(3);
 
         rmSync(claudeExecutable);
         await createTask(
@@ -296,7 +332,7 @@ describe('Task execution through the built-in agent catalog', () => {
           session: { agentId: 'claude', status: AgentSessionStatus.FAILED },
           stage: 'SESSION_START',
         });
-        expect(runtime.specs).toHaveLength(2);
+        expect(runtime.specs).toHaveLength(3);
         await expect(
           persistence.tasks.findById('task-claude-launch-failure'),
         ).resolves.toMatchObject({ phase: TaskPhase.RUNNING });

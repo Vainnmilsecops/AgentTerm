@@ -70,6 +70,7 @@ const executionInput = Object.freeze({
   taskId: primaryWorktree.taskId,
 });
 const retryInput = Object.freeze({
+  agentId: executionInput.agentId,
   environment: executionInput.environment,
   initialSize: executionInput.initialSize,
   sessionId: executionInput.sessionId,
@@ -833,35 +834,38 @@ describe('retryTaskExecution', () => {
     expect(fixture.git.ensureCalls).toBe(0);
   });
 
-  it('retries with the same configured Agent recorded by the latest terminal Session', async () => {
+  it('retries with the explicitly selected Agent and preserves the previous Agent identity', async () => {
     const fixture = createFixture(TaskPhase.RUNNING);
-    const otherAgentStarting = createAgentSession({
-      agentId: 'other-agent',
+    const previousStarting = createAgentSession({
+      agentId: 'codex',
       createdAt: 1_800_000_000_000,
-      id: 'session-other',
+      id: 'session-codex',
       taskId: executionInput.taskId,
     });
-    const otherAgentExited = recordAgentSessionEvent(otherAgentStarting, {
+    const previousExited = recordAgentSessionEvent(previousStarting, {
       exitCode: 0,
       kind: 'PROCESS_EXITED',
       occurredAt: 1_800_000_000_001,
       reason: 'PROCESS_EXIT',
       runtimeSequence: 1,
     });
-    await fixture.sessionRepository.insert(otherAgentStarting);
-    await fixture.sessionRepository.append(otherAgentExited, 1);
+    await fixture.sessionRepository.insert(previousStarting);
+    await fixture.sessionRepository.append(previousExited, 1);
     fixture.events.length = 0;
 
-    const retried = await retryTaskExecution(retryInput, fixture.dependencies);
+    const retried = await retryTaskExecution(
+      { ...retryInput, agentId: 'other-agent' },
+      fixture.dependencies,
+    );
 
-    expect(retried.previousSession.agentId).toBe('other-agent');
+    expect(retried.previousSession.agentId).toBe('codex');
     expect(retried.session.agentId).toBe('other-agent');
     expect(fixture.adapter.requests).toEqual([]);
     expect(fixture.otherAdapter.requests).toHaveLength(1);
     expect(fixture.runtime.specs[0]?.executablePath).toBe('C:\\tools\\other-agent.exe');
   });
 
-  it('rejects retry for an unconfigured historical Agent before touching Git', async () => {
+  it('allows retry with a configured Agent when the historical Agent is no longer configured', async () => {
     const fixture = createFixture(TaskPhase.RUNNING);
     const starting = createAgentSession({
       agentId: 'removed-agent',
@@ -880,10 +884,19 @@ describe('retryTaskExecution', () => {
     await fixture.sessionRepository.append(exited, 1);
     fixture.events.length = 0;
 
-    await expect(retryTaskExecution(retryInput, fixture.dependencies)).rejects.toMatchObject({
-      name: 'TaskExecutionRetryError',
-      reason: 'AGENT_NOT_CONFIGURED',
-    });
+    const retried = await retryTaskExecution(retryInput, fixture.dependencies);
+
+    expect(retried.previousSession.agentId).toBe('removed-agent');
+    expect(retried.session.agentId).toBe('codex');
+    expect(fixture.git.ensureCalls).toBe(1);
+  });
+
+  it('rejects an unknown selected Agent before touching Task or Git state', async () => {
+    const fixture = createFixture(TaskPhase.RUNNING);
+
+    await expect(
+      retryTaskExecution({ ...retryInput, agentId: 'missing-agent' }, fixture.dependencies),
+    ).rejects.toBeInstanceOf(AgentNotConfiguredError);
 
     expect(fixture.events).toEqual([]);
     expect(fixture.git.ensureCalls).toBe(0);
