@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type {
   AgentWorkspaceOverview,
+  PullRequestBranchReadinessFailure,
   TaskFileChange,
   TaskFileDiff,
   WorkspaceProjectOverview,
@@ -23,6 +24,8 @@ export interface AgentWorkspaceProps {
 export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onAcceptPlan: () => void;
   readonly onApproveReview: () => void;
+  readonly onCreatePullRequest: () => void;
+  readonly onPushTaskBranch: () => void;
   readonly onRefresh: () => void;
   readonly onRequestChanges: () => void;
   readonly onRequestReview: () => void;
@@ -61,7 +64,9 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       {...(client === undefined ? {} : { client })}
       onAcceptPlan={() => void controller?.acceptSelectedPlan()}
       onApproveReview={() => void controller?.approveSelectedTaskReview()}
+      onCreatePullRequest={() => void controller?.createSelectedTaskPullRequest()}
       onRefresh={() => void controller?.refresh()}
+      onPushTaskBranch={() => void controller?.pushSelectedTaskBranch()}
       onRequestChanges={() => void controller?.requestSelectedTaskChanges()}
       onRequestReview={() => void controller?.requestSelectedTaskReview()}
       onRetry={() => void controller?.load()}
@@ -80,7 +85,9 @@ export function AgentWorkspaceView({
   client,
   onAcceptPlan,
   onApproveReview,
+  onCreatePullRequest,
   onRefresh,
+  onPushTaskBranch,
   onRequestChanges,
   onRequestReview,
   onRetry,
@@ -304,6 +311,14 @@ export function AgentWorkspaceView({
           </div>
 
           <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
+          <PullRequestPanel
+            actionsBusy={actionsBusy}
+            inspection={snapshot.pullRequestInspection}
+            onCreate={onCreatePullRequest}
+            onPush={onPushTaskBranch}
+            taskId={selected.task.id}
+            activeAction={snapshot.activeAction}
+          />
           <PlanningSummary plan={selected.latestPlan} />
           <ChangeInspector
             inspection={snapshot.changeInspection}
@@ -328,6 +343,150 @@ export function AgentWorkspaceView({
       )}
     </main>
   );
+}
+
+function PullRequestPanel({
+  actionsBusy,
+  activeAction,
+  inspection,
+  onCreate,
+  onPush,
+  taskId,
+}: {
+  readonly actionsBusy: boolean;
+  readonly activeAction: Extract<WorkspaceSnapshot, { readonly kind: 'ready' }>['activeAction'];
+  readonly inspection: Extract<
+    WorkspaceSnapshot,
+    { readonly kind: 'ready' }
+  >['pullRequestInspection'];
+  readonly onCreate: () => void;
+  readonly onPush: () => void;
+  readonly taskId: string;
+}) {
+  return (
+    <section className="pull-request-panel" aria-labelledby="pull-request-heading">
+      <header>
+        <div>
+          <p className="eyebrow">Remote handoff</p>
+          <h3 id="pull-request-heading">GitHub Pull Request</h3>
+        </div>
+      </header>
+      {inspection === undefined || inspection.kind === 'idle' || inspection.kind === 'loading' ? (
+        <p className="pull-request-panel__message" role="status">
+          Inspecting Task branch readiness...
+        </p>
+      ) : inspection.kind === 'error' ? (
+        <p className="inline-error" role="alert">
+          {inspection.message}
+        </p>
+      ) : inspection.result.branch.kind === 'blocked' ? (
+        <div>
+          <p className="pull-request-panel__message">
+            Not ready: {formatPullRequestBlock(inspection.result.branch.reason)}
+          </p>
+          {inspection.result.pullRequest === undefined ? null : (
+            <p className="pull-request-panel__message">
+              Last recorded PR #{inspection.result.pullRequest.number} ·{' '}
+              {inspection.result.pullRequest.status} · {inspection.result.pullRequest.url}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="pull-request-panel__body">
+          <dl>
+            <div>
+              <dt>Repository</dt>
+              <dd>
+                {inspection.result.branch.repositoryOwner}/{inspection.result.branch.repositoryName}
+              </dd>
+            </div>
+            <div>
+              <dt>Branch</dt>
+              <dd>
+                {inspection.result.branch.headBranch} → {inspection.result.branch.baseBranch}
+              </dd>
+            </div>
+            <div>
+              <dt>Remote</dt>
+              <dd>
+                {inspection.result.branch.remoteHeadCommitId ===
+                inspection.result.branch.headCommitId
+                  ? 'UP TO DATE'
+                  : 'PUSH REQUIRED'}
+              </dd>
+            </div>
+            <div>
+              <dt>Pull Request</dt>
+              <dd>
+                {inspection.result.pullRequest === undefined
+                  ? 'NONE'
+                  : `#${String(inspection.result.pullRequest.number)} · ${inspection.result.pullRequest.status}`}
+              </dd>
+            </div>
+          </dl>
+          {inspection.result.pullRequest === undefined ? null : (
+            <p className="pull-request-panel__url">{inspection.result.pullRequest.url}</p>
+          )}
+          {!inspection.result.branch.githubCliAvailable ? (
+            <p className="pull-request-panel__warning">
+              GitHub CLI is unavailable. Push remains explicit; creating or refreshing a Pull
+              Request requires an authenticated gh CLI.
+            </p>
+          ) : !inspection.result.branch.githubAuthenticationAvailable ? (
+            <p className="pull-request-panel__warning">
+              GitHub CLI is installed but has no active authenticated account for github.com.
+              Authenticate with gh outside AgentTerm, then refresh.
+            </p>
+          ) : null}
+          <div className="pull-request-panel__actions">
+            <button
+              className="secondary-action"
+              disabled={!inspection.result.canPush || actionsBusy}
+              onClick={onPush}
+              type="button"
+            >
+              {activeAction?.kind === 'push-branch' && activeAction.taskId === taskId
+                ? 'Pushing branch...'
+                : 'Push Task branch'}
+            </button>
+            <button
+              className="primary-action"
+              disabled={!inspection.result.canCreatePullRequest || actionsBusy}
+              onClick={onCreate}
+              type="button"
+            >
+              {activeAction?.kind === 'create-pull-request' && activeAction.taskId === taskId
+                ? 'Updating Pull Request...'
+                : inspection.result.pullRequest === undefined
+                  ? 'Create Pull Request'
+                  : 'Refresh / reopen Pull Request'}
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatPullRequestBlock(reason: PullRequestBranchReadinessFailure): string {
+  switch (reason) {
+    case 'BRANCH_MISMATCH':
+      return 'the checked-out branch does not match the Task Worktree record.';
+    case 'DETACHED_HEAD':
+      return 'the Task Worktree has a detached HEAD.';
+    case 'GITHUB_REMOTE_NOT_FOUND':
+      return 'no supported github.com remote was detected.';
+    case 'INVALID_BASE_BRANCH':
+      return 'the persisted base branch is not valid for this code state.';
+    case 'NO_COMMITS_AHEAD':
+      return 'the Task branch has no commits ahead of its base.';
+    case 'UNCOMMITTED_CHANGES':
+      return 'commit the Task Worktree changes before pushing a PR branch.';
+    case 'WORKTREE_NOT_READY':
+      return 'the Task primary Worktree has not been provisioned or is unavailable.';
+    case 'INSPECTION_FAILED':
+      return 'branch readiness could not be verified safely.';
+  }
 }
 
 function ChangeInspector({

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   AgentWorkspaceOverview,
   TaskChangeSet,
+  TaskPullRequestState,
   WorkspaceTaskOverview,
 } from '@agentterm/application';
 
@@ -20,13 +21,28 @@ import {
 
 type TestWorkspaceViewProps = Omit<
   AgentWorkspaceViewProps,
-  'onAcceptPlan' | 'onSelectTaskChange' | 'onStartPlanning'
+  | 'onAcceptPlan'
+  | 'onCreatePullRequest'
+  | 'onPushTaskBranch'
+  | 'onSelectTaskChange'
+  | 'onStartPlanning'
 > &
-  Partial<Pick<AgentWorkspaceViewProps, 'onAcceptPlan' | 'onSelectTaskChange' | 'onStartPlanning'>>;
+  Partial<
+    Pick<
+      AgentWorkspaceViewProps,
+      | 'onAcceptPlan'
+      | 'onCreatePullRequest'
+      | 'onPushTaskBranch'
+      | 'onSelectTaskChange'
+      | 'onStartPlanning'
+    >
+  >;
 
 function AgentWorkspaceView(props: TestWorkspaceViewProps) {
   return createElement(AgentWorkspaceViewComponent, {
     onAcceptPlan: () => undefined,
+    onCreatePullRequest: () => undefined,
+    onPushTaskBranch: () => undefined,
     onSelectTaskChange: () => undefined,
     onStartPlanning: () => undefined,
     ...props,
@@ -121,6 +137,41 @@ const availableAgents = Object.freeze([
     reason: 'EXECUTABLE_NOT_FOUND' as const,
   }),
 ]);
+const pullRequestReady: TaskPullRequestState = Object.freeze({
+  branch: Object.freeze({
+    baseBranch: 'main',
+    githubAuthenticationAvailable: true,
+    githubCliAvailable: true,
+    headBranch: 'agentterm/task/github-pr',
+    headCommitId: 'b'.repeat(40),
+    kind: 'ready' as const,
+    provider: 'github' as const,
+    pullRequest: undefined,
+    remoteHeadCommitId: undefined,
+    remoteName: 'origin',
+    repositoryName: 'AgentTerm',
+    repositoryOwner: 'agentterm',
+  }),
+  canCreatePullRequest: false,
+  canPush: true,
+  pullRequest: undefined,
+});
+const openPullRequest = Object.freeze({
+  baseBranch: 'main',
+  createdAt: 1_800_000_000_000,
+  draft: false,
+  headBranch: 'agentterm/task/github-pr',
+  headCommitId: 'b'.repeat(40),
+  number: 42,
+  provider: 'github' as const,
+  repositoryName: 'AgentTerm',
+  repositoryOwner: 'agentterm',
+  status: 'OPEN' as const,
+  taskId: runningTask.id,
+  title: 'Explicit PR',
+  updatedAt: 1_800_000_000_100,
+  url: 'https://github.com/agentterm/AgentTerm/pull/42',
+});
 const planningOverview: AgentWorkspaceOverview = Object.freeze({
   agents: availableAgents,
   projects: [
@@ -338,6 +389,10 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
         ...(input.previousPath === undefined ? {} : { previousPath: input.previousPath }),
       }),
   );
+  public pullRequestState: TaskPullRequestState = pullRequestReady;
+  public readonly inspectTaskPullRequest = vi.fn(async () => this.pullRequestState);
+  public readonly pushTaskBranch = vi.fn(async () => undefined);
+  public readonly createTaskPullRequest = vi.fn(async () => undefined);
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
     async () => undefined,
   );
@@ -387,6 +442,63 @@ describe('WorkspaceController', () => {
       selectedTaskId: 'task-1',
     });
     expect(selectedTask(controller.snapshot)?.task.title).toBe('Nối terminal tiếng Việt');
+  });
+
+  it('pushes and creates a Pull Request only through explicit selected-Task actions', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [runningStartOverview, runningStartOverview, runningStartOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    expect(client.inspectTaskPullRequest).toHaveBeenCalledWith({ taskId: runningTask.id });
+    await controller.pushSelectedTaskBranch();
+    expect(client.pushTaskBranch).toHaveBeenCalledWith({ taskId: runningTask.id });
+
+    const branch = pullRequestReady.branch;
+    if (branch.kind !== 'ready') throw new Error('Expected ready Pull Request fixture.');
+    client.pullRequestState = Object.freeze({
+      ...pullRequestReady,
+      branch: Object.freeze({ ...branch, remoteHeadCommitId: branch.headCommitId }),
+      canCreatePullRequest: true,
+      canPush: false,
+      pullRequest: openPullRequest,
+    });
+    await controller.refresh();
+    await controller.createSelectedTaskPullRequest();
+
+    expect(client.createTaskPullRequest).toHaveBeenCalledWith({ taskId: runningTask.id });
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      pullRequestInspection: {
+        kind: 'ready',
+        result: { pullRequest: openPullRequest },
+      },
+    });
+  });
+
+  it('keeps Pull Request inspection and action failures sanitized', async () => {
+    const inspectClient = new FakeWorkspaceClient();
+    inspectClient.inspectTaskPullRequest.mockRejectedValueOnce(new Error('TOKEN=secret'));
+    const inspectController = new WorkspaceController(inspectClient);
+    await inspectController.load();
+    expect(inspectController.snapshot).toMatchObject({
+      kind: 'ready',
+      pullRequestInspection: {
+        kind: 'error',
+        message: 'Pull Request status could not be loaded.',
+      },
+    });
+
+    const pushClient = new FakeWorkspaceClient();
+    pushClient.loadResults = [runningStartOverview];
+    pushClient.pushTaskBranch.mockRejectedValueOnce(new Error('credential helper secret'));
+    const pushController = new WorkspaceController(pushClient);
+    await pushController.load();
+    await pushController.pushSelectedTaskBranch();
+    expect(pushController.snapshot).toMatchObject({
+      actionError: 'Task branch could not be pushed.',
+      kind: 'ready',
+    });
   });
 
   it('loads a bounded change list for the selected Task and fetches only the chosen patch', async () => {
@@ -1419,6 +1531,75 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('-old\n+new');
     expect(markup).toContain('+2');
     expect(markup).toContain('-1');
+  });
+
+  it('renders GitHub branch readiness and explicit Push/Create Pull Request actions', () => {
+    const branch = pullRequestReady.branch;
+    if (branch.kind !== 'ready') throw new Error('Expected ready Pull Request fixture.');
+    const pushedState: TaskPullRequestState = Object.freeze({
+      branch: Object.freeze({ ...branch, remoteHeadCommitId: branch.headCommitId }),
+      canCreatePullRequest: true,
+      canPush: false,
+      pullRequest: openPullRequest,
+    });
+    const commonSnapshot = {
+      actionError: undefined,
+      activeAction: undefined,
+      kind: 'ready' as const,
+      overview: runningStartOverview,
+      selectedAgentId: 'codex',
+      selectedTaskId: runningTask.id,
+      terminalSessionId: undefined,
+    };
+
+    const needsPush = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          ...commonSnapshot,
+          pullRequestInspection: {
+            kind: 'ready',
+            result: pullRequestReady,
+            taskId: runningTask.id,
+          },
+        },
+      }),
+    );
+    const existing = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          ...commonSnapshot,
+          pullRequestInspection: {
+            kind: 'ready',
+            result: pushedState,
+            taskId: runningTask.id,
+          },
+        },
+      }),
+    );
+
+    expect(needsPush).toContain('GitHub Pull Request');
+    expect(needsPush).toContain('agentterm/AgentTerm');
+    expect(needsPush).toContain('PUSH REQUIRED');
+    expect(needsPush).toContain('Push Task branch');
+    expect(existing).toContain('#42 · OPEN');
+    expect(existing).toContain('https://github.com/agentterm/AgentTerm/pull/42');
+    expect(existing).toContain('Refresh / reopen Pull Request');
   });
 
   it('offers an explicit Start review action only when Application marks RUNNING ready', () => {
