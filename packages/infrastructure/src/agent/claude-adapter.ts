@@ -6,6 +6,7 @@ import type {
 } from '@agentterm/application';
 
 import {
+  advertisesResume,
   AgentCliResolutionError,
   executeAgentCliProbe,
   parseAgentVersion,
@@ -15,26 +16,26 @@ import {
   type AgentCliPackagePolicy,
 } from './agent-cli-support';
 
-const CODEX_IDENTITY = Object.freeze({ displayName: 'Codex', id: 'codex' });
+const CLAUDE_IDENTITY = Object.freeze({ displayName: 'Claude', id: 'claude' });
 const RESUME_CAPABILITY = Object.freeze(['SESSION_RESUME'] as const);
 const NO_CAPABILITIES = Object.freeze([]);
-const CODEX_PACKAGE = Object.freeze({
-  binName: 'codex',
-  binPath: 'bin/codex.js',
-  packageName: '@openai/codex',
-  packagePath: Object.freeze(['@openai', 'codex']),
-  runtime: 'node',
+const CLAUDE_PACKAGE = Object.freeze({
+  binName: 'claude',
+  binPath: 'bin/claude.exe',
+  packageName: '@anthropic-ai/claude-code',
+  packagePath: Object.freeze(['@anthropic-ai', 'claude-code']),
+  runtime: 'native',
 } satisfies AgentCliPackagePolicy);
 
-export class CodexAdapter implements AgentAdapter {
-  public readonly identity = CODEX_IDENTITY;
+export class ClaudeAdapter implements AgentAdapter {
+  public readonly identity = CLAUDE_IDENTITY;
 
-  public constructor(private readonly configuredExecutable = 'codex') {}
+  public constructor(private readonly configuredExecutable = 'claude') {}
 
   public async inspect(): Promise<AgentAvailability> {
     let invocation;
     try {
-      invocation = await resolveAgentCliInvocation(this.configuredExecutable, CODEX_PACKAGE);
+      invocation = await resolveAgentCliInvocation(this.configuredExecutable, CLAUDE_PACKAGE);
     } catch (error) {
       return unavailable(error);
     }
@@ -46,13 +47,15 @@ export class CodexAdapter implements AgentAdapter {
       }
       const version = parseAgentVersion(
         versionProbe.stdout,
-        /^codex-cli (\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?$/u,
+        /^(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)? \(Claude Code\)$/u,
       );
-      const resumeProbe = await executeAgentCliProbe(invocation, ['resume', '--help']).catch(
-        () => undefined,
-      );
+      const helpProbe = await executeAgentCliProbe(invocation, ['--help']).catch(() => undefined);
+      const capabilities =
+        helpProbe?.exitCode === 0 && advertisesResume(helpProbe.stdout)
+          ? RESUME_CAPABILITY
+          : NO_CAPABILITIES;
       return {
-        capabilities: resumeProbe?.exitCode === 0 ? RESUME_CAPABILITY : NO_CAPABILITIES,
+        capabilities,
         executablePath: invocation.identityPath,
         kind: 'available',
         ...(version === undefined ? {} : { version }),
@@ -63,10 +66,13 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   public async buildLaunchCommand(request: AgentLaunchRequest): Promise<AgentLaunchCommand> {
-    const invocation = await resolveAgentLaunchInvocation(this.configuredExecutable, CODEX_PACKAGE);
+    const invocation = await resolveAgentLaunchInvocation(
+      this.configuredExecutable,
+      CLAUDE_PACKAGE,
+    );
     const validated = await validateAgentLaunchRequest(request, invocation);
     return {
-      arguments: [...invocation.prefixArguments, '--cd', validated.workingDirectory],
+      arguments: [...invocation.prefixArguments],
       environment: validated.environment,
       executablePath: invocation.executablePath,
       workingDirectory: validated.workingDirectory,
