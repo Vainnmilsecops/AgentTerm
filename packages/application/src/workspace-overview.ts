@@ -41,6 +41,7 @@ export interface WorkspaceTaskOverview {
   readonly canRequestReview: boolean;
   readonly canRetryExecution: boolean;
   readonly canRevisePlan: boolean;
+  readonly canRunQualityGate: boolean;
   readonly canStartExecution: boolean;
   readonly canStartPlanning: boolean;
   readonly blocked: boolean;
@@ -260,6 +261,11 @@ export async function loadAgentWorkspace(
               activeSession === undefined &&
               !hasUnsettledReviewWriter &&
               isTerminal(latestSession),
+            canRunQualityGate:
+              !hasUnsettledReviewWriter &&
+              !hasRunningGate &&
+              task.phase !== TaskPhase.REVIEW &&
+              task.phase !== TaskPhase.DONE,
             canStartExecution:
               phaseAllowsExecution &&
               !blocked &&

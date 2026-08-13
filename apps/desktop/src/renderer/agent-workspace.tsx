@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type {
   AgentWorkspaceOverview,
@@ -9,7 +9,17 @@ import type {
   WorkspaceTaskOverview,
 } from '@agentterm/application';
 
+import { WorkspaceCommandPalette } from './command-palette';
 import { TerminalRenderer } from './terminal-renderer';
+import {
+  buildWorkspaceCommands,
+  initialCommandPaletteState,
+  reduceCommandPalette,
+  resolveWorkspaceGlobalShortcut,
+  type CommandPaletteAction,
+  type WorkspaceCommand,
+  type WorkspaceFocusTarget,
+} from './workspace-command-palette';
 import {
   WorkspaceController,
   type AgentWorkspaceClient,
@@ -31,6 +41,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onRequestReview: () => void;
   readonly onRetry: () => void;
   readonly onRetryTask: () => void;
+  readonly onRunQualityGate: (gateId: string) => void;
   readonly onSelectAgent?: (agentId: string) => void;
   readonly onSelectTaskChange: (change: TaskFileChange) => void;
   readonly onSelectTask: (taskId: string) => void;
@@ -71,6 +82,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onRequestReview={() => void controller?.requestSelectedTaskReview()}
       onRetry={() => void controller?.load()}
       onRetryTask={() => void controller?.retrySelectedTask()}
+      onRunQualityGate={(gateId) => void controller?.runSelectedQualityGate(gateId)}
       onSelectAgent={(agentId) => controller?.selectAgent(agentId)}
       onSelectTaskChange={(change) => void controller?.selectTaskChange(change)}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
@@ -92,6 +104,7 @@ export function AgentWorkspaceView({
   onRequestReview,
   onRetry,
   onRetryTask,
+  onRunQualityGate,
   onSelectAgent,
   onSelectTaskChange,
   onSelectTask,
@@ -99,6 +112,33 @@ export function AgentWorkspaceView({
   onStartPlanning,
   snapshot,
 }: AgentWorkspaceViewProps) {
+  const [paletteState, setPaletteState] = useState(initialCommandPaletteState);
+  const paletteReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (snapshot.kind !== 'ready') {
+      return;
+    }
+    const handleGlobalKeyDown = (event: KeyboardEvent): void => {
+      const shortcut = resolveWorkspaceGlobalShortcut(event);
+      if (shortcut === undefined) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (shortcut === 'open-palette') {
+        paletteReturnFocus.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setPaletteState((current) => reduceCommandPalette(current, { kind: 'OPEN' }, 1));
+        return;
+      }
+      setPaletteState(initialCommandPaletteState);
+      focusWorkspaceTarget(shortcut.replace('focus-', '') as WorkspaceFocusTarget);
+    };
+    document.addEventListener('keydown', handleGlobalKeyDown, true);
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown, true);
+  }, [snapshot.kind]);
+
   if (snapshot.kind === 'loading') {
     return <WorkspaceMessage eyebrow="Workspace" message="Loading workspace…" />;
   }
@@ -126,6 +166,73 @@ export function AgentWorkspaceView({
   const planningAttempt = selected?.canStartPlanning || selected?.canRevisePlan;
   const firstExecutionAfterPlan =
     selected === undefined ? false : isFirstExecutionAfterPlan(selected);
+  const focusTarget = (target: WorkspaceFocusTarget): void => focusWorkspaceTarget(target);
+  const commands = buildWorkspaceCommands(
+    {
+      actionBusy: actionsBusy,
+      qualityGates: snapshot.qualityGates ?? [],
+      selectedAgentId: snapshot.selectedAgentId,
+      selectedTask:
+        selected === undefined
+          ? undefined
+          : {
+              canRequestReview: selected.canRequestReview,
+              canRetryExecution: selected.canRetryExecution,
+              canRevisePlan: selected.canRevisePlan,
+              canRunQualityGate: selected.canRunQualityGate,
+              canStartExecution: selected.canStartExecution,
+              canStartPlanning: selected.canStartPlanning,
+              id: selected.task.id,
+            },
+      tasks: snapshot.overview.projects.flatMap((project) =>
+        project.tasks.map(({ task }) => ({
+          id: task.id,
+          projectName: project.project.name,
+          title: task.title,
+        })),
+      ),
+    },
+    {
+      focus: focusTarget,
+      requestReview: onRequestReview,
+      retryExecution: onRetryTask,
+      runQualityGate: onRunQualityGate,
+      selectTask: (taskId) => {
+        onSelectTask(taskId);
+        focusTarget('workspace');
+      },
+      startExecution: onStartTask,
+      startPlanning: onStartPlanning,
+    },
+  );
+
+  const closePalette = (restoreFocus: boolean): void => {
+    setPaletteState(initialCommandPaletteState);
+    if (restoreFocus) {
+      const returnTarget = paletteReturnFocus.current;
+      queueMicrotask(() => returnTarget?.focus({ preventScroll: true }));
+    }
+  };
+
+  const handlePaletteAction = (action: CommandPaletteAction, resultCount: number): void => {
+    if (action.kind === 'CLOSE') {
+      closePalette(true);
+      return;
+    }
+    setPaletteState((current) => reduceCommandPalette(current, action, resultCount));
+  };
+
+  const runPaletteCommand = (command: WorkspaceCommand): void => {
+    const restoreFocus = command.category !== 'Navigate' && !command.id.startsWith('task:');
+    closePalette(restoreFocus);
+    void Promise.resolve(command.run()).catch(() => undefined);
+  };
+
+  const openPalette = (): void => {
+    paletteReturnFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setPaletteState((current) => reduceCommandPalette(current, { kind: 'OPEN' }, commands.length));
+  };
 
   return (
     <main className="workspace-shell">
@@ -140,7 +247,12 @@ export function AgentWorkspaceView({
           message="Choose a Task from the sidebar to inspect its execution state."
         />
       ) : (
-        <section className="workspace-main" aria-label="Selected Task workspace">
+        <section
+          className="workspace-main"
+          aria-label="Selected Task workspace"
+          id="workspace-main"
+          tabIndex={-1}
+        >
           <header className="task-header">
             <div className="task-header__identity">
               <p className="breadcrumb">{selectedProject.project.name}</p>
@@ -148,6 +260,16 @@ export function AgentWorkspaceView({
               <p className="task-id">{selected.task.id}</p>
             </div>
             <div className="task-actions" aria-busy={actionsBusy}>
+              <button
+                aria-label="Open command palette"
+                className="command-palette-trigger"
+                onClick={openPalette}
+                title="Open command palette (Ctrl+Shift+P)"
+                type="button"
+              >
+                <span>Commands</span>
+                <kbd>Ctrl+Shift+P</kbd>
+              </button>
               <label className="agent-selector">
                 <span>Agent for next attempt</span>
                 <select
@@ -339,6 +461,12 @@ export function AgentWorkspaceView({
               }
             }}
           />
+          <WorkspaceCommandPalette
+            commands={commands}
+            onAction={handlePaletteAction}
+            onRun={runPaletteCommand}
+            state={paletteState}
+          />
         </section>
       )}
     </main>
@@ -497,7 +625,12 @@ function ChangeInspector({
   readonly onSelectChange: (change: TaskFileChange) => void;
 }) {
   return (
-    <section className="change-inspector" aria-labelledby="change-inspector-heading">
+    <section
+      className="change-inspector"
+      aria-labelledby="change-inspector-heading"
+      id="workspace-changes"
+      tabIndex={-1}
+    >
       <header className="change-inspector__header">
         <div>
           <p className="eyebrow">Git evidence</p>
@@ -600,7 +733,12 @@ function sameDisplayedChange(
 
 function ReviewHistory({ reviews }: { readonly reviews: WorkspaceTaskOverview['reviewHistory'] }) {
   return (
-    <section className="review-history" aria-labelledby="review-history-heading">
+    <section
+      className="review-history"
+      aria-labelledby="review-history-heading"
+      id="workspace-review"
+      tabIndex={-1}
+    >
       <header className="review-history__header">
         <div>
           <p className="eyebrow">User decision record</p>
@@ -720,7 +858,12 @@ function QualityGateHistory({ runs }: { readonly runs: WorkspaceTaskOverview['qu
   const newestFirst = [...runs].reverse();
 
   return (
-    <section className="quality-gates" aria-labelledby="quality-gates-heading">
+    <section
+      className="quality-gates"
+      aria-labelledby="quality-gates-heading"
+      id="workspace-checks"
+      tabIndex={-1}
+    >
       <header className="quality-gates__header">
         <div>
           <p className="eyebrow">Recorded evidence</p>
@@ -770,7 +913,12 @@ function ArtifactHistory({
   readonly artifacts: WorkspaceTaskOverview['artifacts'];
 }) {
   return (
-    <section className="artifact-history" aria-label="Execution artifacts">
+    <section
+      className="artifact-history"
+      aria-label="Execution artifacts"
+      id="workspace-artifacts"
+      tabIndex={-1}
+    >
       <header className="artifact-history__header">
         <div>
           <p className="eyebrow">Execution evidence</p>
@@ -855,7 +1003,7 @@ function WorkspaceSidebar({
   readonly selectedTaskId: string | undefined;
 }) {
   return (
-    <aside className="workspace-sidebar">
+    <aside className="workspace-sidebar" id="workspace-sidebar" tabIndex={-1}>
       <header className="workspace-brand">
         <span className="brand-mark" aria-hidden="true">
           AT
@@ -864,6 +1012,7 @@ function WorkspaceSidebar({
           <p className="eyebrow">Agent workspace</p>
           <h1>AgentTerm</h1>
         </div>
+        <kbd>Alt+1</kbd>
       </header>
       <nav className="project-navigation" aria-label="Projects and Tasks">
         {projects.map((project) => (
@@ -1063,4 +1212,20 @@ function findProject(
   projectId: string | undefined,
 ): WorkspaceProjectOverview | undefined {
   return snapshot.overview.projects.find((project) => project.project.id === projectId);
+}
+
+const focusTargetIds: Readonly<Record<WorkspaceFocusTarget, string>> = Object.freeze({
+  artifacts: 'workspace-artifacts',
+  changes: 'workspace-changes',
+  checks: 'workspace-checks',
+  review: 'workspace-review',
+  sidebar: 'workspace-sidebar',
+  terminal: 'workspace-terminal',
+  workspace: 'workspace-main',
+});
+
+function focusWorkspaceTarget(target: WorkspaceFocusTarget): void {
+  const element = document.getElementById(focusTargetIds[target]);
+  element?.focus({ preventScroll: true });
+  element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

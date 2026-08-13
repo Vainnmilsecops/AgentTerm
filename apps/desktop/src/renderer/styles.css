@@ -25,6 +25,19 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+kbd {
+  border: 1px solid #3b4650;
+  border-bottom-color: #566675;
+  border-radius: 0.3rem;
+  padding: 0.12rem 0.32rem;
+  color: #aeb9c3;
+  background: #0c1014;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
 #root,
 .workspace-shell {
   min-height: 100vh;
@@ -50,6 +63,10 @@ button:focus-visible {
   gap: 0.8rem;
   border-bottom: 1px solid #242a31;
   padding: 1.1rem 1rem;
+}
+
+.workspace-brand > kbd {
+  margin-left: auto;
 }
 
 .brand-mark {
@@ -223,6 +240,166 @@ button:focus-visible {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.55rem;
+}
+
+.command-palette-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  border: 1px solid #343e47;
+  border-radius: 0.5rem;
+  padding: 0.52rem 0.62rem;
+  color: #bbc5cd;
+  background: #0d1217;
+  cursor: pointer;
+}
+
+.command-palette-trigger:hover {
+  border-color: #71808d;
+  color: #f2f5f8;
+}
+
+.command-palette-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  align-items: start;
+  justify-items: center;
+  padding: min(14vh, 7rem) 1rem 1rem;
+  background: rgb(4 6 8 / 72%);
+  backdrop-filter: blur(5px);
+}
+
+.command-palette {
+  display: grid;
+  width: min(44rem, 100%);
+  max-height: min(36rem, 76vh);
+  overflow: hidden;
+  grid-template-rows: auto auto minmax(4rem, 1fr) auto;
+  border: 1px solid #495765;
+  border-radius: 0.8rem;
+  background: #10151a;
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 58%);
+}
+
+.command-palette__header,
+.command-palette__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.command-palette__header {
+  border-bottom: 1px solid #252e36;
+}
+
+.command-palette__header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.command-palette__search {
+  width: auto;
+  margin: 0.75rem;
+  border: 1px solid #3e4a55;
+  border-radius: 0.55rem;
+  padding: 0.78rem 0.85rem;
+  color: #edf2f6;
+  background: #090d11;
+  font: inherit;
+}
+
+.command-palette__search:focus-visible {
+  border-color: #c89d4c;
+  outline: 2px solid #f2c879;
+  outline-offset: 1px;
+}
+
+.command-palette__results {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0.55rem 0.55rem;
+}
+
+.command-palette__results ul {
+  display: grid;
+  gap: 0.22rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-palette__results li {
+  border-radius: 0.5rem;
+}
+
+.command-palette__results li[aria-selected='true'] {
+  outline: 1px solid #596b7a;
+  background: #1c252d;
+  box-shadow: inset 3px 0 #f2c879;
+}
+
+.command-palette__results button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 0;
+  border-radius: inherit;
+  padding: 0.68rem 0.75rem;
+  color: #d7e0e8;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.command-palette__results button > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.command-palette__results strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette__results small {
+  color: #7f909f;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.command-palette__empty {
+  margin: 0;
+  padding: 1rem;
+  color: #8fa1b2;
+  text-align: center;
+}
+
+.command-palette__footer {
+  justify-content: flex-start;
+  border-top: 1px solid #252e36;
+  color: #8293a1;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.65rem;
+}
+
+#workspace-sidebar:focus-visible,
+#workspace-main:focus-visible,
+#workspace-artifacts:focus-visible,
+#workspace-checks:focus-visible,
+#workspace-changes:focus-visible,
+#workspace-review:focus-visible,
+#workspace-terminal:focus-visible {
+  outline: 2px solid #f2c879;
+  outline-offset: -2px;
 }
 
 .agent-selector {
@@ -1151,6 +1328,10 @@ button:focus-visible {
   padding: 0.6rem 0.8rem;
   color: #aeb9c3;
   font-size: 0.75rem;
+}
+
+.terminal-panel__header kbd {
+  margin-left: auto;
 }
 
 .terminal-status {

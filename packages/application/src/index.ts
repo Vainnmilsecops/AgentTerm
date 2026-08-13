@@ -65,7 +65,9 @@ export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch
 export { ConfiguredAgentCatalog, listAgentSummaries, type AgentSummary } from './agent-catalog';
 export {
   listQualityGateRuns,
+  listQualityGateSummaries,
   runQualityGate,
+  type QualityGateSummary,
   type RunQualityGateDependencies,
   type RunQualityGateInput,
 } from './quality-gate-use-cases';

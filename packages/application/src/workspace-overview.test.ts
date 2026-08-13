@@ -314,6 +314,7 @@ describe('loadAgentWorkspace', () => {
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
       blocked: true,
+      canRunQualityGate: true,
       canStartExecution: false,
       dependencies: [
         {
@@ -423,6 +424,7 @@ describe('loadAgentWorkspace', () => {
               canAcceptPlan: false,
               canRetryExecution: false,
               canRevisePlan: false,
+              canRunQualityGate: false,
               canStartExecution: false,
               canStartPlanning: false,
               dependencies: [],
@@ -444,6 +446,7 @@ describe('loadAgentWorkspace', () => {
               canAcceptPlan: false,
               canRetryExecution: false,
               canRevisePlan: false,
+              canRunQualityGate: false,
               canStartExecution: false,
               canStartPlanning: false,
               dependencies: [],
@@ -825,6 +828,7 @@ describe('loadAgentWorkspace', () => {
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
       activeSession: undefined,
       canRequestReview: false,
+      canRunQualityGate: false,
       latestSession: { id: failedWriter.id, status: 'FAILED' },
       qualityGateRuns: [{ id: runningGate.id, status: 'RUNNING' }],
     });

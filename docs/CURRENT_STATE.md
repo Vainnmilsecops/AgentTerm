@@ -44,6 +44,8 @@ Updated: 2026-08-14
 - Application now exposes explicit Pull Request inspection, Task-branch push, and create-or-refresh use cases. Infrastructure verifies the exact persisted primary Worktree, attached Task branch, base ancestry, clean code state, and a supported `github.com` HTTPS or SSH remote. Push pins the inspected commit to the named remote branch without force; no agent/session event invokes either mutation.
 - GitHub PR lookup and mutation reuse the installed `gh` CLI through structured argv and bounded JSON stdin. Readiness separately checks an active authenticated `github.com` account through `gh auth status` without requesting or persisting its token. A matching open or merged PR is reused, a closed PR is reopened, and a new PR is created only when no exact repository/head/base/current-commit match exists. Migration 9 stores only bounded GitHub PR identity/status metadata; it excludes body, commands, environment, credentials, and provider output.
 - The desktop loads Pull Request state lazily for the selected Task and shows repository, head/base, push readiness, stored PR number/status/URL, and explicit Push / Create or refresh controls. Errors are sanitized at the controller boundary, and PR evidence never changes Task phase or Review decisions.
+- The desktop now has a searchable command palette opened by `Ctrl+Shift+P`, with accent-insensitive Vietnamese/Unicode search, wrapping arrow-key navigation, contextual Task/action commands, and explicit `Alt+1` / `Alt+2` / `Alt+3` focus shortcuts for sidebar, workspace, and terminal. Ordinary terminal keys are not intercepted.
+- Application exposes only configured Quality Gate `id`/`kind` summaries plus Task-level run readiness to Presentation. Eligible palette commands dispatch the existing explicit gate workflow through the workspace client; executable, argv, environment, and run-identity policy remain outside the renderer.
 
 ## Decisions
 
@@ -201,6 +203,10 @@ Updated: 2026-08-14
   Task. Repository-local URL rewrites, SSH commands, credential helpers, and remote helpers are
   rejected before trusting or pushing a remote, while authentication remains owned by `gh` or the
   user's trusted Git credential configuration.
+- The command palette is a renderer-owned command registry, not a workflow or plugin system. It consumes
+  Application readiness flags and existing controller actions, restores focus when dismissed, and moves focus
+  to stable workspace landmarks for navigation commands. Only the documented global chords are intercepted in
+  the capture phase, including while xterm is focused; all other keystrokes continue to the terminal.
 
 ## Blockers
 
@@ -244,7 +250,7 @@ trusted-repository limitation around configured clean/process filters.
 Bind startup session reconciliation, artifact/review/change-inspection/dependency/PR reads,
 `loadAgentWorkspace`, `startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`,
 `retryTaskExecution`, the three explicit Review commands, terminal attachment, explicit Task-branch
-push, and Pull Request create-or-refresh commands to the sandboxed renderer through a narrow validated
+push, configured Quality Gate listing/execution, and Pull Request create-or-refresh commands to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch
 environment, Review identifiers and decision timestamps, database path, and managed Worktree root;

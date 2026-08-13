@@ -153,6 +153,12 @@ export class TerminalController {
     }
   }
 
+  public focus(): void {
+    if (!this.disposed && this.inputSubscription !== undefined) {
+      this.surface.focus();
+    }
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;

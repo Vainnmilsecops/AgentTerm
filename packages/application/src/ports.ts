@@ -202,6 +202,8 @@ export interface PtyRuntime {
 export interface QualityGateCatalog {
   /** Resolves a trusted configured gate; callers select only the stable id. */
   findById(id: string): Promise<QualityGate | undefined>;
+  /** Lists trusted configured gates; Presentation receives only safe projections. */
+  list(): Promise<readonly QualityGate[]>;
 }
 
 export interface QualityGateRunRepository {
