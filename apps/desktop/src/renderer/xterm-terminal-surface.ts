@@ -93,6 +93,13 @@ export class XtermTerminalSurface implements TerminalSurface {
     this.scheduleFit();
   }
 
+  public setFontSize(fontSize: number): void {
+    if (!this.disposed && Number.isInteger(fontSize) && fontSize >= 8 && fontSize <= 32) {
+      this.terminal.options.fontSize = fontSize;
+      this.scheduleFit();
+    }
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;

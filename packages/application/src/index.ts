@@ -1,4 +1,6 @@
 export {
+  ApplicationSettingsConflictError,
+  ApplicationSettingsValidationError,
   AgentAdapterError,
   AgentNotConfiguredError,
   ArtifactProvenanceError,
@@ -34,6 +36,7 @@ export {
   TaskReviewFlowRequiredError,
   type EntityKind,
   type AgentAdapterFailureReason,
+  type ApplicationSettingsValidationFailure,
   type GitRepositoryInspectionFailure,
   type ProjectOpenFailure,
   type QualityGateExecutionFailure,
@@ -43,6 +46,14 @@ export {
   type TaskExecutionRetryFailure,
   type TaskReviewReadinessFailure,
 } from './errors';
+export {
+  loadApplicationSettings,
+  updateApplicationSettings,
+  type AgentConfigurationSummary,
+  type ApplicationSettingsDependencies,
+  type ApplicationSettingsView,
+  type UpdateApplicationSettingsInput,
+} from './application-settings';
 export {
   createExecutionArtifact,
   getExecutionArtifact,
@@ -79,10 +90,12 @@ export type {
   AgentAvailability,
   AgentCapability,
   AgentCatalog,
+  AgentConfigurationInspector,
   AgentIdentity,
   AgentLaunchCommand,
   AgentLaunchRequest,
   AgentVersion,
+  ApplicationSettingsRepository,
   AgentSessionRepository,
   ExecutionArtifactRepository,
   DiscoveredProject,

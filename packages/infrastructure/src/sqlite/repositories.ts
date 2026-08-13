@@ -3,6 +3,8 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import {
   type AgentSessionRepository,
   AgentSessionActiveConflictError,
+  ApplicationSettingsConflictError,
+  type ApplicationSettingsRepository,
   EntityNotFoundError,
   EntityAlreadyExistsError,
   type ExecutionArtifactRepository,
@@ -29,6 +31,7 @@ import {
   type TaskWorktreeRepository,
 } from '@agentterm/application';
 import {
+  createApplicationSettings,
   createExecutionArtifact,
   createTaskDependency,
   decideTaskReview,
@@ -41,6 +44,7 @@ import {
   TaskReviewStatus,
   transitionTask,
   type AgentSession,
+  type ApplicationSettings,
   type AgentSessionEvent,
   type ExecutionArtifact,
   type Project,
@@ -66,6 +70,91 @@ import {
 
 const primaryKeyConstraintCode = 1555;
 const uniqueConstraintCode = 2067;
+
+export class SqliteApplicationSettingsRepository implements ApplicationSettingsRepository {
+  private readonly readExecutablesStatement: StatementSync;
+  private readonly readSettingsStatement: StatementSync;
+  private readonly updateSettingsStatement: StatementSync;
+  private readonly deleteExecutablesStatement: StatementSync;
+  private readonly insertExecutableStatement: StatementSync;
+
+  public constructor(private readonly database: DatabaseSync) {
+    this.readSettingsStatement = database.prepare(
+      `SELECT schema_version, revision, default_agent_id, terminal_font_size
+       FROM application_settings WHERE singleton_id = 1`,
+    );
+    this.readExecutablesStatement = database.prepare(
+      `SELECT agent_id, executable_path FROM agent_executable_settings
+       WHERE settings_id = 1 ORDER BY agent_id`,
+    );
+    this.updateSettingsStatement = database.prepare(
+      `UPDATE application_settings
+       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?
+       WHERE singleton_id = 1 AND revision = ?`,
+    );
+    this.deleteExecutablesStatement = database.prepare(
+      'DELETE FROM agent_executable_settings WHERE settings_id = 1',
+    );
+    this.insertExecutableStatement = database.prepare(
+      `INSERT INTO agent_executable_settings (settings_id, agent_id, executable_path)
+       VALUES (1, ?, ?)`,
+    );
+  }
+
+  public async get(): Promise<ApplicationSettings> {
+    const row = this.readSettingsStatement.get();
+    if (row === undefined) {
+      throw new SqlitePersistenceError('Application Settings singleton is missing.');
+    }
+    const executableRows = this.readExecutablesStatement.all();
+    try {
+      return createApplicationSettings({
+        agentExecutables: executableRows.map((executableRow) => ({
+          agentId: readSettingsText(executableRow.agent_id),
+          executablePath: readSettingsText(executableRow.executable_path),
+        })),
+        defaultAgentId: readSettingsText(row.default_agent_id),
+        revision: readSettingsInteger(row.revision),
+        schemaVersion: readSettingsSchemaVersion(row.schema_version),
+        terminalFontSize: readSettingsInteger(row.terminal_font_size),
+      });
+    } catch (error) {
+      throw new SqlitePersistenceError('Application Settings data is invalid.', { cause: error });
+    }
+  }
+
+  public async update(settings: ApplicationSettings, expectedRevision: number): Promise<void> {
+    if (settings.revision !== expectedRevision + 1) {
+      throw new TypeError('Application Settings update must advance the revision exactly once.');
+    }
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const updated = this.updateSettingsStatement.run(
+        settings.schemaVersion,
+        settings.revision,
+        settings.defaultAgentId,
+        settings.terminalFontSize,
+        expectedRevision,
+      );
+      if (updated.changes !== 1 && updated.changes !== 1n) {
+        throw new ApplicationSettingsConflictError();
+      }
+      this.deleteExecutablesStatement.run();
+      for (const executable of settings.agentExecutables) {
+        this.insertExecutableStatement.run(executable.agentId, executable.executablePath);
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof ApplicationSettingsConflictError) {
+        throw error;
+      }
+      throw new SqlitePersistenceError('Application Settings could not be persisted.', {
+        cause: error,
+      });
+    }
+  }
+}
 
 export class SqliteProjectRepository
   implements LocalProjectLocator, ProjectCatalog, ProjectRepository
@@ -2072,6 +2161,27 @@ function isSqliteErrorCode(error: unknown, code: number): boolean {
     typeof error.errcode === 'number' &&
     error.errcode === code
   );
+}
+
+function readSettingsText(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new TypeError('Expected Application Settings text.');
+  }
+  return value;
+}
+
+function readSettingsInteger(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) {
+    throw new TypeError('Expected Application Settings integer.');
+  }
+  return value;
+}
+
+function readSettingsSchemaVersion(value: unknown): 1 {
+  if (value !== 1) {
+    throw new TypeError('Unsupported Application Settings schema version.');
+  }
+  return value;
 }
 
 function mapTaskDependencyRow(row: Record<string, unknown>): TaskDependency {

@@ -1,5 +1,7 @@
 export {
+  BuiltInAgentConfigurationInspector,
   createBuiltInAgentCatalog,
+  createBuiltInAgentCatalogFromSettings,
   type BuiltInAgentCatalogOptions,
 } from './agent/built-in-agent-catalog';
 export { ClaudeAdapter } from './agent/claude-adapter';

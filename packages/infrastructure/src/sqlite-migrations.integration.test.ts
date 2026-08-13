@@ -83,7 +83,7 @@ function createLegacyQualityGateV5Database(database: DatabaseSync): void {
 }
 
 describe('SQLite migrations', () => {
-  it('applies the current Project, Task, Worktree, Session, Artifact, Quality Gate, and Review schema once', async () => {
+  it('applies the current durable schema once', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       openSqlitePersistence(databasePath).close();
       openSqlitePersistence(databasePath).close();
@@ -130,8 +130,10 @@ describe('SQLite migrations', () => {
 
         expect(tables).toEqual([
           '_agentterm_migrations',
+          'agent_executable_settings',
           'agent_session_events',
           'agent_sessions',
+          'application_settings',
           'execution_artifacts',
           'project_roots',
           'projects',
@@ -155,6 +157,7 @@ describe('SQLite migrations', () => {
           { name: 'task-reviews', version: 7 },
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
+          { name: 'application-settings', version: 10 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -355,6 +358,7 @@ describe('SQLite migrations', () => {
           { name: 'task-reviews', version: 7 },
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
+          { name: 'application-settings', version: 10 },
         ]);
       } finally {
         migrated.close();
@@ -428,6 +432,7 @@ describe('SQLite migrations', () => {
           { name: 'task-reviews', version: 7 },
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
+          { name: 'application-settings', version: 10 },
         ]);
       } finally {
         migrated.close();
@@ -520,6 +525,7 @@ describe('SQLite migrations', () => {
           { name: 'task-reviews', version: 7 },
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
+          { name: 'application-settings', version: 10 },
         ]);
       } finally {
         migrated.close();
@@ -583,6 +589,7 @@ describe('SQLite migrations', () => {
           { name: 'task-reviews', version: 7 },
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
+          { name: 'application-settings', version: 10 },
         ]);
       } finally {
         migrated.close();
@@ -635,6 +642,7 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'task-reviews', version: 7 }),
           expect.objectContaining({ name: 'task-dependencies', version: 8 }),
           expect.objectContaining({ name: 'pull-requests', version: 9 }),
+          expect.objectContaining({ name: 'application-settings', version: 10 }),
         ]);
       } finally {
         migrated.close();

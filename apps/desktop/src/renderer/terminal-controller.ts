@@ -22,6 +22,7 @@ export interface TerminalSurface {
   open(container: HTMLElement): void;
   refresh(): void;
   reset(): void;
+  setFontSize(fontSize: number): void;
   write(data: string): void;
 }
 
@@ -163,6 +164,12 @@ export class TerminalController {
   public refreshLayout(): void {
     if (!this.disposed && this.inputSubscription !== undefined) {
       this.surface.refresh();
+    }
+  }
+
+  public setFontSize(fontSize: number): void {
+    if (!this.disposed) {
+      this.surface.setFontSize(fontSize);
     }
   }
 

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   AgentWorkspaceOverview,
+  ApplicationSettingsView,
   QualityGateSummary,
   TaskChangeSet,
   TaskPullRequestState,
@@ -172,6 +173,43 @@ const availableAgents = Object.freeze([
     reason: 'EXECUTABLE_NOT_FOUND' as const,
   }),
 ]);
+function settings(
+  overrides: {
+    readonly agentExecutables?: ApplicationSettingsView['settings']['agentExecutables'];
+    readonly defaultAgentId?: string;
+    readonly revision?: number;
+    readonly terminalFontSize?: number;
+  } = {},
+): ApplicationSettingsView['settings'] {
+  return Object.freeze({
+    agentExecutables: overrides.agentExecutables ?? Object.freeze([]),
+    defaultAgentId: overrides.defaultAgentId ?? 'codex',
+    revision: overrides.revision ?? 0,
+    schemaVersion: 1,
+    terminalFontSize: overrides.terminalFontSize ?? 14,
+  });
+}
+const defaultSettingsView: ApplicationSettingsView = Object.freeze({
+  agents: Object.freeze([
+    Object.freeze({
+      capabilities: Object.freeze(['SESSION_RESUME'] as const),
+      configuredExecutablePath: undefined,
+      detectedExecutablePath: 'C:\\detected\\codex.exe',
+      displayName: 'Codex',
+      id: 'codex',
+      kind: 'available' as const,
+      version: 'codex 1.2.3',
+    }),
+    Object.freeze({
+      configuredExecutablePath: undefined,
+      displayName: 'Claude',
+      id: 'claude',
+      kind: 'unavailable' as const,
+      reason: 'EXECUTABLE_NOT_FOUND' as const,
+    }),
+  ]),
+  settings: settings(),
+});
 const pullRequestReady: TaskPullRequestState = Object.freeze({
   branch: Object.freeze({
     baseBranch: 'main',
@@ -455,6 +493,20 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly requestTaskChanges = vi.fn<AgentWorkspaceClient['requestTaskChanges']>(
     async () => undefined,
   );
+  public settingsView: ApplicationSettingsView = defaultSettingsView;
+  public readonly loadSettings = vi.fn(async () => this.settingsView);
+  public readonly updateSettings = vi.fn<AgentWorkspaceClient['updateSettings']>(async (input) => {
+    this.settingsView = Object.freeze({
+      ...this.settingsView,
+      settings: settings({
+        agentExecutables: input.agentExecutables,
+        defaultAgentId: input.defaultAgentId,
+        revision: input.expectedRevision + 1,
+        terminalFontSize: input.terminalFontSize,
+      }),
+    });
+    return this.settingsView;
+  });
 
   public async loadWorkspace(): Promise<AgentWorkspaceOverview> {
     if (this.loadFailure !== undefined) {
@@ -469,6 +521,97 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
 }
 
 describe('WorkspaceController', () => {
+  it('uses the persisted default agent when that agent is currently available', async () => {
+    const claude = Object.freeze({
+      capabilities: Object.freeze(['SESSION_RESUME'] as const),
+      displayName: 'Claude',
+      id: 'claude',
+      kind: 'available' as const,
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [
+      Object.freeze({ ...planningOverview, agents: Object.freeze([availableAgents[0]!, claude]) }),
+    ];
+    client.settingsView = Object.freeze({
+      agents: Object.freeze([
+        defaultSettingsView.agents[0]!,
+        Object.freeze({
+          capabilities: Object.freeze(['SESSION_RESUME'] as const),
+          configuredExecutablePath: 'C:\\Tools\\claude.exe',
+          detectedExecutablePath: 'C:\\Tools\\claude.exe',
+          displayName: 'Claude',
+          id: 'claude',
+          kind: 'available' as const,
+          version: '2.0.0',
+        }),
+      ]),
+      settings: settings({ defaultAgentId: 'claude' }),
+    });
+    const controller = new WorkspaceController(client);
+
+    await controller.load();
+
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      selectedAgentId: 'claude',
+      settings: { settings: { defaultAgentId: 'claude' } },
+    });
+  });
+
+  it('updates settings without attaching, detaching, or starting a Session', async () => {
+    const client = new FakeWorkspaceClient();
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await controller.saveSettings({
+      agentExecutables: [{ agentId: 'codex', executablePath: 'C:\\Tools\\codex.exe' }],
+      defaultAgentId: 'codex',
+      expectedRevision: 0,
+      terminalFontSize: 18,
+    });
+
+    expect(client.updateSettings).toHaveBeenCalledWith({
+      agentExecutables: [{ agentId: 'codex', executablePath: 'C:\\Tools\\codex.exe' }],
+      defaultAgentId: 'codex',
+      expectedRevision: 0,
+      terminalFontSize: 18,
+    });
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      settings: { settings: { revision: 1, terminalFontSize: 18 } },
+      settingsError: undefined,
+      settingsSaving: false,
+    });
+    expect(client.attachTerminal).not.toHaveBeenCalled();
+    expect(client.startTaskExecution).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes invalid configuration errors and preserves the current settings view', async () => {
+    const client = new FakeWorkspaceClient();
+    client.updateSettings.mockRejectedValueOnce(
+      new Error('C:\\private\\secret-token\\missing-agent.exe'),
+    );
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await controller.saveSettings({
+      agentExecutables: [
+        { agentId: 'codex', executablePath: 'C:\\private\\secret-token\\missing-agent.exe' },
+      ],
+      defaultAgentId: 'codex',
+      expectedRevision: 0,
+      terminalFontSize: 14,
+    });
+
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      settings: { settings: { revision: 0 } },
+      settingsError: 'Settings could not be saved. Check the agent configuration.',
+      settingsSaving: false,
+    });
+    expect(JSON.stringify(controller.snapshot)).not.toContain('secret-token');
+  });
+
   it('loads Projects, selects the first Task, and preserves Unicode labels', async () => {
     const client = new FakeWorkspaceClient();
     const observed: WorkspaceSnapshot[] = [];
@@ -2216,12 +2359,14 @@ describe('AgentWorkspaceView', () => {
     const empty = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
         ...common,
+        onSaveSettings: () => undefined,
         snapshot: {
           actionError: undefined,
           kind: 'ready',
           layout: Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) }),
           overview: { agents: availableAgents, projects: [] },
           selectedAgentId: 'codex',
+          settings: defaultSettingsView,
           selectedTaskId: undefined,
           activeAction: undefined,
           terminalSessionId: undefined,
@@ -2237,6 +2382,7 @@ describe('AgentWorkspaceView', () => {
 
     expect(loading).toContain('Loading workspace');
     expect(empty).toContain('No Projects yet');
+    expect(empty).toContain('<summary>Settings</summary>');
     expect(error).toContain('Workspace data could not be loaded.');
     expect(error).toContain('Retry');
   });

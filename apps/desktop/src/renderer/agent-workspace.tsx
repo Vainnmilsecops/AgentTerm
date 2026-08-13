@@ -5,12 +5,14 @@ import type {
   PullRequestBranchReadinessFailure,
   TaskFileChange,
   TaskFileDiff,
+  UpdateApplicationSettingsInput,
   WorkspaceProjectOverview,
   WorkspaceTaskOverview,
 } from '@agentterm/application';
 
 import { WorkspaceCommandPalette } from './command-palette';
 import { WorkspaceTerminals } from './workspace-terminals';
+import { SettingsPanel } from './settings-panel';
 import {
   buildWorkspaceCommands,
   initialCommandPaletteState,
@@ -47,6 +49,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onRetryTask: () => void;
   readonly onRunQualityGate: (gateId: string) => void;
   readonly onSelectAgent?: (agentId: string) => void;
+  readonly onSaveSettings?: (input: UpdateApplicationSettingsInput) => void;
   readonly onSelectTaskChange: (change: TaskFileChange) => void;
   readonly onSelectTask: (taskId: string) => void;
   readonly onSelectWorkspacePane: (paneId: string) => void;
@@ -95,6 +98,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onRetryTask={() => void controller?.retrySelectedTask()}
       onRunQualityGate={(gateId) => void controller?.runSelectedQualityGate(gateId)}
       onSelectAgent={(agentId) => controller?.selectAgent(agentId)}
+      onSaveSettings={(input) => void controller?.saveSettings(input)}
       onSelectTaskChange={(change) => void controller?.selectTaskChange(change)}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
       onSelectWorkspacePane={(paneId) => controller?.selectWorkspacePane(paneId)}
@@ -124,6 +128,7 @@ export function AgentWorkspaceView({
   onRetryTask,
   onRunQualityGate,
   onSelectAgent,
+  onSaveSettings,
   onSelectTaskChange,
   onSelectTask,
   onSelectWorkspacePane,
@@ -182,15 +187,6 @@ export function AgentWorkspaceView({
       </WorkspaceMessage>
     );
   }
-  if (snapshot.overview.projects.length === 0) {
-    return (
-      <WorkspaceMessage
-        eyebrow="Empty workspace"
-        message="No Projects yet. Open a local Git Project to begin."
-      />
-    );
-  }
-
   const selected = findTask(snapshot, snapshot.selectedTaskId);
   const selectedProject = findProject(snapshot, selected?.task.projectId);
   const actionsBusy = snapshot.activeAction !== undefined;
@@ -268,14 +264,28 @@ export function AgentWorkspaceView({
   return (
     <main className="workspace-shell">
       <WorkspaceSidebar
+        settingsPanel={
+          snapshot.settings === undefined || onSaveSettings === undefined ? undefined : (
+            <SettingsPanel
+              error={snapshot.settingsError}
+              onSave={onSaveSettings}
+              saving={snapshot.settingsSaving ?? false}
+              view={snapshot.settings}
+            />
+          )
+        }
         projects={snapshot.overview.projects}
         selectedTaskId={snapshot.selectedTaskId}
         onSelectTask={onSelectTask}
       />
       {selected === undefined || selectedProject === undefined ? (
         <WorkspaceMessage
-          eyebrow="No Task selected"
-          message="Choose a Task from the sidebar to inspect its execution state."
+          eyebrow={snapshot.overview.projects.length === 0 ? 'Empty workspace' : 'No Task selected'}
+          message={
+            snapshot.overview.projects.length === 0
+              ? 'No Projects yet. Open a local Git Project to begin.'
+              : 'Choose a Task from the sidebar to inspect its execution state.'
+          }
         />
       ) : (
         <section
@@ -484,6 +494,7 @@ export function AgentWorkspaceView({
           <WorkspaceTerminals
             {...(client === undefined ? {} : { client })}
             layout={snapshot.layout}
+            fontSize={snapshot.settings?.settings.terminalFontSize ?? 14}
             onActivatePane={onSelectWorkspacePane}
             onActivateTab={onSelectWorkspaceTab}
             onClosePane={onCloseWorkspacePane}
@@ -1032,10 +1043,12 @@ function WorkspaceSidebar({
   onSelectTask,
   projects,
   selectedTaskId,
+  settingsPanel,
 }: {
   readonly onSelectTask: (taskId: string) => void;
   readonly projects: readonly WorkspaceProjectOverview[];
   readonly selectedTaskId: string | undefined;
+  readonly settingsPanel?: React.ReactNode;
 }) {
   return (
     <aside className="workspace-sidebar" id="workspace-sidebar" tabIndex={-1}>
@@ -1081,6 +1094,9 @@ function WorkspaceSidebar({
           </section>
         ))}
       </nav>
+      {settingsPanel === undefined ? null : (
+        <div className="workspace-sidebar__settings">{settingsPanel}</div>
+      )}
     </aside>
   );
 }

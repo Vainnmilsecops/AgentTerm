@@ -57,6 +57,99 @@ kbd {
   background: rgb(13 16 20 / 94%);
 }
 
+.settings-panel {
+  border: 1px solid #29323b;
+  border-radius: 0.6rem;
+  background: #0d1116;
+}
+
+.workspace-sidebar__settings {
+  padding: 0.65rem;
+}
+
+.workspace-sidebar__settings .settings-form__grid {
+  grid-template-columns: 1fr;
+}
+
+.settings-panel > summary {
+  cursor: pointer;
+  padding: 0.7rem 0.85rem;
+  color: #c8d1d9;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.settings-panel[open] > summary {
+  border-bottom: 1px solid #29323b;
+}
+
+.settings-form {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.85rem;
+}
+
+.settings-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.settings-form label,
+.executable-setting {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  color: #aab6c0;
+  font-size: 0.72rem;
+}
+
+.settings-form input,
+.settings-form select {
+  min-width: 0;
+  border: 1px solid #394653;
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  background: #080b0f;
+  color: #e7ebef;
+  font: inherit;
+}
+
+.settings-form input:focus-visible,
+.settings-form select:focus-visible,
+.settings-panel > summary:focus-visible {
+  outline: 2px solid #f2c879;
+  outline-offset: 2px;
+}
+
+.settings-form fieldset {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  border: 1px solid #242d35;
+  border-radius: 0.45rem;
+  padding: 0.75rem;
+}
+
+.settings-form legend {
+  padding: 0 0.35rem;
+  color: #d4dde5;
+  font-size: 0.72rem;
+}
+
+.executable-setting small,
+.settings-note {
+  color: #7f8d99;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.settings-note {
+  margin: 0;
+}
+
 .workspace-brand {
   display: flex;
   align-items: center;
@@ -1629,6 +1722,10 @@ kbd {
 
   .agent-selector {
     width: 100%;
+  }
+
+  .settings-form__grid {
+    grid-template-columns: 1fr;
   }
 
   .task-actions button {

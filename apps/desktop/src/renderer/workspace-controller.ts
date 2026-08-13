@@ -1,11 +1,13 @@
 import type {
   AgentWorkspaceOverview,
+  ApplicationSettingsView,
   GetTaskFileDiffInput,
   QualityGateSummary,
   TaskChangeSet,
   TaskFileChange,
   TaskFileDiff,
   TaskPullRequestState,
+  UpdateApplicationSettingsInput,
 } from '@agentterm/application';
 
 import type { TerminalSessionClient } from './terminal-controller';
@@ -35,6 +37,7 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   listTaskChanges(input: { readonly taskId: string }): Promise<TaskChangeSet>;
   listQualityGates(): Promise<readonly QualityGateSummary[]>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
+  loadSettings(): Promise<ApplicationSettingsView>;
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
   pushTaskBranch(input: { readonly taskId: string }): Promise<void>;
@@ -42,6 +45,7 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   runQualityGate(input: { readonly gateId: string; readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskPlanning(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
+  updateSettings(input: UpdateApplicationSettingsInput): Promise<ApplicationSettingsView>;
 }
 
 export type WorkspacePullRequestInspection =
@@ -100,6 +104,9 @@ export type WorkspaceSnapshot =
       readonly qualityGates?: readonly QualityGateSummary[];
       readonly pullRequestInspection?: WorkspacePullRequestInspection;
       readonly selectedAgentId: string | undefined;
+      readonly settings?: ApplicationSettingsView;
+      readonly settingsError?: string | undefined;
+      readonly settingsSaving?: boolean;
       readonly selectedTaskId: string | undefined;
       readonly terminalSessionId: string | undefined;
     };
@@ -112,6 +119,7 @@ export class WorkspaceController {
   private readonly client: AgentWorkspaceClient;
   private readonly sink: ((snapshot: WorkspaceSnapshot) => void) | undefined;
   private actionAttempt: Promise<void> | undefined;
+  private settingsAttempt: Promise<void> | undefined;
   public snapshot: WorkspaceSnapshot = Object.freeze({ kind: 'loading' });
 
   public constructor(client: AgentWorkspaceClient, sink?: (snapshot: WorkspaceSnapshot) => void) {
@@ -123,14 +131,15 @@ export class WorkspaceController {
     const generation = ++this.loadGeneration;
     this.publish(Object.freeze({ kind: 'loading' }));
     try {
-      const [overview, qualityGates] = await Promise.all([
+      const [overview, qualityGates, settings] = await Promise.all([
         this.client.loadWorkspace(),
         this.client.listQualityGates(),
+        this.client.loadSettings(),
       ]);
       if (this.disposed || generation !== this.loadGeneration) {
         return;
       }
-      this.publishReady(overview, qualityGates, undefined);
+      this.publishReady(overview, qualityGates, undefined, settings);
       await this.loadSelectedTaskEvidence();
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
@@ -146,14 +155,15 @@ export class WorkspaceController {
     const requestedTaskId =
       this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : undefined;
     try {
-      const [overview, qualityGates] = await Promise.all([
+      const [overview, qualityGates, settings] = await Promise.all([
         this.client.loadWorkspace(),
         this.client.listQualityGates(),
+        this.client.loadSettings(),
       ]);
       if (!this.disposed && generation === this.loadGeneration) {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : requestedTaskId;
-        this.publishReady(overview, qualityGates, preferredTaskId);
+        this.publishReady(overview, qualityGates, preferredTaskId, settings);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -253,6 +263,54 @@ export class WorkspaceController {
         selectedAgentId: agentId,
       }),
     );
+  }
+
+  public saveSettings(input: UpdateApplicationSettingsInput): Promise<void> {
+    if (this.settingsAttempt !== undefined) {
+      return this.settingsAttempt;
+    }
+    if (this.snapshot.kind !== 'ready') {
+      return Promise.resolve();
+    }
+    const current = this.snapshot;
+    this.publish(Object.freeze({ ...current, settingsError: undefined, settingsSaving: true }));
+    const attempt = this.client
+      .updateSettings(input)
+      .then((settings) => {
+        if (this.disposed || this.snapshot.kind !== 'ready') {
+          return;
+        }
+        this.publish(
+          Object.freeze({
+            ...this.snapshot,
+            selectedAgentId: selectAvailableAgentId(
+              this.snapshot.overview,
+              settings.settings.defaultAgentId,
+            ),
+            settings,
+            settingsError: undefined,
+            settingsSaving: false,
+          }),
+        );
+      })
+      .catch(() => {
+        if (!this.disposed && this.snapshot.kind === 'ready') {
+          this.publish(
+            Object.freeze({
+              ...this.snapshot,
+              settingsError: 'Settings could not be saved. Check the agent configuration.',
+              settingsSaving: false,
+            }),
+          );
+        }
+      })
+      .finally(() => {
+        if (this.settingsAttempt === attempt) {
+          this.settingsAttempt = undefined;
+        }
+      });
+    this.settingsAttempt = attempt;
+    return attempt;
   }
 
   public startSelectedTask(): Promise<void> {
@@ -459,7 +517,9 @@ export class WorkspaceController {
       if (!this.disposed) {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : action.taskId;
-        this.publishReady(overview, qualityGates, preferredTaskId);
+        const latestSettings =
+          this.snapshot.kind === 'ready' ? this.snapshot.settings : current.settings;
+        this.publishReady(overview, qualityGates, preferredTaskId, latestSettings);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -483,10 +543,19 @@ export class WorkspaceController {
     overview: AgentWorkspaceOverview,
     qualityGates: readonly QualityGateSummary[],
     preferredTaskId: string | undefined,
+    settings: ApplicationSettingsView | undefined,
   ): void {
+    const currentSettings = this.snapshot.kind === 'ready' ? this.snapshot.settings : undefined;
+    const effectiveSettings =
+      currentSettings !== undefined &&
+      (settings === undefined || currentSettings.settings.revision > settings.settings.revision)
+        ? currentSettings
+        : settings;
     const preferredAvailableTaskId = selectAvailableTaskId(overview, preferredTaskId);
     const preferredAgentId =
-      this.snapshot.kind === 'ready' ? this.snapshot.selectedAgentId : undefined;
+      this.snapshot.kind === 'ready'
+        ? this.snapshot.selectedAgentId
+        : effectiveSettings?.settings.defaultAgentId;
     const selectedAgentId = selectAvailableAgentId(overview, preferredAgentId);
     let layout =
       this.snapshot.kind === 'ready'
@@ -523,6 +592,9 @@ export class WorkspaceController {
         pullRequestInspection: Object.freeze({ kind: 'idle' }),
         qualityGates: Object.freeze([...qualityGates]),
         selectedAgentId,
+        ...(effectiveSettings === undefined ? {} : { settings: effectiveSettings }),
+        settingsError: undefined,
+        settingsSaving: false,
         selectedTaskId,
         terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
       }),

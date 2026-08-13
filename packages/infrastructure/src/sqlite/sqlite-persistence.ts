@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 
 import type {
   AgentSessionRepository,
+  ApplicationSettingsRepository,
   ExecutionArtifactRepository,
   TaskPlanningArtifactRepository,
   LocalProjectLocator,
@@ -20,6 +21,7 @@ import type {
 import { migrateSqliteDatabase } from './migrate';
 import {
   SqliteProjectRepository,
+  SqliteApplicationSettingsRepository,
   SqlitePullRequestRepository,
   SqliteAgentSessionRepository,
   SqliteExecutionArtifactRepository,
@@ -41,6 +43,7 @@ export interface SqlitePersistence {
   readonly pullRequests: PullRequestRepository;
   readonly qualityGateRuns: QualityGateRunRepository;
   readonly sessions: AgentSessionRepository;
+  readonly settings: ApplicationSettingsRepository;
   readonly tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
   readonly taskDependencies: TaskDependencyRepository;
   readonly reviews: TaskReviewRepository;
@@ -63,6 +66,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let pullRequests: PullRequestRepository;
   let qualityGateRuns: QualityGateRunRepository;
   let sessions: AgentSessionRepository;
+  let settings: ApplicationSettingsRepository;
   let tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
   let taskDependencies: TaskDependencyRepository;
   let reviews: TaskReviewRepository;
@@ -81,6 +85,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     pullRequests = new SqlitePullRequestRepository(database);
     qualityGateRuns = new SqliteQualityGateRunRepository(database);
     sessions = new SqliteAgentSessionRepository(database);
+    settings = new SqliteApplicationSettingsRepository(database);
     tasks = new SqliteTaskRepository(database);
     taskDependencies = new SqliteTaskDependencyRepository(database);
     reviews = new SqliteTaskReviewRepository(database);
@@ -98,6 +103,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     pullRequests,
     qualityGateRuns,
     sessions,
+    settings,
     tasks,
     taskDependencies,
     reviews,
