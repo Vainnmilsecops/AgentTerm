@@ -82,6 +82,16 @@ describe('transitionTask', () => {
     expect(planning).not.toBe(backlog);
   });
 
+  it('moves a reviewed Task back to RUNNING when changes are requested', () => {
+    const running = taskAtPhase(TaskPhase.RUNNING);
+    const review = transitionTask(running, TaskPhase.REVIEW);
+
+    const resumed = transitionTask(review, TaskPhase.RUNNING);
+
+    expect(resumed.phase).toBe(TaskPhase.RUNNING);
+    expect(review.phase).toBe(TaskPhase.REVIEW);
+  });
+
   it.each([
     [TaskPhase.BACKLOG, TaskPhase.BACKLOG],
     [TaskPhase.BACKLOG, TaskPhase.RUNNING],
@@ -97,7 +107,6 @@ describe('transitionTask', () => {
     [TaskPhase.RUNNING, TaskPhase.DONE],
     [TaskPhase.REVIEW, TaskPhase.BACKLOG],
     [TaskPhase.REVIEW, TaskPhase.PLANNING],
-    [TaskPhase.REVIEW, TaskPhase.RUNNING],
     [TaskPhase.REVIEW, TaskPhase.REVIEW],
     [TaskPhase.DONE, TaskPhase.BACKLOG],
     [TaskPhase.DONE, TaskPhase.PLANNING],

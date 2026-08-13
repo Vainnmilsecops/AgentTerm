@@ -13,6 +13,8 @@ import {
   type RecordProjectOpenInput,
   type TaskRepository,
   type TaskCatalog,
+  type TaskReviewRepository,
+  type TaskReviewSessionRevision,
   TaskWorktreeMetadataConflictError,
   type TaskWorktree,
   type TaskWorktreeLifecycleState,
@@ -21,14 +23,21 @@ import {
 } from '@agentterm/application';
 import {
   createExecutionArtifact,
+  decideTaskReview,
   QualityGateRunStatus,
+  startTaskReview,
   startQualityGateRun,
+  TaskPhase,
+  TaskReviewEvidenceLimits,
+  TaskReviewStatus,
+  transitionTask,
   type AgentSession,
   type AgentSessionEvent,
   type ExecutionArtifact,
   type Project,
   type QualityGateRun,
   type Task,
+  type TaskReview,
 } from '@agentterm/domain';
 
 import { SqlitePersistenceError } from './errors';
@@ -39,6 +48,9 @@ import {
   mapProjectRow,
   mapQualityGateRunRow,
   mapTaskRow,
+  mapTaskReviewRows,
+  mapTaskReviewArtifactEvidenceSourceRow,
+  mapTaskReviewQualityGateEvidenceSourceRow,
   mapTaskWorktreeRow,
 } from './mapping';
 
@@ -201,7 +213,7 @@ export class SqliteTaskRepository implements TaskCatalog, TaskRepository {
       'SELECT id, project_id, title, phase FROM tasks WHERE project_id = ? ORDER BY id',
     );
     this.updateStatement = database.prepare(
-      'UPDATE tasks SET project_id = ?, title = ?, phase = ? WHERE id = ?',
+      'UPDATE tasks SET project_id = ?, title = ?, phase = ? WHERE id = ? AND phase = ?',
     );
   }
 
@@ -226,11 +238,17 @@ export class SqliteTaskRepository implements TaskCatalog, TaskRepository {
     return this.listByProjectIdStatement.all(projectId).map(mapTaskRow);
   }
 
-  public async update(task: Task): Promise<void> {
-    const result = this.updateStatement.run(task.projectId, task.title, task.phase, task.id);
+  public async update(task: Task, expectedPhase: Task['phase']): Promise<void> {
+    const result = this.updateStatement.run(
+      task.projectId,
+      task.title,
+      task.phase,
+      task.id,
+      expectedPhase,
+    );
 
     if (result.changes === 0 || result.changes === 0n) {
-      throw new SqlitePersistenceError(`Cannot update missing Task ${task.id}.`);
+      throw new SqlitePersistenceError(`Cannot update missing or stale Task ${task.id}.`);
     }
   }
 }
@@ -359,7 +377,11 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
   private readonly findByIdStatement: StatementSync;
   private readonly insertStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
+  private readonly listRecentByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
+  private readonly reviewEvidenceByTaskIdStatement: StatementSync;
+  private readonly reviewEvidenceSummaryByTaskIdStatement: StatementSync;
+  private readonly taskPhaseByIdStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
     this.database = database;
@@ -376,10 +398,39 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
       `SELECT ${selectedColumns}
        FROM quality_gate_runs WHERE task_id = ? ORDER BY ordinal`,
     );
+    this.listRecentByTaskIdStatement = database.prepare(
+      `WITH recent AS (
+         SELECT id FROM quality_gate_runs
+         WHERE task_id = ?
+         ORDER BY ordinal DESC
+         LIMIT ?
+       )
+       SELECT ${selectedColumns}
+       FROM quality_gate_runs
+       WHERE id IN (SELECT id FROM recent)
+       ORDER BY ordinal`,
+    );
+    this.reviewEvidenceSummaryByTaskIdStatement = database.prepare(
+      `SELECT COUNT(*) AS total_count,
+              COALESCE(MAX(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END), 0) AS has_running
+       FROM quality_gate_runs
+       WHERE task_id = ?`,
+    );
+    this.reviewEvidenceByTaskIdStatement = database.prepare(
+      `SELECT id AS quality_gate_run_id, gate_id, gate_kind AS kind,
+              status AS observed_status, worktree_path_identity,
+              worktree_branch_name AS branch_name, worktree_base_commit_id AS base_commit_id,
+              worktree_head_commit_id AS head_commit_id_at_start, started_at, finished_at
+       FROM quality_gate_runs
+       WHERE task_id = ?
+       ORDER BY ordinal
+       LIMIT ?`,
+    );
     this.nextOrdinalStatement = database.prepare(
       `SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
        FROM quality_gate_runs WHERE task_id = ?`,
     );
+    this.taskPhaseByIdStatement = database.prepare('SELECT phase FROM tasks WHERE id = ?');
     this.insertStatement = database.prepare(
       `INSERT INTO quality_gate_runs (
          id, task_id, ordinal, gate_id, gate_kind, executable_path, arguments_json,
@@ -404,12 +455,44 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
     return this.listByTaskIdStatement.all(taskId).map(mapQualityGateRunRow);
   }
 
+  public async listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly QualityGateRun[]> {
+    assertPositiveHistoryLimit(limit, 'Quality Gate Run');
+    return this.listRecentByTaskIdStatement.all(taskId, limit).map(mapQualityGateRunRow);
+  }
+
+  public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
+    assertNonnegativeHistoryLimit(limit, 'Quality Gate Run Review evidence');
+    const summary = this.reviewEvidenceSummaryByTaskIdStatement.get(taskId);
+    const totalCount = readHistoryCount(summary, 'Quality Gate Run');
+    const hasRunning = readHistoryBoolean(summary, 'has_running', 'Quality Gate Run');
+    return Object.freeze({
+      evidence: Object.freeze(
+        totalCount > limit
+          ? []
+          : this.reviewEvidenceByTaskIdStatement
+              .all(taskId, limit)
+              .map(mapTaskReviewQualityGateEvidenceSourceRow),
+      ),
+      hasRunning,
+      totalCount,
+    });
+  }
+
   public async insert(run: QualityGateRun): Promise<void> {
     assertRunningQualityGateRun(run);
     this.database.exec('BEGIN IMMEDIATE');
     try {
       if (this.findByIdStatement.get(run.id) !== undefined) {
         throw new EntityAlreadyExistsError('QualityGateRun', run.id);
+      }
+      const taskRow = this.taskPhaseByIdStatement.get(run.taskId);
+      if (taskRow?.phase === TaskPhase.REVIEW || taskRow?.phase === TaskPhase.DONE) {
+        throw new SqlitePersistenceError(
+          'A Quality Gate Run cannot start while its Task is in REVIEW or DONE.',
+        );
       }
       const ordinalRow = this.nextOrdinalStatement.get(run.taskId);
       const ordinal = ordinalRow?.next_ordinal;
@@ -505,6 +588,483 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
   }
 }
 
+export class SqliteTaskReviewRepository implements TaskReviewRepository {
+  private readonly activeSessionByTaskIdStatement: StatementSync;
+  private readonly artifactByIdentityStatement: StatementSync;
+  private readonly artifactHistoryIdsStatement: StatementSync;
+  private readonly artifactEvidenceByReviewIdStatement: StatementSync;
+  private readonly changedPathsByReviewIdStatement: StatementSync;
+  private readonly database: DatabaseSync;
+  private readonly decideStatement: StatementSync;
+  private readonly findByIdStatement: StatementSync;
+  private readonly gateByIdentityStatement: StatementSync;
+  private readonly gateHistoryIdsStatement: StatementSync;
+  private readonly gateEvidenceByReviewIdStatement: StatementSync;
+  private readonly insertArtifactEvidenceStatement: StatementSync;
+  private readonly insertChangedPathStatement: StatementSync;
+  private readonly insertGateEvidenceStatement: StatementSync;
+  private readonly insertReviewStatement: StatementSync;
+  private readonly listByTaskIdStatement: StatementSync;
+  private readonly listRecentByTaskIdStatement: StatementSync;
+  private readonly nextOrdinalStatement: StatementSync;
+  private readonly pendingByTaskIdStatement: StatementSync;
+  private readonly reviewCountByTaskIdStatement: StatementSync;
+  private readonly runningGateByTaskIdStatement: StatementSync;
+  private readonly sessionHistoryByTaskIdStatement: StatementSync;
+  private readonly taskByIdStatement: StatementSync;
+  private readonly transitionTaskStatement: StatementSync;
+  private readonly worktreeByTaskIdStatement: StatementSync;
+
+  public constructor(database: DatabaseSync) {
+    this.database = database;
+    const reviewColumns = `
+      id, task_id, ordinal, status, requested_at, decided_at, decision_note,
+      code_schema_version, worktree_path_identity, branch_name, base_commit_id,
+      head_commit_id, code_state_fingerprint, changes_total, changes_truncated`;
+    this.findByIdStatement = database.prepare(
+      `SELECT ${reviewColumns} FROM task_reviews WHERE id = ?`,
+    );
+    this.listByTaskIdStatement = database.prepare(
+      `SELECT ${reviewColumns} FROM task_reviews WHERE task_id = ? ORDER BY ordinal`,
+    );
+    this.listRecentByTaskIdStatement = database.prepare(
+      `SELECT ${reviewColumns}
+       FROM task_reviews
+       WHERE task_id = ?
+       ORDER BY ordinal DESC
+       LIMIT ?`,
+    );
+    this.changedPathsByReviewIdStatement = database.prepare(
+      `SELECT category, ordinal, path
+       FROM task_review_changed_paths
+       WHERE review_id = ?
+       ORDER BY category, ordinal`,
+    );
+    this.artifactEvidenceByReviewIdStatement = database.prepare(
+      `SELECT ordinal, artifact_id, kind, phase, session_id, created_at
+       FROM task_review_artifacts
+       WHERE review_id = ?
+       ORDER BY ordinal`,
+    );
+    this.gateEvidenceByReviewIdStatement = database.prepare(
+      `SELECT
+         ordinal, quality_gate_run_id, gate_id, kind, observed_status,
+         worktree_path_identity, branch_name, base_commit_id, head_commit_id_at_start,
+         started_at, finished_at, association
+       FROM task_review_quality_gates
+       WHERE review_id = ?
+       ORDER BY ordinal`,
+    );
+    this.taskByIdStatement = database.prepare(
+      'SELECT id, project_id, title, phase FROM tasks WHERE id = ?',
+    );
+    this.activeSessionByTaskIdStatement = database.prepare(
+      `SELECT session.id
+       FROM agent_sessions AS session
+       WHERE session.task_id = ?
+         AND ${unsettledAgentSessionWriterSql('session')}
+       LIMIT 1`,
+    );
+    this.worktreeByTaskIdStatement = database.prepare(
+      `SELECT path_identity, branch_name, base_commit_id, lifecycle_state
+       FROM task_worktrees WHERE task_id = ?`,
+    );
+    this.pendingByTaskIdStatement = database.prepare(
+      `SELECT id FROM task_reviews WHERE task_id = ? AND status = 'PENDING' LIMIT 1`,
+    );
+    this.reviewCountByTaskIdStatement = database.prepare(
+      'SELECT COUNT(*) AS count FROM task_reviews WHERE task_id = ?',
+    );
+    this.runningGateByTaskIdStatement = database.prepare(
+      `SELECT id FROM quality_gate_runs
+       WHERE task_id = ? AND status = 'RUNNING'
+       LIMIT 1`,
+    );
+    this.sessionHistoryByTaskIdStatement = database.prepare(
+      `SELECT id, history_sequence
+       FROM agent_sessions
+       WHERE task_id = ?
+       ORDER BY ordinal`,
+    );
+    this.nextOrdinalStatement = database.prepare(
+      `SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
+       FROM task_reviews WHERE task_id = ?`,
+    );
+    this.insertReviewStatement = database.prepare(
+      `INSERT INTO task_reviews (
+         id, task_id, ordinal, status, requested_at, decided_at, decision_note,
+         code_schema_version, worktree_path_identity, branch_name, base_commit_id,
+         head_commit_id, code_state_fingerprint, changes_total, changes_truncated
+       ) VALUES (?, ?, ?, 'PENDING', ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.insertChangedPathStatement = database.prepare(
+      `INSERT INTO task_review_changed_paths (review_id, task_id, category, ordinal, path)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    this.insertArtifactEvidenceStatement = database.prepare(
+      `INSERT INTO task_review_artifacts (
+         review_id, task_id, ordinal, artifact_id, kind, phase, session_id, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.insertGateEvidenceStatement = database.prepare(
+      `INSERT INTO task_review_quality_gates (
+         review_id, task_id, ordinal, quality_gate_run_id, gate_id, kind, observed_status,
+         worktree_path_identity, branch_name, base_commit_id, head_commit_id_at_start,
+         started_at, finished_at, association
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.transitionTaskStatement = database.prepare(
+      'UPDATE tasks SET phase = ? WHERE id = ? AND phase = ?',
+    );
+    this.decideStatement = database.prepare(
+      `UPDATE task_reviews
+       SET status = ?, decided_at = ?, decision_note = ?
+       WHERE id = ? AND status = ?`,
+    );
+    this.artifactByIdentityStatement = database.prepare(
+      `SELECT id AS artifact_id, session_id, kind, phase, created_at
+       FROM execution_artifacts WHERE id = ? AND task_id = ?`,
+    );
+    this.artifactHistoryIdsStatement = database.prepare(
+      `SELECT id FROM execution_artifacts WHERE task_id = ? ORDER BY ordinal`,
+    );
+    this.gateByIdentityStatement = database.prepare(
+      `SELECT id AS quality_gate_run_id, gate_id, gate_kind AS kind,
+              status AS observed_status, worktree_path_identity,
+              worktree_branch_name AS branch_name, worktree_base_commit_id AS base_commit_id,
+              worktree_head_commit_id AS head_commit_id_at_start, started_at, finished_at
+       FROM quality_gate_runs WHERE id = ? AND task_id = ?`,
+    );
+    this.gateHistoryIdsStatement = database.prepare(
+      `SELECT id FROM quality_gate_runs WHERE task_id = ? ORDER BY ordinal`,
+    );
+  }
+
+  public async findById(id: string): Promise<TaskReview | undefined> {
+    const row = this.findByIdStatement.get(id);
+    return row === undefined ? undefined : this.mapReview(row);
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly TaskReview[]> {
+    return this.listByTaskIdStatement.all(taskId).map((row) => this.mapReview(row));
+  }
+
+  public async listRecentByTaskId(taskId: string, limit: number): Promise<readonly TaskReview[]> {
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      throw new TypeError('Task Review recent-history limit must be a positive safe integer.');
+    }
+    return this.listRecentByTaskIdStatement
+      .all(taskId, limit)
+      .reverse()
+      .map((row) => this.mapReview(row));
+  }
+
+  public async begin(
+    review: TaskReview,
+    expectedTaskPhase: 'REVIEW' | 'RUNNING',
+    nextTask: Task,
+    expectedSessionRevisions: readonly TaskReviewSessionRevision[],
+  ): Promise<void> {
+    assertPendingTaskReview(review);
+    if (expectedTaskPhase !== TaskPhase.RUNNING && expectedTaskPhase !== TaskPhase.REVIEW) {
+      throw new SqlitePersistenceError('Task Review begin phase is invalid.');
+    }
+
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const storedTask = this.readTaskForReview(review.taskId);
+      if (expectedTaskPhase === TaskPhase.RUNNING) {
+        assertTaskReviewTransition(storedTask, expectedTaskPhase, nextTask, TaskPhase.REVIEW);
+      } else {
+        const count = this.reviewCountByTaskIdStatement.get(review.taskId)?.count;
+        if (
+          storedTask.phase !== TaskPhase.REVIEW ||
+          !sameTask(storedTask, nextTask) ||
+          count !== 0
+        ) {
+          throw new SqlitePersistenceError('Legacy Task Review recovery is not eligible.');
+        }
+      }
+      if (this.findByIdStatement.get(review.id) !== undefined) {
+        throw new SqlitePersistenceError(`Task Review ${review.id} already exists.`);
+      }
+      if (this.activeSessionByTaskIdStatement.get(review.taskId) !== undefined) {
+        throw new SqlitePersistenceError(
+          'Task Review cannot begin while an Agent Session is active.',
+        );
+      }
+      assertExactSessionRevisions(
+        this.sessionHistoryByTaskIdStatement.all(review.taskId),
+        expectedSessionRevisions,
+      );
+      if (this.runningGateByTaskIdStatement.get(review.taskId) !== undefined) {
+        throw new SqlitePersistenceError(
+          'Task Review cannot begin while a Quality Gate Run is active.',
+        );
+      }
+      if (this.pendingByTaskIdStatement.get(review.taskId) !== undefined) {
+        throw new SqlitePersistenceError('Task already has a pending Review.');
+      }
+      this.assertCodeStateMatchesStoredWorktree(review);
+      this.assertEvidenceMatchesStorage(review);
+
+      const ordinal = this.nextOrdinalStatement.get(review.taskId)?.next_ordinal;
+      if (typeof ordinal !== 'number' || !Number.isSafeInteger(ordinal) || ordinal <= 0) {
+        throw new SqlitePersistenceError('Could not allocate the next Task Review ordinal.');
+      }
+      this.insertReview(review, ordinal);
+      this.insertReviewEvidence(review);
+      if (expectedTaskPhase === TaskPhase.RUNNING) {
+        const transitioned = this.transitionTaskStatement.run(
+          nextTask.phase,
+          nextTask.id,
+          expectedTaskPhase,
+        );
+        if (transitioned.changes === 0 || transitioned.changes === 0n) {
+          throw new SqlitePersistenceError('Task Review begin Task phase is stale.');
+        }
+      }
+      const storedReview = this.findByIdStatement.get(review.id);
+      if (storedReview === undefined || !sameTaskReview(this.mapReview(storedReview), review)) {
+        throw new SqlitePersistenceError('Task Review begin evidence did not persist.');
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof SqlitePersistenceError) {
+        throw error;
+      }
+      throw new SqlitePersistenceError('Failed to begin Task Review.', { cause: error });
+    }
+  }
+
+  public async decide(
+    review: TaskReview,
+    expectedStatus: 'PENDING',
+    expectedTaskPhase: 'REVIEW',
+    nextTask: Task,
+  ): Promise<void> {
+    assertTerminalTaskReview(review);
+    if (expectedStatus !== TaskReviewStatus.PENDING || expectedTaskPhase !== TaskPhase.REVIEW) {
+      throw new SqlitePersistenceError('Task Review decision revision is invalid.');
+    }
+
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const storedRow = this.findByIdStatement.get(review.id);
+      if (storedRow === undefined) {
+        throw new SqlitePersistenceError('Task Review decision target is missing.');
+      }
+      const stored = this.mapReview(storedRow);
+      const targetPhase =
+        review.status === TaskReviewStatus.APPROVED ? TaskPhase.DONE : TaskPhase.RUNNING;
+      const storedTask = this.readTaskForReview(review.taskId);
+
+      if (
+        targetPhase === TaskPhase.DONE &&
+        this.runningGateByTaskIdStatement.get(review.taskId) !== undefined
+      ) {
+        throw new SqlitePersistenceError(
+          'Task Review cannot be approved while a Quality Gate Run is active.',
+        );
+      }
+
+      if (stored.status !== expectedStatus) {
+        if (sameTaskReview(stored, review) && sameTask(storedTask, nextTask)) {
+          this.database.exec('COMMIT');
+          return;
+        }
+        throw new SqlitePersistenceError('Task Review is already decided differently.');
+      }
+      assertSameTaskReviewIdentity(stored, review);
+      assertTaskReviewTransition(storedTask, expectedTaskPhase, nextTask, targetPhase);
+
+      const decided = this.decideStatement.run(
+        review.status,
+        review.decidedAt ?? null,
+        review.decisionNote ?? null,
+        review.id,
+        expectedStatus,
+      );
+      if (decided.changes === 0 || decided.changes === 0n) {
+        throw new SqlitePersistenceError('Task Review decision revision is stale.');
+      }
+      const transitioned = this.transitionTaskStatement.run(
+        nextTask.phase,
+        nextTask.id,
+        expectedTaskPhase,
+      );
+      if (transitioned.changes === 0 || transitioned.changes === 0n) {
+        throw new SqlitePersistenceError('Task Review decision Task phase is stale.');
+      }
+      const finalizedRow = this.findByIdStatement.get(review.id);
+      if (finalizedRow === undefined || !sameTaskReview(this.mapReview(finalizedRow), review)) {
+        throw new SqlitePersistenceError('Task Review decision evidence did not persist.');
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof SqlitePersistenceError) {
+        throw error;
+      }
+      throw new SqlitePersistenceError('Failed to decide Task Review.', { cause: error });
+    }
+  }
+
+  private mapReview(row: ReturnType<StatementSync['get']>): TaskReview {
+    if (row === undefined || typeof row.id !== 'string') {
+      throw new SqlitePersistenceError('Task Review row is invalid.');
+    }
+    return mapTaskReviewRows(
+      row,
+      this.changedPathsByReviewIdStatement.all(row.id),
+      this.artifactEvidenceByReviewIdStatement.all(row.id),
+      this.gateEvidenceByReviewIdStatement.all(row.id),
+    );
+  }
+
+  private readTaskForReview(taskId: string): Task {
+    const row = this.taskByIdStatement.get(taskId);
+    if (row === undefined) {
+      throw new SqlitePersistenceError(`Task Review Task ${taskId} is missing.`);
+    }
+    return mapTaskRow(row);
+  }
+
+  private assertEvidenceMatchesStorage(review: TaskReview): void {
+    assertExactEvidenceIds(
+      this.artifactHistoryIdsStatement.all(review.taskId),
+      review.artifacts.map(({ id }) => id),
+      'Artifact',
+    );
+    assertExactEvidenceIds(
+      this.gateHistoryIdsStatement.all(review.taskId),
+      review.qualityGates.map(({ id }) => id),
+      'Quality Gate Run',
+    );
+    for (const evidence of review.artifacts) {
+      const row = this.artifactByIdentityStatement.get(evidence.id, review.taskId);
+      if (row === undefined) {
+        throw new SqlitePersistenceError(
+          `Task Review Artifact evidence ${evidence.id} is missing or belongs to another Task.`,
+        );
+      }
+      const artifact = mapTaskReviewArtifactEvidenceSourceRow(row);
+      if (
+        artifact.id !== evidence.id ||
+        artifact.kind !== evidence.kind ||
+        artifact.phase !== evidence.phase ||
+        artifact.sessionId !== evidence.sessionId ||
+        artifact.createdAt !== evidence.createdAt
+      ) {
+        throw new SqlitePersistenceError(`Task Review Artifact evidence ${evidence.id} is stale.`);
+      }
+    }
+    for (const evidence of review.qualityGates) {
+      const row = this.gateByIdentityStatement.get(evidence.id, review.taskId);
+      if (row === undefined) {
+        throw new SqlitePersistenceError(
+          `Task Review Quality Gate evidence ${evidence.id} is missing or belongs to another Task.`,
+        );
+      }
+      const run = mapTaskReviewQualityGateEvidenceSourceRow(row);
+      if (
+        run.id !== evidence.id ||
+        run.gateId !== evidence.gateId ||
+        run.kind !== evidence.kind ||
+        run.observedStatus !== evidence.observedStatus ||
+        run.worktreePathIdentity !== evidence.worktreePathIdentity ||
+        run.branchName !== evidence.branchName ||
+        run.baseCommitId !== evidence.baseCommitId ||
+        run.headCommitIdAtStart !== evidence.headCommitIdAtStart ||
+        run.startedAt !== evidence.startedAt ||
+        run.finishedAt !== evidence.finishedAt
+      ) {
+        throw new SqlitePersistenceError(
+          `Task Review Quality Gate evidence ${evidence.id} is stale.`,
+        );
+      }
+    }
+  }
+
+  private assertCodeStateMatchesStoredWorktree(review: TaskReview): void {
+    const row = this.worktreeByTaskIdStatement.get(review.taskId);
+    if (
+      row === undefined ||
+      row.lifecycle_state !== 'PRESENT' ||
+      row.path_identity !== review.codeState.worktreePathIdentity ||
+      row.branch_name !== review.codeState.branchName ||
+      row.base_commit_id !== review.codeState.baseCommitId
+    ) {
+      throw new SqlitePersistenceError(
+        'Task Review code state does not match the persisted PRESENT Worktree.',
+      );
+    }
+  }
+
+  private insertReview(review: TaskReview, ordinal: number): void {
+    this.insertReviewStatement.run(
+      review.id,
+      review.taskId,
+      ordinal,
+      review.requestedAt,
+      review.codeState.schemaVersion,
+      review.codeState.worktreePathIdentity,
+      review.codeState.branchName,
+      review.codeState.baseCommitId,
+      review.codeState.headCommitId,
+      review.codeState.fingerprint,
+      review.codeState.changes.total,
+      Number(review.codeState.changes.truncated),
+    );
+  }
+
+  private insertReviewEvidence(review: TaskReview): void {
+    const changedPathGroups = [
+      ['COMMITTED', review.codeState.changes.committed],
+      ['CONFLICTED', review.codeState.changes.conflicted],
+      ['STAGED', review.codeState.changes.staged],
+      ['UNSTAGED', review.codeState.changes.unstaged],
+      ['UNTRACKED', review.codeState.changes.untracked],
+    ] as const;
+    for (const [category, paths] of changedPathGroups) {
+      paths.forEach((path, index) => {
+        this.insertChangedPathStatement.run(review.id, review.taskId, category, index + 1, path);
+      });
+    }
+    review.artifacts.forEach((evidence, index) => {
+      this.insertArtifactEvidenceStatement.run(
+        review.id,
+        review.taskId,
+        index + 1,
+        evidence.id,
+        evidence.kind,
+        evidence.phase,
+        evidence.sessionId ?? null,
+        evidence.createdAt,
+      );
+    });
+    review.qualityGates.forEach((evidence, index) => {
+      this.insertGateEvidenceStatement.run(
+        review.id,
+        review.taskId,
+        index + 1,
+        evidence.id,
+        evidence.gateId,
+        evidence.kind,
+        evidence.observedStatus,
+        evidence.worktreePathIdentity,
+        evidence.branchName,
+        evidence.baseCommitId,
+        evidence.headCommitIdAtStart,
+        evidence.startedAt,
+        evidence.finishedAt ?? null,
+        evidence.association,
+      );
+    });
+  }
+}
+
 export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly database: DatabaseSync;
   private readonly appendSnapshotStatement: StatementSync;
@@ -516,6 +1076,7 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly listActiveStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
+  private readonly taskPhaseByIdStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
     this.database = database;
@@ -529,13 +1090,13 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     );
     this.listActiveStatement = database.prepare(
       `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
-       FROM agent_sessions
-       WHERE status IN ('STARTING', 'WORKING', 'IDLE', 'WAITING_INPUT')
-       ORDER BY task_id, ordinal`,
+       FROM agent_sessions AS session
+       WHERE ${unsettledAgentSessionWriterSql('session')}
+       ORDER BY session.task_id, session.ordinal`,
     );
     this.activeByTaskIdStatement = database.prepare(
-      `SELECT id FROM agent_sessions
-       WHERE task_id = ? AND status IN ('STARTING', 'WORKING', 'IDLE', 'WAITING_INPUT')
+      `SELECT session.id FROM agent_sessions AS session
+       WHERE session.task_id = ? AND ${unsettledAgentSessionWriterSql('session')}
        LIMIT 1`,
     );
     this.eventsBySessionIdStatement = database.prepare(
@@ -548,6 +1109,7 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
       `SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
        FROM agent_sessions WHERE task_id = ?`,
     );
+    this.taskPhaseByIdStatement = database.prepare('SELECT phase FROM tasks WHERE id = ?');
     this.insertSessionStatement = database.prepare(
       `INSERT INTO agent_sessions (
          id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
@@ -585,6 +1147,12 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     try {
       if (this.findByIdStatement.get(session.id) !== undefined) {
         throw new EntityAlreadyExistsError('AgentSession', session.id);
+      }
+      const taskRow = this.taskPhaseByIdStatement.get(session.taskId);
+      if (taskRow?.phase !== TaskPhase.RUNNING) {
+        throw new SqlitePersistenceError(
+          'A new Agent Session requires its Task to remain in RUNNING.',
+        );
       }
       if (this.activeByTaskIdStatement.get(session.taskId) !== undefined) {
         throw new AgentSessionActiveConflictError(session.taskId);
@@ -714,7 +1282,10 @@ export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepos
   private readonly findByIdStatement: StatementSync;
   private readonly insertStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
+  private readonly listRecentByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
+  private readonly reviewEvidenceByTaskIdStatement: StatementSync;
+  private readonly reviewEvidenceCountByTaskIdStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
     this.database = database;
@@ -727,6 +1298,29 @@ export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepos
       `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
               format, schema_version, validation, content, created_at
        FROM execution_artifacts WHERE task_id = ? ORDER BY ordinal`,
+    );
+    this.listRecentByTaskIdStatement = database.prepare(
+      `WITH recent AS (
+         SELECT id FROM execution_artifacts
+         WHERE task_id = ?
+         ORDER BY ordinal DESC
+         LIMIT ?
+       )
+       SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
+              format, schema_version, validation, content, created_at
+       FROM execution_artifacts
+       WHERE id IN (SELECT id FROM recent)
+       ORDER BY ordinal`,
+    );
+    this.reviewEvidenceCountByTaskIdStatement = database.prepare(
+      'SELECT COUNT(*) AS total_count FROM execution_artifacts WHERE task_id = ?',
+    );
+    this.reviewEvidenceByTaskIdStatement = database.prepare(
+      `SELECT id AS artifact_id, session_id, kind, phase, created_at
+       FROM execution_artifacts
+       WHERE task_id = ?
+       ORDER BY ordinal
+       LIMIT ?`,
     );
     this.nextOrdinalStatement = database.prepare(
       `SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
@@ -786,6 +1380,32 @@ export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepos
   public async listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]> {
     return this.listByTaskIdStatement.all(taskId).map(mapExecutionArtifactRow);
   }
+
+  public async listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly ExecutionArtifact[]> {
+    assertPositiveHistoryLimit(limit, 'Execution Artifact');
+    return this.listRecentByTaskIdStatement.all(taskId, limit).map(mapExecutionArtifactRow);
+  }
+
+  public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
+    assertNonnegativeHistoryLimit(limit, 'Execution Artifact Review evidence');
+    const totalCount = readHistoryCount(
+      this.reviewEvidenceCountByTaskIdStatement.get(taskId),
+      'Execution Artifact',
+    );
+    return Object.freeze({
+      evidence: Object.freeze(
+        totalCount > limit
+          ? []
+          : this.reviewEvidenceByTaskIdStatement
+              .all(taskId, limit)
+              .map(mapTaskReviewArtifactEvidenceSourceRow),
+      ),
+      totalCount,
+    });
+  }
 }
 
 function assertExecutionArtifactContract(artifact: ExecutionArtifact): void {
@@ -805,6 +1425,196 @@ function assertExecutionArtifactContract(artifact: ExecutionArtifact): void {
     reconstructed.validation !== artifact.validation
   ) {
     throw new SqlitePersistenceError('Execution Artifact does not match its Domain contract.');
+  }
+}
+
+function assertPendingTaskReview(review: TaskReview): void {
+  try {
+    const reconstructed = startTaskReview({
+      artifacts: review.artifacts,
+      codeState: review.codeState,
+      id: review.id,
+      qualityGates: review.qualityGates,
+      requestedAt: review.requestedAt,
+      taskId: review.taskId,
+    });
+    if (!sameTaskReview(reconstructed, review)) {
+      throw new TypeError('snapshot mismatch');
+    }
+    assertTaskReviewStorageBounds(reconstructed);
+  } catch (error) {
+    throw new SqlitePersistenceError('New Task Review must be a valid PENDING snapshot.', {
+      cause: error,
+    });
+  }
+}
+
+function assertTerminalTaskReview(review: TaskReview): void {
+  try {
+    if (
+      review.status !== TaskReviewStatus.APPROVED &&
+      review.status !== TaskReviewStatus.CHANGES_REQUESTED
+    ) {
+      throw new TypeError('invalid decision status');
+    }
+    const pending = startTaskReview({
+      artifacts: review.artifacts,
+      codeState: review.codeState,
+      id: review.id,
+      qualityGates: review.qualityGates,
+      requestedAt: review.requestedAt,
+      taskId: review.taskId,
+    });
+    if (review.decidedAt === undefined) {
+      throw new TypeError('missing decision timestamp');
+    }
+    const reconstructed = decideTaskReview(pending, {
+      decidedAt: review.decidedAt,
+      ...(review.decisionNote === undefined ? {} : { decisionNote: review.decisionNote }),
+      status: review.status,
+    });
+    if (!sameTaskReview(reconstructed, review)) {
+      throw new TypeError('snapshot mismatch');
+    }
+    assertTaskReviewStorageBounds(reconstructed);
+  } catch (error) {
+    throw new SqlitePersistenceError('Task Review decision evidence is invalid.', {
+      cause: error,
+    });
+  }
+}
+
+function assertTaskReviewStorageBounds(review: TaskReview): void {
+  const visiblePaths = [
+    ...review.codeState.changes.committed,
+    ...review.codeState.changes.conflicted,
+    ...review.codeState.changes.staged,
+    ...review.codeState.changes.unstaged,
+    ...review.codeState.changes.untracked,
+  ];
+  if (visiblePaths.length > 200 || visiblePaths.some((path) => path.length > 32_768)) {
+    throw new TypeError('Task Review changed-path evidence exceeds its storage bound.');
+  }
+  if (review.decisionNote !== undefined && review.decisionNote.length > 65_536) {
+    throw new TypeError('Task Review decision note exceeds its storage bound.');
+  }
+  if (
+    review.artifacts.length > TaskReviewEvidenceLimits.ARTIFACTS ||
+    review.qualityGates.length > TaskReviewEvidenceLimits.QUALITY_GATES
+  ) {
+    throw new TypeError('Task Review evidence associations exceed their storage bound.');
+  }
+}
+
+function assertSameTaskReviewIdentity(stored: TaskReview, candidate: TaskReview): void {
+  const candidatePending = startTaskReview({
+    artifacts: candidate.artifacts,
+    codeState: candidate.codeState,
+    id: candidate.id,
+    qualityGates: candidate.qualityGates,
+    requestedAt: candidate.requestedAt,
+    taskId: candidate.taskId,
+  });
+  if (!sameTaskReview(stored, candidatePending)) {
+    throw new SqlitePersistenceError(
+      'Task Review decision evidence does not match its stored identity.',
+    );
+  }
+}
+
+function assertTaskReviewTransition(
+  storedTask: Task,
+  expectedPhase: 'REVIEW' | 'RUNNING',
+  nextTask: Task,
+  targetPhase: 'DONE' | 'REVIEW' | 'RUNNING',
+): void {
+  if (storedTask.phase !== expectedPhase) {
+    throw new SqlitePersistenceError('Task Review Task phase is stale.');
+  }
+  let expectedTask: Task;
+  try {
+    expectedTask = transitionTask(storedTask, targetPhase);
+  } catch (error) {
+    throw new SqlitePersistenceError('Task Review Task transition is invalid.', { cause: error });
+  }
+  if (!sameTask(expectedTask, nextTask)) {
+    throw new SqlitePersistenceError('Task Review next Task does not match the stored Task.');
+  }
+}
+
+function sameTask(left: Task, right: Task): boolean {
+  return (
+    left.id === right.id &&
+    left.projectId === right.projectId &&
+    left.title === right.title &&
+    left.phase === right.phase
+  );
+}
+
+function sameTaskReview(left: TaskReview, right: TaskReview): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertExactEvidenceIds(
+  rows: readonly ReturnType<StatementSync['get']>[],
+  expectedIds: readonly string[],
+  entity: string,
+): void {
+  const storedIds = rows.map((row) => {
+    if (row === undefined || typeof row.id !== 'string') {
+      throw new SqlitePersistenceError(`Task Review ${entity} history contains an invalid row.`);
+    }
+    return row.id;
+  });
+  if (
+    storedIds.length !== expectedIds.length ||
+    !storedIds.every((id, index) => id === expectedIds[index])
+  ) {
+    throw new SqlitePersistenceError(
+      `Task Review ${entity} evidence is not the exact history at the requested snapshot.`,
+    );
+  }
+}
+
+function assertExactSessionRevisions(
+  rows: readonly ReturnType<StatementSync['get']>[],
+  expected: readonly TaskReviewSessionRevision[],
+): void {
+  if (!Array.isArray(expected)) {
+    throw new SqlitePersistenceError('Task Review Session revision snapshot is invalid.');
+  }
+  const stored = rows.map((row): TaskReviewSessionRevision => {
+    if (
+      row === undefined ||
+      typeof row.id !== 'string' ||
+      typeof row.history_sequence !== 'number' ||
+      !Number.isSafeInteger(row.history_sequence) ||
+      row.history_sequence <= 0
+    ) {
+      throw new SqlitePersistenceError('Task Review Session history contains an invalid row.');
+    }
+    return { historySequence: row.history_sequence, id: row.id };
+  });
+  const validExpected = expected.every(
+    ({ historySequence, id }) =>
+      typeof id === 'string' &&
+      id.trim().length > 0 &&
+      !id.includes('\0') &&
+      Number.isSafeInteger(historySequence) &&
+      historySequence > 0,
+  );
+  if (
+    !validExpected ||
+    stored.length !== expected.length ||
+    !stored.every(
+      (revision, index) =>
+        revision.id === expected[index]?.id &&
+        revision.historySequence === expected[index]?.historySequence,
+    )
+  ) {
+    throw new SqlitePersistenceError(
+      'Task Review Session evidence is not the exact history at the requested snapshot.',
+    );
   }
 }
 
@@ -906,6 +1716,38 @@ function serializeAgentSessionEvent(event: AgentSessionEvent): SerializedAgentSe
   };
 }
 
+function assertPositiveHistoryLimit(limit: number, entity: string): void {
+  if (!Number.isSafeInteger(limit) || limit <= 0) {
+    throw new TypeError(`${entity} recent-history limit must be a positive safe integer.`);
+  }
+}
+
+function assertNonnegativeHistoryLimit(limit: number, entity: string): void {
+  if (!Number.isSafeInteger(limit) || limit < 0) {
+    throw new TypeError(`${entity} limit must be a nonnegative safe integer.`);
+  }
+}
+
+function readHistoryCount(row: ReturnType<StatementSync['get']>, entity: string): number {
+  const value = row?.total_count;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new SqlitePersistenceError(`${entity} history count is invalid.`);
+  }
+  return value;
+}
+
+function readHistoryBoolean(
+  row: ReturnType<StatementSync['get']>,
+  column: string,
+  entity: string,
+): boolean {
+  const value = row?.[column];
+  if (value !== 0 && value !== 1) {
+    throw new SqlitePersistenceError(`${entity} history flag is invalid.`);
+  }
+  return value === 1;
+}
+
 function isSqliteErrorCode(error: unknown, code: number): boolean {
   return (
     error instanceof Error &&
@@ -924,4 +1766,27 @@ function isSqliteMetadataConflictError(error: unknown): boolean {
 
 function isGitObjectId(value: string): boolean {
   return /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(value);
+}
+
+function unsettledAgentSessionWriterSql(alias: string): string {
+  return `(
+    ${alias}.status IN ('STARTING', 'WORKING', 'IDLE', 'WAITING_INPUT')
+    OR (
+      ${alias}.status = 'FAILED'
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_session_events AS event
+        WHERE event.session_id = ${alias}.id AND event.kind = 'PROCESS_EXITED'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM agent_session_events AS event
+        WHERE event.session_id = ${alias}.id
+          AND event.kind = 'RUNTIME_FAILED'
+          AND event.fatal = 1
+          AND (
+            event.stage = 'START'
+            OR event.failure_code = 'RUNTIME_OWNERSHIP_LOST'
+          )
+      )
+    )
+  )`;
 }

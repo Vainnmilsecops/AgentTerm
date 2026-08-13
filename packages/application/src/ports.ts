@@ -5,6 +5,10 @@ import type {
   QualityGate,
   QualityGateRun,
   Task,
+  TaskReview,
+  TaskReviewArtifactEvidence,
+  TaskReviewCodeState,
+  TaskReviewQualityGateEvidence,
 } from '@agentterm/domain';
 
 export interface AgentVersion {
@@ -52,10 +56,28 @@ export interface AgentSessionRepository {
   insert(session: AgentSession): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;
-  /** Returns sessions whose persisted status still claims a live runtime. */
+  /** Returns sessions whose status/history still indicates possible live runtime ownership. */
   listActive(): Promise<readonly AgentSession[]>;
   /** Returns session attempts from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly AgentSession[]>;
+}
+
+export interface TaskReviewArtifactEvidenceSnapshot {
+  /** Empty when totalCount exceeds the requested admission limit. */
+  readonly evidence: readonly TaskReviewArtifactEvidence[];
+  readonly totalCount: number;
+}
+
+export type TaskReviewQualityGateEvidenceSource = Omit<
+  TaskReviewQualityGateEvidence,
+  'association'
+>;
+
+export interface TaskReviewQualityGateEvidenceSnapshot {
+  /** Empty when totalCount exceeds the requested admission limit. */
+  readonly evidence: readonly TaskReviewQualityGateEvidenceSource[];
+  readonly hasRunning: boolean;
+  readonly totalCount: number;
 }
 
 export interface ExecutionArtifactRepository {
@@ -64,6 +86,13 @@ export interface ExecutionArtifactRepository {
   insert(artifact: ExecutionArtifact): Promise<void>;
   /** Returns Task artifact history from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]>;
+  /** Returns at most `limit` newest artifacts, still ordered from oldest to newest. */
+  listRecentByTaskId(taskId: string, limit: number): Promise<readonly ExecutionArtifact[]>;
+  /** Reads content-free review evidence only when the full history fits the admission limit. */
+  readReviewEvidenceByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<TaskReviewArtifactEvidenceSnapshot>;
 }
 
 export interface PtyTerminalSize {
@@ -151,6 +180,45 @@ export interface QualityGateRunRepository {
   finalize(run: QualityGateRun, expectedStatus: 'RUNNING'): Promise<void>;
   /** Returns every run for the Task from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly QualityGateRun[]>;
+  /** Returns at most `limit` newest runs, still ordered from oldest to newest. */
+  listRecentByTaskId(taskId: string, limit: number): Promise<readonly QualityGateRun[]>;
+  /** Reads output/command/path-free review evidence only when history fits the admission limit. */
+  readReviewEvidenceByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<TaskReviewQualityGateEvidenceSnapshot>;
+}
+
+export interface TaskReviewCodeInspector {
+  /** Captures an exact, content-sensitive, read-only snapshot of a verified Task Worktree. */
+  inspect(worktree: TaskWorktree): Promise<TaskReviewCodeState>;
+}
+
+export interface TaskReviewSessionRevision {
+  readonly historySequence: number;
+  readonly id: string;
+}
+
+export interface TaskReviewRepository {
+  findById(id: string): Promise<TaskReview | undefined>;
+  /** Returns immutable Review attempts from oldest to newest. */
+  listByTaskId(taskId: string): Promise<readonly TaskReview[]>;
+  /** Returns at most `limit` newest attempts, still ordered from oldest to newest. */
+  listRecentByTaskId(taskId: string, limit: number): Promise<readonly TaskReview[]>;
+  /** Atomically inserts a PENDING Review only if the captured Session history is still exact. */
+  begin(
+    review: TaskReview,
+    expectedTaskPhase: 'REVIEW' | 'RUNNING',
+    nextTask: Task,
+    expectedSessionRevisions: readonly TaskReviewSessionRevision[],
+  ): Promise<void>;
+  /** Atomically finalizes a PENDING Review and applies the explicit user decision. */
+  decide(
+    review: TaskReview,
+    expectedStatus: 'PENDING',
+    expectedTaskPhase: 'REVIEW',
+    nextTask: Task,
+  ): Promise<void>;
 }
 
 export interface QualityGateProcessRequest {
@@ -358,8 +426,8 @@ export interface TaskRepository {
   findById(id: string): Promise<Task | undefined>;
   /** Inserts a new Task and must not replace an existing identity. */
   insert(task: Task): Promise<void>;
-  /** Replaces an existing Task and must not create a missing identity. */
-  update(task: Task): Promise<void>;
+  /** Replaces an existing Task only while its persisted phase still matches the caller's read. */
+  update(task: Task, expectedPhase: Task['phase']): Promise<void>;
 }
 
 export interface TaskCatalog {

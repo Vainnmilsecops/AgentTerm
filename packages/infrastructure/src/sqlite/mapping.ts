@@ -1,5 +1,6 @@
 import type {
   LocalProject,
+  TaskReviewQualityGateEvidenceSource,
   TaskWorktreeLifecycleState,
   TaskWorktreeRecord,
 } from '@agentterm/application';
@@ -10,10 +11,15 @@ import {
   createProject,
   createQualityGate,
   createTask,
+  ExecutionArtifactKind,
+  QualityGateKind,
   QualityGateRunStatus,
   startQualityGateRun,
+  startTaskReview,
   TaskPhase,
+  TaskReviewEvidenceLimits,
   transitionTask,
+  decideTaskReview,
   recordAgentSessionEvent,
   type AgentSession,
   type AgentSessionEvent,
@@ -21,6 +27,9 @@ import {
   type Project,
   type QualityGateRun,
   type Task,
+  type TaskReview,
+  type TaskReviewArtifactEvidence,
+  type TaskReviewQualityGateEvidence,
   type TaskPhase as TaskPhaseValue,
 } from '@agentterm/domain';
 
@@ -252,6 +261,70 @@ export function mapQualityGateRunRow(row: SqliteRow): QualityGateRun {
   return completed;
 }
 
+export function mapTaskReviewArtifactEvidenceSourceRow(row: SqliteRow): TaskReviewArtifactEvidence {
+  const sessionId = readNullableText(row, 'session_id', 'Task Review Artifact source');
+  const kind = readText(row, 'kind', 'Task Review Artifact source');
+  if (!Object.values(ExecutionArtifactKind).some((candidate) => candidate === kind)) {
+    throw new SqlitePersistenceError(
+      `Task Review Artifact source contains an invalid kind: ${kind}.`,
+    );
+  }
+  const phase = readText(row, 'phase', 'Task Review Artifact source');
+  if (!taskPhaseProgression.some((candidate) => candidate === phase)) {
+    throw new SqlitePersistenceError(
+      `Task Review Artifact source contains an invalid phase: ${phase}.`,
+    );
+  }
+  return Object.freeze({
+    createdAt: readSafeNonNegativeInteger(row, 'created_at', 'Task Review Artifact source'),
+    id: readNonBlankText(row, 'artifact_id', 'Task Review Artifact source'),
+    kind: kind as TaskReviewArtifactEvidence['kind'],
+    phase: phase as TaskReviewArtifactEvidence['phase'],
+    sessionId,
+  });
+}
+
+export function mapTaskReviewQualityGateEvidenceSourceRow(
+  row: SqliteRow,
+): TaskReviewQualityGateEvidenceSource {
+  const kind = readText(row, 'kind', 'Task Review Quality Gate source');
+  if (!Object.values(QualityGateKind).some((candidate) => candidate === kind)) {
+    throw new SqlitePersistenceError(
+      `Task Review Quality Gate source contains an invalid kind: ${kind}.`,
+    );
+  }
+  const observedStatus = readText(row, 'observed_status', 'Task Review Quality Gate source');
+  if (!Object.values(QualityGateRunStatus).some((candidate) => candidate === observedStatus)) {
+    throw new SqlitePersistenceError(
+      `Task Review Quality Gate source contains an invalid status: ${observedStatus}.`,
+    );
+  }
+  return Object.freeze({
+    baseCommitId: readNonBlankText(row, 'base_commit_id', 'Task Review Quality Gate source'),
+    branchName: readNonBlankText(row, 'branch_name', 'Task Review Quality Gate source'),
+    finishedAt: readNullableSafeNonNegativeInteger(
+      row,
+      'finished_at',
+      'Task Review Quality Gate source',
+    ),
+    gateId: readNonBlankText(row, 'gate_id', 'Task Review Quality Gate source'),
+    headCommitIdAtStart: readNonBlankText(
+      row,
+      'head_commit_id_at_start',
+      'Task Review Quality Gate source',
+    ),
+    id: readNonBlankText(row, 'quality_gate_run_id', 'Task Review Quality Gate source'),
+    kind: kind as TaskReviewQualityGateEvidenceSource['kind'],
+    observedStatus: observedStatus as TaskReviewQualityGateEvidenceSource['observedStatus'],
+    startedAt: readSafeNonNegativeInteger(row, 'started_at', 'Task Review Quality Gate source'),
+    worktreePathIdentity: readNonBlankText(
+      row,
+      'worktree_path_identity',
+      'Task Review Quality Gate source',
+    ),
+  });
+}
+
 function assertQualityGateRunSnapshotMatches(run: QualityGateRun, row: SqliteRow): void {
   const durationMs = readNullableSafeNonNegativeInteger(row, 'duration_ms', 'Quality Gate Run');
   const exitCode = readNullableInteger(row, 'exit_code', 'Quality Gate Run');
@@ -326,6 +399,186 @@ export function mapExecutionArtifactRow(row: SqliteRow): ExecutionArtifact {
     );
   }
   return artifact;
+}
+
+export function mapTaskReviewRows(
+  reviewRow: SqliteRow,
+  changedPathRows: readonly SqliteRow[],
+  artifactRows: readonly SqliteRow[],
+  qualityGateRows: readonly SqliteRow[],
+): TaskReview {
+  if (
+    artifactRows.length > TaskReviewEvidenceLimits.ARTIFACTS ||
+    qualityGateRows.length > TaskReviewEvidenceLimits.QUALITY_GATES
+  ) {
+    throw new SqlitePersistenceError(
+      'Task Review evidence associations exceed their storage bound.',
+    );
+  }
+  const paths: Record<'COMMITTED' | 'CONFLICTED' | 'STAGED' | 'UNSTAGED' | 'UNTRACKED', string[]> =
+    {
+      COMMITTED: [],
+      CONFLICTED: [],
+      STAGED: [],
+      UNSTAGED: [],
+      UNTRACKED: [],
+    };
+  const categoryOrdinals = new Map<string, number>();
+  for (const row of changedPathRows) {
+    const category = readText(row, 'category', 'Task Review changed path');
+    if (!(category in paths)) {
+      throw new SqlitePersistenceError(
+        `Task Review changed path contains an invalid category: ${category}.`,
+      );
+    }
+    const expectedOrdinal = (categoryOrdinals.get(category) ?? 0) + 1;
+    if (readSafePositiveInteger(row, 'ordinal', 'Task Review changed path') !== expectedOrdinal) {
+      throw new SqlitePersistenceError('Task Review changed path history is not contiguous.');
+    }
+    categoryOrdinals.set(category, expectedOrdinal);
+    paths[category as keyof typeof paths].push(
+      readNonBlankText(row, 'path', 'Task Review changed path'),
+    );
+  }
+  const visiblePaths = Object.values(paths).flat();
+  if (visiblePaths.length > 200 || visiblePaths.some((path) => path.length > 32_768)) {
+    throw new SqlitePersistenceError(
+      'Task Review changed-path evidence exceeds its storage bound.',
+    );
+  }
+
+  const artifacts = artifactRows.map((row, index): TaskReviewArtifactEvidence => {
+    assertOrdinal(row, index, 'Task Review Artifact evidence');
+    const sessionId = readNullableText(row, 'session_id', 'Task Review Artifact evidence');
+    return {
+      createdAt: readSafeNonNegativeInteger(row, 'created_at', 'Task Review Artifact evidence'),
+      id: readNonBlankText(row, 'artifact_id', 'Task Review Artifact evidence'),
+      kind: readText(
+        row,
+        'kind',
+        'Task Review Artifact evidence',
+      ) as TaskReviewArtifactEvidence['kind'],
+      phase: readText(
+        row,
+        'phase',
+        'Task Review Artifact evidence',
+      ) as TaskReviewArtifactEvidence['phase'],
+      sessionId,
+    };
+  });
+  const qualityGates = qualityGateRows.map((row, index): TaskReviewQualityGateEvidence => {
+    assertOrdinal(row, index, 'Task Review Quality Gate evidence');
+    const finishedAt = readNullableSafeNonNegativeInteger(
+      row,
+      'finished_at',
+      'Task Review Quality Gate evidence',
+    );
+    return {
+      association: readText(
+        row,
+        'association',
+        'Task Review Quality Gate evidence',
+      ) as TaskReviewQualityGateEvidence['association'],
+      baseCommitId: readNonBlankText(row, 'base_commit_id', 'Task Review Quality Gate evidence'),
+      branchName: readNonBlankText(row, 'branch_name', 'Task Review Quality Gate evidence'),
+      finishedAt,
+      gateId: readNonBlankText(row, 'gate_id', 'Task Review Quality Gate evidence'),
+      headCommitIdAtStart: readNonBlankText(
+        row,
+        'head_commit_id_at_start',
+        'Task Review Quality Gate evidence',
+      ),
+      id: readNonBlankText(row, 'quality_gate_run_id', 'Task Review Quality Gate evidence'),
+      kind: readText(
+        row,
+        'kind',
+        'Task Review Quality Gate evidence',
+      ) as TaskReviewQualityGateEvidence['kind'],
+      observedStatus: readText(
+        row,
+        'observed_status',
+        'Task Review Quality Gate evidence',
+      ) as TaskReviewQualityGateEvidence['observedStatus'],
+      startedAt: readSafeNonNegativeInteger(row, 'started_at', 'Task Review Quality Gate evidence'),
+      worktreePathIdentity: readNonBlankText(
+        row,
+        'worktree_path_identity',
+        'Task Review Quality Gate evidence',
+      ),
+    };
+  });
+
+  let review: TaskReview;
+  try {
+    review = startTaskReview({
+      artifacts,
+      codeState: {
+        baseCommitId: readNonBlankText(reviewRow, 'base_commit_id', 'Task Review'),
+        branchName: readNonBlankText(reviewRow, 'branch_name', 'Task Review'),
+        changes: {
+          committed: paths.COMMITTED,
+          conflicted: paths.CONFLICTED,
+          staged: paths.STAGED,
+          total: readSafeNonNegativeInteger(reviewRow, 'changes_total', 'Task Review'),
+          truncated: readBooleanInteger(reviewRow, 'changes_truncated', 'Task Review'),
+          unstaged: paths.UNSTAGED,
+          untracked: paths.UNTRACKED,
+        },
+        fingerprint: readNonBlankText(reviewRow, 'code_state_fingerprint', 'Task Review'),
+        headCommitId: readNonBlankText(reviewRow, 'head_commit_id', 'Task Review'),
+        schemaVersion: readSafePositiveInteger(
+          reviewRow,
+          'code_schema_version',
+          'Task Review',
+        ) as 1,
+        worktreePathIdentity: readNonBlankText(reviewRow, 'worktree_path_identity', 'Task Review'),
+      },
+      id: readNonBlankText(reviewRow, 'id', 'Task Review'),
+      qualityGates,
+      requestedAt: readSafeNonNegativeInteger(reviewRow, 'requested_at', 'Task Review'),
+      taskId: readNonBlankText(reviewRow, 'task_id', 'Task Review'),
+    });
+
+    const status = readText(reviewRow, 'status', 'Task Review');
+    if (status !== 'PENDING') {
+      if (status !== 'APPROVED' && status !== 'CHANGES_REQUESTED') {
+        throw new SqlitePersistenceError(`Task Review status is invalid: ${status}.`);
+      }
+      const decidedAt = readSafeNonNegativeInteger(reviewRow, 'decided_at', 'Task Review');
+      const decisionNote = readNullableText(reviewRow, 'decision_note', 'Task Review');
+      if (decisionNote !== undefined && decisionNote.length > 65_536) {
+        throw new SqlitePersistenceError('Task Review decision note exceeds its storage bound.');
+      }
+      review = decideTaskReview(review, {
+        decidedAt,
+        ...(decisionNote === undefined ? {} : { decisionNote }),
+        status,
+      });
+    }
+  } catch (error) {
+    if (error instanceof SqlitePersistenceError) {
+      throw error;
+    }
+    throw new SqlitePersistenceError('Task Review row contains invalid Domain evidence.', {
+      cause: error,
+    });
+  }
+
+  if (
+    review.decidedAt !==
+      readNullableSafeNonNegativeInteger(reviewRow, 'decided_at', 'Task Review') ||
+    review.decisionNote !== readNullableText(reviewRow, 'decision_note', 'Task Review') ||
+    review.status !== readText(reviewRow, 'status', 'Task Review')
+  ) {
+    throw new SqlitePersistenceError('Task Review snapshot does not match Domain evidence.');
+  }
+  return review;
+}
+
+function assertOrdinal(row: SqliteRow, index: number, entity: string): void {
+  if (readSafePositiveInteger(row, 'ordinal', entity) !== index + 1) {
+    throw new SqlitePersistenceError(`${entity} history is not contiguous.`);
+  }
 }
 
 function mapAgentSessionEventInput(row: SqliteRow): Parameters<typeof recordAgentSessionEvent>[1] {

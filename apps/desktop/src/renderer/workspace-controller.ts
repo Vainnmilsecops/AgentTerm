@@ -3,9 +3,20 @@ import type { AgentWorkspaceOverview } from '@agentterm/application';
 import type { TerminalSessionClient } from './terminal-controller';
 
 export interface AgentWorkspaceClient extends TerminalSessionClient {
+  approveTaskReview(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
+  requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
+  requestTaskReview(input: { readonly taskId: string }): Promise<void>;
   retryTaskExecution(input: { readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly taskId: string }): Promise<void>;
+}
+
+export type WorkspaceActionKind =
+  'approve-review' | 'request-changes' | 'request-review' | 'retry-execution' | 'start-execution';
+
+export interface WorkspaceAction {
+  readonly kind: WorkspaceActionKind;
+  readonly taskId: string;
 }
 
 export type WorkspaceSnapshot =
@@ -13,10 +24,10 @@ export type WorkspaceSnapshot =
   | { readonly kind: 'error'; readonly message: string }
   | {
       readonly actionError: string | undefined;
+      readonly activeAction: WorkspaceAction | undefined;
       readonly kind: 'ready';
       readonly overview: AgentWorkspaceOverview;
       readonly selectedTaskId: string | undefined;
-      readonly startingTaskId: string | undefined;
       readonly terminalSessionId: string | undefined;
     };
 
@@ -25,7 +36,7 @@ export class WorkspaceController {
   private loadGeneration = 0;
   private readonly client: AgentWorkspaceClient;
   private readonly sink: ((snapshot: WorkspaceSnapshot) => void) | undefined;
-  private startAttempt: Promise<void> | undefined;
+  private actionAttempt: Promise<void> | undefined;
   public snapshot: WorkspaceSnapshot = Object.freeze({ kind: 'loading' });
 
   public constructor(client: AgentWorkspaceClient, sink?: (snapshot: WorkspaceSnapshot) => void) {
@@ -96,16 +107,28 @@ export class WorkspaceController {
   }
 
   public startSelectedTask(): Promise<void> {
-    return this.executeSelectedTask('start');
+    return this.executeSelectedAction('start-execution');
   }
 
   public retrySelectedTask(): Promise<void> {
-    return this.executeSelectedTask('retry');
+    return this.executeSelectedAction('retry-execution');
   }
 
-  private executeSelectedTask(operation: 'retry' | 'start'): Promise<void> {
-    if (this.startAttempt !== undefined) {
-      return this.startAttempt;
+  public requestSelectedTaskReview(): Promise<void> {
+    return this.executeSelectedAction('request-review');
+  }
+
+  public approveSelectedTaskReview(): Promise<void> {
+    return this.executeSelectedAction('approve-review');
+  }
+
+  public requestSelectedTaskChanges(): Promise<void> {
+    return this.executeSelectedAction('request-changes');
+  }
+
+  private executeSelectedAction(kind: WorkspaceActionKind): Promise<void> {
+    if (this.actionAttempt !== undefined) {
+      return this.actionAttempt;
     }
     if (this.snapshot.kind !== 'ready' || this.snapshot.selectedTaskId === undefined) {
       return Promise.resolve();
@@ -113,19 +136,24 @@ export class WorkspaceController {
 
     const taskId = this.snapshot.selectedTaskId;
     const selected = findTask(this.snapshot.overview, taskId);
-    if (
-      selected === undefined ||
-      (operation === 'start' && !selected.canStartExecution) ||
-      (operation === 'retry' && !selected.canRetryExecution)
-    ) {
+    if (selected === undefined || !canRunAction(selected, kind)) {
       return Promise.resolve();
     }
-    const attempt = this.startTask(taskId, operation);
-    this.startAttempt = attempt;
+
+    const reviewId =
+      kind === 'approve-review' || kind === 'request-changes'
+        ? selected.latestReview?.id
+        : undefined;
+    if ((kind === 'approve-review' || kind === 'request-changes') && reviewId === undefined) {
+      return Promise.resolve();
+    }
+
+    const attempt = this.performAction({ kind, taskId }, reviewId);
+    this.actionAttempt = attempt;
     void attempt
       .finally(() => {
-        if (this.startAttempt === attempt) {
-          this.startAttempt = undefined;
+        if (this.actionAttempt === attempt) {
+          this.actionAttempt = undefined;
         }
       })
       .catch(() => undefined);
@@ -137,30 +165,29 @@ export class WorkspaceController {
     this.loadGeneration += 1;
   }
 
-  private async startTask(taskId: string, operation: 'retry' | 'start'): Promise<void> {
+  private async performAction(
+    action: WorkspaceAction,
+    reviewId: string | undefined,
+  ): Promise<void> {
     const current = this.snapshot;
     if (current.kind !== 'ready') {
       return;
     }
-    let executionStarted = false;
+    let sideEffectCompleted = false;
     this.publish(
       Object.freeze({
         ...current,
         actionError: undefined,
-        startingTaskId: taskId,
+        activeAction: Object.freeze(action),
       }),
     );
     try {
-      if (operation === 'retry') {
-        await this.client.retryTaskExecution({ taskId });
-      } else {
-        await this.client.startTaskExecution({ taskId });
-      }
-      executionStarted = true;
+      await runWorkspaceAction(this.client, action, reviewId);
+      sideEffectCompleted = true;
       const overview = await this.client.loadWorkspace();
       if (!this.disposed) {
         const preferredTaskId =
-          this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : taskId;
+          this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : action.taskId;
         this.publishReady(overview, preferredTaskId);
       }
     } catch {
@@ -169,13 +196,11 @@ export class WorkspaceController {
         this.publish(
           Object.freeze({
             ...latest,
-            actionError: executionStarted
-              ? 'Task execution started, but workspace status could not be refreshed.'
-              : operation === 'retry'
-                ? 'Task execution could not be retried.'
-                : 'Task execution could not be started.',
-            selectedTaskId: latest.selectedTaskId ?? taskId,
-            startingTaskId: undefined,
+            actionError: sideEffectCompleted
+              ? refreshFailureMessage(action.kind)
+              : actionFailureMessage(action.kind),
+            activeAction: undefined,
+            selectedTaskId: latest.selectedTaskId ?? action.taskId,
           }),
         );
       }
@@ -195,10 +220,10 @@ export class WorkspaceController {
     this.publish(
       Object.freeze({
         actionError: undefined,
+        activeAction: undefined,
         kind: 'ready',
         overview,
         selectedTaskId,
-        startingTaskId: undefined,
         terminalSessionId: selectedTask?.activeSession?.id ?? previousTerminalSessionId,
       }),
     );
@@ -210,6 +235,89 @@ export class WorkspaceController {
     }
     this.snapshot = snapshot;
     this.sink?.(snapshot);
+  }
+}
+
+async function runWorkspaceAction(
+  client: AgentWorkspaceClient,
+  action: WorkspaceAction,
+  reviewId: string | undefined,
+): Promise<void> {
+  switch (action.kind) {
+    case 'start-execution':
+      await client.startTaskExecution({ taskId: action.taskId });
+      return;
+    case 'retry-execution':
+      await client.retryTaskExecution({ taskId: action.taskId });
+      return;
+    case 'request-review':
+      await client.requestTaskReview({ taskId: action.taskId });
+      return;
+    case 'approve-review':
+      await client.approveTaskReview({
+        reviewId: requireReviewId(reviewId),
+        taskId: action.taskId,
+      });
+      return;
+    case 'request-changes':
+      await client.requestTaskChanges({
+        reviewId: requireReviewId(reviewId),
+        taskId: action.taskId,
+      });
+  }
+}
+
+function canRunAction(
+  task: AgentWorkspaceOverview['projects'][number]['tasks'][number],
+  kind: WorkspaceActionKind,
+): boolean {
+  switch (kind) {
+    case 'start-execution':
+      return task.canStartExecution;
+    case 'retry-execution':
+      return task.canRetryExecution;
+    case 'request-review':
+      return task.canRequestReview;
+    case 'approve-review':
+      return task.canApproveReview && task.latestReview?.status === 'PENDING';
+    case 'request-changes':
+      return task.canRequestChanges && task.latestReview?.status === 'PENDING';
+  }
+}
+
+function requireReviewId(reviewId: string | undefined): string {
+  if (reviewId === undefined) {
+    throw new TypeError('A pending Task Review is required.');
+  }
+  return reviewId;
+}
+
+function actionFailureMessage(kind: WorkspaceActionKind): string {
+  switch (kind) {
+    case 'start-execution':
+      return 'Task execution could not be started.';
+    case 'retry-execution':
+      return 'Task execution could not be retried.';
+    case 'request-review':
+      return 'Task review could not be requested.';
+    case 'approve-review':
+      return 'Task review could not be approved.';
+    case 'request-changes':
+      return 'Task changes could not be requested.';
+  }
+}
+
+function refreshFailureMessage(kind: WorkspaceActionKind): string {
+  switch (kind) {
+    case 'start-execution':
+    case 'retry-execution':
+      return 'Task execution started, but workspace status could not be refreshed.';
+    case 'request-review':
+      return 'Task review requested, but workspace status could not be refreshed.';
+    case 'approve-review':
+      return 'Task review approved, but workspace status could not be refreshed.';
+    case 'request-changes':
+      return 'Task changes requested, but workspace status could not be refreshed.';
   }
 }
 

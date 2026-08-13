@@ -18,7 +18,7 @@ Updated: 2026-08-13
 - Application now owns a minimal provider-neutral `AgentAdapter` contract and launch use case; Infrastructure provides the first `CodexAdapter` for CLI discovery, version/capability inspection, and structured interactive launch through the PTY runtime.
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
-- Application startup reconciliation now finds persisted active Agent Sessions and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
+- Application startup reconciliation now finds persisted Agent Sessions whose history still implies possible runtime ownership, including a fatal runtime failure with no observed process exit, and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
 - Application now exposes `startTaskExecution` for a history-free `PLANNING` or already-`RUNNING` Task: it ensures or reuses its primary Worktree, persists `RUNNING`, creates a fresh Agent Session, and launches the selected adapter in that exact Worktree.
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, reuses the primary Worktree without cleaning dirty code, and creates a new Session for the same agent.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
@@ -27,9 +27,14 @@ Updated: 2026-08-13
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
 - Domain now models configured `LINT`, `TYPECHECK`, `TEST`, and `BUILD` Quality Gates plus immutable runs whose runtime status and evidence are independent from `TaskPhase`.
 - Application can run a configured gate only after read-only verification of the persisted primary Task Worktree, records `RUNNING` before process launch, and persists pass, command failure, timeout, launch failure, or infrastructure failure without changing the Task.
-- Migration 6 preserves every gate attempt by Task ordinal with structured command, the Worktree base and observed start-time HEAD revisions, plus bounded, redacted diagnostic output. A compatibility migration safely converges databases that previously recorded Quality Gates as migration 5. A failed final checkpoint retains the durable `RUNNING` record and surfaces the observed process result for later reconciliation rather than rerunning it.
-- Infrastructure executes gate commands as an absolute executable plus argv with no shell, an exact environment, bounded UTF-8 output, and Windows process-tree timeout cleanup. Real Git integration proves commands run in the primary Worktree while dirty user files and Worktree registration remain intact.
+- Migration 6 preserves every gate attempt by Task ordinal with structured command, the Worktree base and observed start-time HEAD revisions, plus bounded, redacted diagnostic output. A compatibility migration safely converges databases that previously recorded Quality Gates as migration 5. An unconfirmed process settlement or failed final checkpoint retains the durable `RUNNING` record and surfaces the observed evidence for later reconciliation rather than rerunning it.
+- Infrastructure executes gate commands as an absolute executable plus argv with no shell, an exact environment, bounded UTF-8 output, and a Windows Job Object that waits for the complete descendant tree or kills it on timeout. Real-process and Git integration prove detached descendants cannot outlive terminal gate evidence, while dirty user files and Worktree registration remain intact.
 - The workspace read model and desktop show newest-first AgentTerm-recorded gate evidence separately from Task and Agent Session state. React receives no command, environment, output reference, or local Worktree path.
+- Domain now models immutable structured Task Review attempts with a captured code-state fingerprint, changed-path summary, associated Artifact and Quality Gate evidence, and one `PENDING` to `APPROVED` or `CHANGES_REQUESTED` decision.
+- Application exposes explicit request-review, approve, and request-changes workflows. Review admission requires a `RUNNING` Task, no unsettled Agent Session or Quality Gate, bounded evidence history, and a verified `PRESENT` primary Worktree; approval recaptures the exact code state before the user can move `REVIEW` to `DONE`.
+- Migration 7 preserves ordered Review history and normalized evidence snapshots. SQLite atomically couples `RUNNING -> REVIEW`, `REVIEW -> DONE`, or `REVIEW -> RUNNING` with the corresponding Review revision, validates the exact Session revisions and Artifact/gate histories captured before code inspection, and prevents new Sessions or gates after Review admission. A pre-v7 `REVIEW` Task with no structured attempt remains unchanged and can explicitly capture its first structured Review in place.
+- Infrastructure captures committed, staged, unstaged, untracked, and conflicted code context with a versioned content-sensitive Git/Worktree fingerprint. Hidden index flags are rejected; every stage-zero tracked file plus conflicted and visible untracked content is hashed under aggregate entry, byte, and time budgets that fail closed. Existing gates are associated honestly as `HEAD_MATCH_ONLY` or `STALE`; a passing gate never approves a Review.
+- The workspace read model and desktop expose Review action policy, the 20 newest decision records, code/evidence summaries, and explicit Start review, Request changes, and Approve and mark done actions without exposing native Worktree paths. Artifact and gate payload reads are limited to the newest 20 while payload-free projections determine readiness; full immutable history remains available through explicit history use cases.
 
 ## Decisions
 
@@ -88,8 +93,9 @@ Updated: 2026-08-13
   owned handles for stop, and records exit/failure as session evidence only. Multiple sessions per
   Task are preserved; output is not persisted or interpreted as idle/input/completion state.
 - Startup restore runs before the new process owns any PTY. Persisted `STARTING`, `WORKING`,
-  `IDLE`, or `WAITING_INPUT` sessions are not reattached or killed by PID; they receive one
-  sanitized `RUNTIME_OWNERSHIP_LOST` failure event through revision-checked history append. The
+  `IDLE`, or `WAITING_INPUT` sessions, plus `FAILED` runtime sessions without process-exit or
+  ownership-loss evidence, are not reattached or killed by PID; they receive one sanitized
+  `RUNTIME_OWNERSHIP_LOST` failure event through revision-checked history append. The
   operation is idempotent, preserves partial progress for a later retry, and needs no schema change
   because migration 4 already stores the required lifecycle evidence.
 - Task execution orders external effects deliberately: validate phase, ensure/reuse the Worktree,
@@ -129,12 +135,31 @@ Updated: 2026-08-13
   foundation does not claim that such uncommitted content is a reproducible commit snapshot.
 - Gate process policy uses a dedicated Infrastructure runner rather than the interactive PTY. The
   runner drains stdout and stderr, applies explicit sensitive-value redaction, retains at most
-  256 KiB, and never persists its environment. On Windows timeout it invokes canonical
-  `taskkill.exe` with structured arguments for the captured child tree; a Job Object would provide
-  stronger PID ownership but is deferred rather than hidden behind a speculative abstraction.
+  256 KiB, and never persists its environment. On Windows, a static packaged host creates the
+  configured process suspended, assigns it to a kill-on-close Job Object, then resumes it and waits
+  for zero active descendants; missing or malformed settlement evidence fails closed.
 - The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
   check verifies nonempty rendered content instead of accepting `did-finish-load` alone. The CSP
   permits only the inline style elements/attributes required by xterm while scripts remain self-only.
+- Review completion is user-owned. Generic Task transitions cannot enter or leave `REVIEW`; only the
+  structured Review workflows may do so, and neither agent output, process exit, Artifacts, nor a
+  passing Quality Gate can move a Task to `DONE`.
+- Each Review request creates a new append-only attempt and snapshots the exact current Artifact and
+  Quality Gate histories plus a verified code state. Admission reads bounded, payload-free evidence
+  projections before Git inspection, then SQLite rechecks the exact ordered histories and Session
+  revisions in the phase-change transaction. Gate provenance without a matching content
+  fingerprint is labeled `HEAD_MATCH_ONLY`, never current; approval independently recaptures and
+  compares the full versioned code-state snapshot.
+- Review admission and execution retry share per-Task workflow serialization. SQLite is the
+  cross-process backstop: Review phase changes and decisions use compare-and-set transactions, and
+  Session and Quality Gate insertion atomically require an eligible Task phase. A gate whose process
+  cleanup cannot be confirmed remains durably `RUNNING`, so Review fails closed until explicit future
+  reconciliation. Request changes only finalizes the Review and returns the Task to `RUNNING`;
+  Worktree, Session, Artifact, and gate histories stay intact.
+- Review commands are retry-idempotent after an ambiguous successful checkpoint when the same Review
+  id, action, Task target, and decision note agree. Review snapshots accept at most 1,000 Artifact and
+  1,000 Quality Gate associations; exceeding either limit is an explicit readiness failure rather
+  than silently dropping evidence.
 
 ## Blockers
 
@@ -157,16 +182,26 @@ renderer still has no validated preload/IPC binding to the main-process reposito
 coordinator. Until that composition and its database/worktree/environment policy are added, the
 desktop shell intentionally renders a recoverable connection-unavailable state rather than using
 demo data or exposing Infrastructure to React.
-If AgentTerm exits after a gate process finishes but before its final SQLite checkpoint, that run
-remains durably `RUNNING` and the workspace labels its result as pending. Automatic reconciliation
-of such orphan gate attempts is deferred; a retry must use a new run id and preserve the old row.
+If AgentTerm exits after a gate process finishes but before its final SQLite checkpoint, or process
+tree cleanup cannot be confirmed, that run remains durably `RUNNING` and Review admission is blocked.
+Automatic reconciliation of such orphan or unsettled gate attempts is deferred; a retry must use a
+new run id and preserve the old row.
+Review code-state fingerprint schema 1 intentionally excludes ignored files and fails closed for
+dirty submodules, nested repositories, and symlink/junction ancestor escapes. Its double capture and
+open-file identity checks detect ordinary concurrent edits but cannot provide an atomic filesystem
+snapshot against a privileged exact-ABA replacement. Fingerprinting reads at most 10,000 stage-zero
+tracked, conflicted, and visible untracked entries and 64 MiB aggregate per capture within a
+30-second budget. Git status also retains the existing
+trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-Bind startup session reconciliation, artifact reads, `loadAgentWorkspace`, `startTaskExecution`,
-`retryTaskExecution`, and terminal attachment to the sandboxed renderer through a narrow validated
+Bind startup session reconciliation, artifact/review reads, `loadAgentWorkspace`,
+`startTaskExecution`, `retryTaskExecution`, the three explicit Review commands, and terminal attachment
+to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch
-environment, database path, and managed Worktree root; the renderer must not receive raw filesystem,
+environment, Review identifiers and decision timestamps, database path, and managed Worktree root;
+the renderer must not receive raw filesystem,
 Git, database, process, or environment capability. Process reattachment, provider-native resume,
 output replay, and cross-process live-execution reconciliation remain later lifecycle slices.

@@ -18,6 +18,7 @@ import {
   createTask,
   ExecutionArtifactKind,
   TaskPhase,
+  transitionTask,
 } from '@agentterm/domain';
 
 import { openSqlitePersistence, SqlitePersistenceError } from './index';
@@ -36,8 +37,13 @@ async function seedTaskAndSession(databasePath: string): Promise<void> {
   const persistence = openSqlitePersistence(databasePath);
   try {
     await persistence.projects.insert(createProject({ id: 'project-1', name: 'AgentTerm' }));
+    const backlog = createTask({
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Execution artifacts',
+    });
     await persistence.tasks.insert(
-      createTask({ id: 'task-1', projectId: 'project-1', title: 'Execution artifacts' }),
+      transitionTask(transitionTask(backlog, TaskPhase.PLANNING), TaskPhase.RUNNING),
     );
     await persistence.sessions.insert(
       createAgentSession({ agentId: 'codex', createdAt: 10, id: 'session-1', taskId: 'task-1' }),
@@ -90,7 +96,7 @@ describe('SQLite Execution Artifact persistence', () => {
           listTaskExecutionArtifacts('task-1', reopened.tasks, reopened.artifacts),
         ).resolves.toEqual([artifact]);
         await expect(reopened.tasks.findById('task-1')).resolves.toMatchObject({
-          phase: TaskPhase.BACKLOG,
+          phase: TaskPhase.RUNNING,
         });
       } finally {
         reopened.close();
@@ -127,6 +133,33 @@ describe('SQLite Execution Artifact persistence', () => {
           first,
           second,
         ]);
+        await expect(persistence.artifacts.listRecentByTaskId('task-1', 1)).resolves.toEqual([
+          second,
+        ]);
+        await expect(
+          persistence.artifacts.readReviewEvidenceByTaskId('task-1', 1),
+        ).resolves.toEqual({ evidence: [], totalCount: 2 });
+        const boundedEvidence = await persistence.artifacts.readReviewEvidenceByTaskId('task-1', 2);
+        expect(boundedEvidence).toEqual({
+          evidence: [
+            {
+              createdAt: first.createdAt,
+              id: first.id,
+              kind: first.kind,
+              phase: first.phase,
+              sessionId: first.sessionId,
+            },
+            {
+              createdAt: second.createdAt,
+              id: second.id,
+              kind: second.kind,
+              phase: second.phase,
+              sessionId: second.sessionId,
+            },
+          ],
+          totalCount: 2,
+        });
+        expect(boundedEvidence.evidence[0]).not.toHaveProperty('content');
       } finally {
         persistence.close();
       }

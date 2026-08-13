@@ -47,8 +47,8 @@ class InMemoryTaskRepository implements TaskRepository {
     this.tasks.set(task.id, task);
   }
 
-  public async update(task: Task): Promise<void> {
-    if (!this.tasks.has(task.id)) {
+  public async update(task: Task, expectedPhase: Task['phase']): Promise<void> {
+    if (this.tasks.get(task.id)?.phase !== expectedPhase) {
       throw new Error(`Task ${task.id} is missing from the fake repository.`);
     }
 

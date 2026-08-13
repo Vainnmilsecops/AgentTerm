@@ -1,5 +1,6 @@
 export { CodexAdapter } from './agent/codex-adapter';
 export { GitCliRepositoryInspector } from './git/git-cli-repository-inspector';
+export { GitCliTaskReviewCodeInspector } from './git/git-cli-task-review-code-inspector';
 export { GitCliTaskWorktreeLifecycle } from './git/git-cli-task-worktree-lifecycle';
 export { LocalGitProjectDiscovery } from './git/local-git-project-discovery';
 export { NodeQualityGateProcessRunner } from './quality-gate/node-quality-gate-process-runner';

@@ -26,6 +26,24 @@ export {
 } from './agent-session';
 export { TaskPhase } from './task-phase';
 export {
+  decideTaskReview,
+  InvalidTaskReviewTransitionError,
+  startTaskReview,
+  TaskReviewEvidenceLimits,
+  TaskReviewGateAssociation,
+  TaskReviewStatus,
+  type DecideTaskReviewInput,
+  type StartTaskReviewInput,
+  type TaskReview,
+  type TaskReviewArtifactEvidence,
+  type TaskReviewChanges,
+  type TaskReviewCodeState,
+  type TaskReviewDecisionStatus,
+  type TaskReviewGateAssociation as TaskReviewGateAssociationValue,
+  type TaskReviewQualityGateEvidence,
+  type TaskReviewStatus as TaskReviewStatusValue,
+} from './task-review';
+export {
   completeQualityGateRun,
   createQualityGate,
   InvalidQualityGateRunTransitionError,

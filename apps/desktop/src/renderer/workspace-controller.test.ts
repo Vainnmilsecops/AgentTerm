@@ -72,12 +72,20 @@ const failedTestRun: WorkspaceTaskOverview['qualityGateRuns'][number] = Object.f
   status: 'FAILED',
   taskId: runningTask.id,
 });
+const emptyReviewState = Object.freeze({
+  canApproveReview: false,
+  canRequestChanges: false,
+  canRequestReview: false,
+  latestReview: undefined,
+  reviewHistory: Object.freeze([]),
+});
 const planningOverview: AgentWorkspaceOverview = Object.freeze({
   projects: [
     {
       project,
       tasks: [
         {
+          ...emptyReviewState,
           activeSession: undefined,
           artifacts: [],
           canRetryExecution: false,
@@ -97,6 +105,7 @@ const failedOverview: AgentWorkspaceOverview = Object.freeze({
       project,
       tasks: [
         {
+          ...emptyReviewState,
           activeSession: undefined,
           artifacts: [],
           canRetryExecution: true,
@@ -110,6 +119,122 @@ const failedOverview: AgentWorkspaceOverview = Object.freeze({
     },
   ],
 });
+const reviewTask: WorkspaceTaskOverview['task'] = Object.freeze({
+  ...runningTask,
+  phase: 'REVIEW',
+});
+const pendingReviewSummary = Object.freeze({
+  artifacts: [
+    {
+      createdAt: 1_800_000_000_010,
+      id: 'artifact-summary',
+      kind: 'execution-summary' as const,
+      phase: 'RUNNING' as const,
+      sessionId: 'session-failed',
+    },
+  ],
+  codeState: {
+    baseCommitId: 'a'.repeat(40),
+    branchName: 'agentterm/task/review',
+    changes: {
+      committed: ['src/review.ts', 'src/<script>unsafe.ts'],
+      conflicted: [],
+      staged: [],
+      total: 2,
+      truncated: false,
+      unstaged: [],
+      untracked: [],
+    },
+    fingerprint: 'f'.repeat(64),
+    headCommitId: 'b'.repeat(40),
+    schemaVersion: 1 as const,
+  },
+  decidedAt: undefined,
+  decisionNote: undefined,
+  freshness: 'REVALIDATE_ON_APPROVAL' as const,
+  id: 'review-pending',
+  qualityGates: [
+    {
+      association: 'HEAD_MATCH_ONLY' as const,
+      baseCommitId: 'a'.repeat(40),
+      branchName: 'agentterm/task/review',
+      finishedAt: 1_800_000_000_030,
+      gateId: 'lint',
+      headCommitIdAtStart: 'b'.repeat(40),
+      id: 'gate-run-lint',
+      kind: 'LINT' as const,
+      observedStatus: 'PASSED' as const,
+      startedAt: 1_800_000_000_020,
+    },
+    {
+      association: 'STALE' as const,
+      baseCommitId: 'a'.repeat(40),
+      branchName: 'agentterm/task/review',
+      finishedAt: 1_800_000_000_040,
+      gateId: 'test',
+      headCommitIdAtStart: 'c'.repeat(40),
+      id: 'gate-run-test',
+      kind: 'TEST' as const,
+      observedStatus: 'FAILED' as const,
+      startedAt: 1_800_000_000_035,
+    },
+  ],
+  requestedAt: 1_800_000_000_100,
+  status: 'PENDING' as const,
+  taskId: runningTask.id,
+});
+const eligibleReviewOverview = Object.freeze({
+  projects: [
+    {
+      project,
+      tasks: [
+        {
+          ...failedOverview.projects[0]!.tasks[0]!,
+          canApproveReview: false,
+          canRequestChanges: false,
+          canRequestReview: true,
+          latestReview: undefined,
+          reviewHistory: [],
+        },
+      ],
+    },
+  ],
+}) as AgentWorkspaceOverview;
+const pendingReviewOverview = Object.freeze({
+  projects: [
+    {
+      project,
+      tasks: [
+        {
+          activeSession: undefined,
+          artifacts: [],
+          canApproveReview: true,
+          canRequestChanges: true,
+          canRequestReview: false,
+          canRetryExecution: false,
+          canStartExecution: false,
+          latestReview: pendingReviewSummary,
+          latestSession: failedSession,
+          previousSession: undefined,
+          qualityGateRuns: [],
+          reviewHistory: [
+            pendingReviewSummary,
+            {
+              ...pendingReviewSummary,
+              decidedAt: 1_799_999_999_900,
+              decisionNote: 'Fix <script>review()</script>.',
+              freshness: 'HISTORICAL_SNAPSHOT' as const,
+              id: 'review-old',
+              requestedAt: 1_799_999_999_800,
+              status: 'CHANGES_REQUESTED' as const,
+            },
+          ],
+          task: reviewTask,
+        },
+      ],
+    },
+  ],
+}) as AgentWorkspaceOverview;
 
 class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly attachTerminal = vi.fn(async () => ({
@@ -124,6 +249,15 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     async () => undefined,
   );
   public readonly retryTaskExecution = vi.fn<AgentWorkspaceClient['retryTaskExecution']>(
+    async () => undefined,
+  );
+  public readonly requestTaskReview = vi.fn<AgentWorkspaceClient['requestTaskReview']>(
+    async () => undefined,
+  );
+  public readonly approveTaskReview = vi.fn<AgentWorkspaceClient['approveTaskReview']>(
+    async () => undefined,
+  );
+  public readonly requestTaskChanges = vi.fn<AgentWorkspaceClient['requestTaskChanges']>(
     async () => undefined,
   );
 
@@ -170,6 +304,7 @@ describe('WorkspaceController', () => {
             project,
             tasks: [
               {
+                ...emptyReviewState,
                 activeSession: undefined,
                 artifacts: [],
                 canRetryExecution: false,
@@ -180,6 +315,7 @@ describe('WorkspaceController', () => {
                 task: planningTask,
               },
               {
+                ...emptyReviewState,
                 activeSession: undefined,
                 artifacts: [],
                 canRetryExecution: false,
@@ -217,7 +353,7 @@ describe('WorkspaceController', () => {
       actionError: undefined,
       kind: 'ready',
       selectedTaskId: 'task-1',
-      startingTaskId: undefined,
+      activeAction: undefined,
     });
     expect(selectedTask(controller.snapshot)).toMatchObject({
       latestSession: { status: 'FAILED' },
@@ -232,6 +368,7 @@ describe('WorkspaceController', () => {
           project,
           tasks: [
             {
+              ...emptyReviewState,
               activeSession: workingSession,
               artifacts: [],
               canRetryExecution: false,
@@ -264,6 +401,118 @@ describe('WorkspaceController', () => {
       activeSession: { id: workingSession.id, status: 'WORKING' },
       previousSession: { id: failedSession.id, status: 'FAILED' },
     });
+  });
+
+  it('requests Review once and serializes it with execution actions', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [eligibleReviewOverview, pendingReviewOverview];
+    let releaseReview!: () => void;
+    const reviewGate = new Promise<void>((resolve) => {
+      releaseReview = resolve;
+    });
+    client.requestTaskReview.mockImplementationOnce(() => reviewGate);
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    const first = controller.requestSelectedTaskReview();
+    const duplicate = controller.requestSelectedTaskReview();
+    const competingRetry = controller.retrySelectedTask();
+    expect(controller.snapshot).toMatchObject({
+      activeAction: { kind: 'request-review', taskId: runningTask.id },
+    });
+    releaseReview();
+    await Promise.all([first, duplicate, competingRetry]);
+
+    expect(client.requestTaskReview).toHaveBeenCalledOnce();
+    expect(client.requestTaskReview).toHaveBeenCalledWith({ taskId: runningTask.id });
+    expect(client.retryTaskExecution).not.toHaveBeenCalled();
+    expect(controller.snapshot).toMatchObject({
+      activeAction: undefined,
+      selectedTaskId: runningTask.id,
+    });
+    expect(selectedTask(controller.snapshot)).toMatchObject({
+      latestReview: { id: 'review-pending', status: 'PENDING' },
+      task: { phase: 'REVIEW' },
+    });
+  });
+
+  it('approves the exact pending Review once and reloads DONE state', async () => {
+    const approvedOverview = {
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...pendingReviewOverview.projects[0]!.tasks[0]!,
+              canApproveReview: false,
+              canRequestChanges: false,
+              latestReview: {
+                ...pendingReviewSummary,
+                decidedAt: 1_800_000_000_200,
+                freshness: 'HISTORICAL_SNAPSHOT' as const,
+                status: 'APPROVED' as const,
+              },
+              task: { ...reviewTask, phase: 'DONE' as const },
+            },
+          ],
+        },
+      ],
+    } as AgentWorkspaceOverview;
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [pendingReviewOverview, approvedOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await Promise.all([
+      controller.approveSelectedTaskReview(),
+      controller.approveSelectedTaskReview(),
+    ]);
+
+    expect(client.approveTaskReview).toHaveBeenCalledOnce();
+    expect(client.approveTaskReview).toHaveBeenCalledWith({
+      reviewId: 'review-pending',
+      taskId: runningTask.id,
+    });
+    expect(selectedTask(controller.snapshot)).toMatchObject({
+      latestReview: { status: 'APPROVED' },
+      task: { phase: 'DONE' },
+    });
+  });
+
+  it('requests changes for the exact pending Review and reloads RUNNING state', async () => {
+    const changesOverview = {
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...eligibleReviewOverview.projects[0]!.tasks[0]!,
+              canRequestReview: true,
+              latestReview: {
+                ...pendingReviewSummary,
+                decidedAt: 1_800_000_000_200,
+                freshness: 'HISTORICAL_SNAPSHOT' as const,
+                status: 'CHANGES_REQUESTED' as const,
+              },
+              reviewHistory: [],
+            },
+          ],
+        },
+      ],
+    } as AgentWorkspaceOverview;
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [pendingReviewOverview, changesOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await controller.requestSelectedTaskChanges();
+
+    expect(client.requestTaskChanges).toHaveBeenCalledOnce();
+    expect(client.requestTaskChanges).toHaveBeenCalledWith({
+      reviewId: 'review-pending',
+      taskId: runningTask.id,
+    });
+    expect(selectedTask(controller.snapshot)).toMatchObject({ task: { phase: 'RUNNING' } });
   });
 
   it('shows sanitized load and start errors without leaking native messages', async () => {
@@ -304,6 +553,46 @@ describe('WorkspaceController', () => {
     expect(JSON.stringify(retryController.snapshot)).not.toContain('secret');
   });
 
+  it('shows differentiated sanitized Review action errors', async () => {
+    const requestClient = new FakeWorkspaceClient();
+    requestClient.loadResults = [eligibleReviewOverview];
+    requestClient.requestTaskReview.mockRejectedValueOnce(new Error('D:\\secret\\review'));
+    const requestController = new WorkspaceController(requestClient);
+    await requestController.load();
+    await requestController.requestSelectedTaskReview();
+    expect(requestController.snapshot).toMatchObject({
+      actionError: 'Task review could not be requested.',
+    });
+
+    const approveClient = new FakeWorkspaceClient();
+    approveClient.loadResults = [pendingReviewOverview];
+    approveClient.approveTaskReview.mockRejectedValueOnce(new Error('TOKEN=secret'));
+    const approveController = new WorkspaceController(approveClient);
+    await approveController.load();
+    await approveController.approveSelectedTaskReview();
+    expect(approveController.snapshot).toMatchObject({
+      actionError: 'Task review could not be approved.',
+    });
+
+    const changesClient = new FakeWorkspaceClient();
+    changesClient.loadResults = [pendingReviewOverview];
+    changesClient.requestTaskChanges.mockRejectedValueOnce(new Error('CREDENTIAL=secret'));
+    const changesController = new WorkspaceController(changesClient);
+    await changesController.load();
+    await changesController.requestSelectedTaskChanges();
+    expect(changesController.snapshot).toMatchObject({
+      actionError: 'Task changes could not be requested.',
+    });
+
+    expect(
+      JSON.stringify([
+        requestController.snapshot,
+        approveController.snapshot,
+        changesController.snapshot,
+      ]),
+    ).not.toContain('secret');
+  });
+
   it('does not report a successful execution side effect as failed when only refresh fails', async () => {
     const client = new FakeWorkspaceClient();
     const controller = new WorkspaceController(client);
@@ -317,7 +606,25 @@ describe('WorkspaceController', () => {
       actionError: 'Task execution started, but workspace status could not be refreshed.',
       kind: 'ready',
       selectedTaskId: 'task-1',
-      startingTaskId: undefined,
+      activeAction: undefined,
+    });
+  });
+
+  it('does not report a successful Review request as failed when only refresh fails', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [eligibleReviewOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+    client.loadFailure = new Error('database became unavailable');
+
+    await controller.requestSelectedTaskReview();
+
+    expect(client.requestTaskReview).toHaveBeenCalledOnce();
+    expect(controller.snapshot).toMatchObject({
+      actionError: 'Task review requested, but workspace status could not be refreshed.',
+      activeAction: undefined,
+      kind: 'ready',
+      selectedTaskId: runningTask.id,
     });
   });
 
@@ -349,6 +656,7 @@ describe('WorkspaceController', () => {
           project,
           tasks: [
             {
+              ...emptyReviewState,
               activeSession: undefined,
               artifacts: [],
               canRetryExecution: false,
@@ -359,6 +667,7 @@ describe('WorkspaceController', () => {
               task: planningTask,
             },
             {
+              ...emptyReviewState,
               activeSession: undefined,
               artifacts: [],
               canRetryExecution: false,
@@ -397,6 +706,7 @@ describe('WorkspaceController', () => {
           project,
           tasks: [
             {
+              ...emptyReviewState,
               activeSession: workingSession,
               artifacts: [],
               canRetryExecution: false,
@@ -416,6 +726,7 @@ describe('WorkspaceController', () => {
           project,
           tasks: [
             {
+              ...emptyReviewState,
               activeSession: undefined,
               artifacts: [],
               canRetryExecution: true,
@@ -450,6 +761,78 @@ describe('WorkspaceController', () => {
 });
 
 describe('AgentWorkspaceView', () => {
+  it('offers an explicit Start review action only when Application marks RUNNING ready', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview: eligibleReviewOverview,
+          selectedTaskId: runningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Start review');
+    expect(markup).toContain('Retry execution');
+    expect(markup).not.toContain('Approve and mark done');
+  });
+
+  it('renders Review evidence newest-first and explicit user decisions without claiming freshness', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview: pendingReviewOverview,
+          selectedTaskId: runningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Review evidence');
+    expect(markup).toContain('2 attempts');
+    expect(markup.indexOf('review-pending')).toBeLessThan(markup.indexOf('review-old'));
+    expect(markup).toContain('REVALIDATE_ON_APPROVAL');
+    expect(markup).toContain('Approval revalidates this exact code snapshot');
+    expect(markup).toContain('f'.repeat(64));
+    expect(markup).toContain('2 changed paths');
+    expect(markup).toContain('1 artifact');
+    expect(markup).toContain('2 quality gates');
+    expect(markup).toContain('HEAD_MATCH_ONLY');
+    expect(markup).toContain('STALE');
+    expect(markup).toContain('src/&lt;script&gt;unsafe.ts');
+    expect(markup).toContain('Fix &lt;script&gt;review()&lt;/script&gt;.');
+    expect(markup).not.toContain('<script>review()</script>');
+    expect(markup).not.toContain('worktreePathIdentity');
+    expect(markup).not.toContain('D:\\private');
+    expect(markup.indexOf('Request changes')).toBeLessThan(markup.indexOf('Approve and mark done'));
+    expect(markup).toContain('Task phase</span><strong>REVIEW');
+    expect(markup).not.toContain('Task phase</span><strong>DONE');
+  });
+
   it('renders validated artifact history as escaped Unicode text without changing Task state', () => {
     const overview: AgentWorkspaceOverview = {
       projects: [
@@ -457,6 +840,7 @@ describe('AgentWorkspaceView', () => {
           project,
           tasks: [
             {
+              ...emptyReviewState,
               activeSession: workingSession,
               artifacts: [
                 {
@@ -488,7 +872,10 @@ describe('AgentWorkspaceView', () => {
     const markup = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
         client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
         onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
         onRetry: () => undefined,
         onRetryTask: () => undefined,
         onSelectTask: () => undefined,
@@ -498,7 +885,7 @@ describe('AgentWorkspaceView', () => {
           kind: 'ready',
           overview,
           selectedTaskId: runningTask.id,
-          startingTaskId: undefined,
+          activeAction: undefined,
           terminalSessionId: workingSession.id,
         },
       }),
@@ -520,14 +907,17 @@ describe('AgentWorkspaceView', () => {
       kind: 'ready',
       overview: failedOverview,
       selectedTaskId: 'task-1',
-      startingTaskId: undefined,
+      activeAction: undefined,
       terminalSessionId: undefined,
     };
 
     const markup = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
         client,
+        onApproveReview: () => undefined,
         onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
         onRetry: () => undefined,
         onRetryTask: () => undefined,
         onSelectTask: () => undefined,
@@ -554,6 +944,7 @@ describe('AgentWorkspaceView', () => {
           project,
           tasks: [
             {
+              ...emptyReviewState,
               activeSession: workingSession,
               artifacts: [],
               canRetryExecution: false,
@@ -570,7 +961,10 @@ describe('AgentWorkspaceView', () => {
     const markup = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
         client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
         onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
         onRetry: () => undefined,
         onRetryTask: () => undefined,
         onSelectTask: () => undefined,
@@ -580,7 +974,7 @@ describe('AgentWorkspaceView', () => {
           kind: 'ready',
           overview,
           selectedTaskId: runningTask.id,
-          startingTaskId: undefined,
+          activeAction: undefined,
           terminalSessionId: workingSession.id,
         },
       }),
@@ -604,7 +998,10 @@ describe('AgentWorkspaceView', () => {
     const markup = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
         client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
         onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
         onRetry: () => undefined,
         onRetryTask: () => undefined,
         onSelectTask: () => undefined,
@@ -614,7 +1011,7 @@ describe('AgentWorkspaceView', () => {
           kind: 'ready',
           overview,
           selectedTaskId: runningTask.id,
-          startingTaskId: undefined,
+          activeAction: undefined,
           terminalSessionId: undefined,
         },
       }),
@@ -642,7 +1039,10 @@ describe('AgentWorkspaceView', () => {
     const markup = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
         client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
         onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
         onRetry: () => undefined,
         onRetryTask: () => undefined,
         onSelectTask: () => undefined,
@@ -652,7 +1052,7 @@ describe('AgentWorkspaceView', () => {
           kind: 'ready',
           overview: planningOverview,
           selectedTaskId: planningTask.id,
-          startingTaskId: undefined,
+          activeAction: undefined,
           terminalSessionId: undefined,
         },
       }),
@@ -665,7 +1065,10 @@ describe('AgentWorkspaceView', () => {
     const client = new FakeWorkspaceClient();
     const common = {
       client,
+      onApproveReview: () => undefined,
       onRefresh: () => undefined,
+      onRequestChanges: () => undefined,
+      onRequestReview: () => undefined,
       onRetry: () => undefined,
       onRetryTask: () => undefined,
       onSelectTask: () => undefined,
@@ -683,7 +1086,7 @@ describe('AgentWorkspaceView', () => {
           kind: 'ready',
           overview: { projects: [] },
           selectedTaskId: undefined,
-          startingTaskId: undefined,
+          activeAction: undefined,
           terminalSessionId: undefined,
         },
       }),

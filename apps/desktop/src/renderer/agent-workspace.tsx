@@ -6,6 +6,7 @@ import { TerminalRenderer } from './terminal-renderer';
 import {
   WorkspaceController,
   type AgentWorkspaceClient,
+  type WorkspaceActionKind,
   type WorkspaceSnapshot,
 } from './workspace-controller';
 
@@ -14,7 +15,10 @@ export interface AgentWorkspaceProps {
 }
 
 export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
+  readonly onApproveReview: () => void;
   readonly onRefresh: () => void;
+  readonly onRequestChanges: () => void;
+  readonly onRequestReview: () => void;
   readonly onRetry: () => void;
   readonly onRetryTask: () => void;
   readonly onSelectTask: (taskId: string) => void;
@@ -45,7 +49,10 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
   return (
     <AgentWorkspaceView
       {...(client === undefined ? {} : { client })}
+      onApproveReview={() => void controller?.approveSelectedTaskReview()}
       onRefresh={() => void controller?.refresh()}
+      onRequestChanges={() => void controller?.requestSelectedTaskChanges()}
+      onRequestReview={() => void controller?.requestSelectedTaskReview()}
       onRetry={() => void controller?.load()}
       onRetryTask={() => void controller?.retrySelectedTask()}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
@@ -57,7 +64,10 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
 
 export function AgentWorkspaceView({
   client,
+  onApproveReview,
   onRefresh,
+  onRequestChanges,
+  onRequestReview,
   onRetry,
   onRetryTask,
   onSelectTask,
@@ -87,6 +97,7 @@ export function AgentWorkspaceView({
 
   const selected = findTask(snapshot, snapshot.selectedTaskId);
   const selectedProject = findProject(snapshot, selected?.task.projectId);
+  const actionsBusy = snapshot.activeAction !== undefined;
 
   return (
     <main className="workspace-shell">
@@ -108,18 +119,18 @@ export function AgentWorkspaceView({
               <h2>{selected.task.title}</h2>
               <p className="task-id">{selected.task.id}</p>
             </div>
-            <div className="task-actions">
+            <div className="task-actions" aria-busy={actionsBusy}>
               <button className="secondary-action" onClick={onRefresh} type="button">
                 Refresh
               </button>
               <button
                 className="primary-action"
-                disabled={!canExecute(selected) || snapshot.startingTaskId !== undefined}
+                disabled={!canExecute(selected) || actionsBusy}
                 onClick={selected.canRetryExecution ? onRetryTask : onStartTask}
                 title={startActionTitle(selected)}
                 type="button"
               >
-                {snapshot.startingTaskId === selected.task.id
+                {isExecutionActionForTask(snapshot, selected.task.id)
                   ? selected.canRetryExecution
                     ? 'Retrying…'
                     : 'Starting…'
@@ -127,6 +138,42 @@ export function AgentWorkspaceView({
                     ? 'Retry execution'
                     : 'Start execution'}
               </button>
+              {selected.canRequestReview ? (
+                <button
+                  className="secondary-action"
+                  disabled={actionsBusy}
+                  onClick={onRequestReview}
+                  type="button"
+                >
+                  {isSelectedAction(snapshot, selected.task.id, 'request-review')
+                    ? 'Starting review...'
+                    : 'Start review'}
+                </button>
+              ) : null}
+              {selected.canRequestChanges ? (
+                <button
+                  className="secondary-action"
+                  disabled={actionsBusy}
+                  onClick={onRequestChanges}
+                  type="button"
+                >
+                  {isSelectedAction(snapshot, selected.task.id, 'request-changes')
+                    ? 'Requesting changes...'
+                    : 'Request changes'}
+                </button>
+              ) : null}
+              {selected.canApproveReview ? (
+                <button
+                  className="primary-action"
+                  disabled={actionsBusy}
+                  onClick={onApproveReview}
+                  type="button"
+                >
+                  {isSelectedAction(snapshot, selected.task.id, 'approve-review')
+                    ? 'Approving...'
+                    : 'Approve and mark done'}
+                </button>
+              ) : null}
             </div>
           </header>
 
@@ -172,6 +219,7 @@ export function AgentWorkspaceView({
             ) : null}
           </div>
 
+          <ReviewHistory reviews={selected.reviewHistory} />
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
 
@@ -189,6 +237,124 @@ export function AgentWorkspaceView({
         </section>
       )}
     </main>
+  );
+}
+
+function ReviewHistory({ reviews }: { readonly reviews: WorkspaceTaskOverview['reviewHistory'] }) {
+  return (
+    <section className="review-history" aria-labelledby="review-history-heading">
+      <header className="review-history__header">
+        <div>
+          <p className="eyebrow">User decision record</p>
+          <h3 id="review-history-heading">Review evidence</h3>
+        </div>
+        <span>
+          {reviews.length} {reviews.length === 1 ? 'attempt' : 'attempts'}
+        </span>
+      </header>
+      {reviews.length === 0 ? (
+        <p className="review-history__empty">No Review attempts for this Task yet.</p>
+      ) : (
+        <ol className="review-history__list">
+          {reviews.map((review) => (
+            <li className="review-attempt" key={review.id}>
+              <header className="review-attempt__header">
+                <div>
+                  <strong>{review.status}</strong>
+                  <span>{review.id}</span>
+                </div>
+                <span className="review-freshness">{review.freshness}</span>
+              </header>
+              {review.freshness === 'REVALIDATE_ON_APPROVAL' ? (
+                <p className="review-revalidation" role="status">
+                  Approval revalidates this exact code snapshot before marking the Task done.
+                </p>
+              ) : null}
+              <dl className="review-code-state">
+                <div>
+                  <dt>Fingerprint</dt>
+                  <dd>{review.codeState.fingerprint}</dd>
+                </div>
+                <div>
+                  <dt>Branch</dt>
+                  <dd>{review.codeState.branchName}</dd>
+                </div>
+                <div>
+                  <dt>Base / HEAD</dt>
+                  <dd>
+                    {review.codeState.baseCommitId} / {review.codeState.headCommitId}
+                  </dd>
+                </div>
+              </dl>
+              <div className="review-evidence-counts">
+                <span>
+                  {review.codeState.changes.total}{' '}
+                  {review.codeState.changes.total === 1 ? 'changed path' : 'changed paths'}
+                </span>
+                <span>
+                  {review.artifacts.length}{' '}
+                  {review.artifacts.length === 1 ? 'artifact' : 'artifacts'}
+                </span>
+                <span>
+                  {review.qualityGates.length}{' '}
+                  {review.qualityGates.length === 1 ? 'quality gate' : 'quality gates'}
+                </span>
+              </div>
+              <ReviewChangedPaths review={review} />
+              {review.qualityGates.length === 0 ? null : (
+                <ul className="review-gate-list" aria-label="Associated Quality Gate evidence">
+                  {review.qualityGates.map((gate) => (
+                    <li key={gate.id}>
+                      <strong>{gate.kind}</strong>
+                      <span>
+                        {gate.gateId} / {gate.id}
+                      </span>
+                      <span>{gate.observedStatus}</span>
+                      <span>{gate.association}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {review.decisionNote === undefined ? null : (
+                <p className="review-decision-note">{review.decisionNote}</p>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function ReviewChangedPaths({
+  review,
+}: {
+  readonly review: WorkspaceTaskOverview['reviewHistory'][number];
+}) {
+  const entries = [
+    ...review.codeState.changes.committed.map((path) => ({ kind: 'Committed', path })),
+    ...review.codeState.changes.staged.map((path) => ({ kind: 'Staged', path })),
+    ...review.codeState.changes.unstaged.map((path) => ({ kind: 'Unstaged', path })),
+    ...review.codeState.changes.untracked.map((path) => ({ kind: 'Untracked', path })),
+    ...review.codeState.changes.conflicted.map((path) => ({ kind: 'Conflicted', path })),
+  ];
+
+  if (entries.length === 0) {
+    return review.codeState.changes.truncated ? (
+      <p className="review-path-note">Changed paths are hidden or truncated.</p>
+    ) : null;
+  }
+
+  return (
+    <ul className="review-path-list" aria-label="Changed repository paths">
+      {entries.map(({ kind, path }) => (
+        <li key={`${kind}:${path}`}>
+          <span>{kind}</span>
+          <code>{path}</code>
+        </li>
+      ))}
+      {review.codeState.changes.truncated ? <li>Additional paths hidden or truncated.</li> : null}
+    </ul>
   );
 }
 
@@ -382,6 +548,24 @@ function WorkspaceMessage({
 
 function canExecute(task: WorkspaceTaskOverview): boolean {
   return task.canStartExecution || task.canRetryExecution;
+}
+
+function isExecutionActionForTask(
+  snapshot: Extract<WorkspaceSnapshot, { kind: 'ready' }>,
+  taskId: string,
+): boolean {
+  return (
+    isSelectedAction(snapshot, taskId, 'start-execution') ||
+    isSelectedAction(snapshot, taskId, 'retry-execution')
+  );
+}
+
+function isSelectedAction(
+  snapshot: Extract<WorkspaceSnapshot, { kind: 'ready' }>,
+  taskId: string,
+  kind: WorkspaceActionKind,
+): boolean {
+  return snapshot.activeAction?.taskId === taskId && snapshot.activeAction.kind === kind;
 }
 
 function startActionTitle(task: WorkspaceTaskOverview): string {

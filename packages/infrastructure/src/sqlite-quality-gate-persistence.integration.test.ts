@@ -13,6 +13,8 @@ import {
   createTask,
   QualityGateKind,
   startQualityGateRun,
+  TaskPhase,
+  transitionTask,
   type QualityGateRun,
 } from '@agentterm/domain';
 
@@ -63,6 +65,36 @@ function runningRun(id: string, startedAt: number): QualityGateRun {
 }
 
 describe('SQLite Quality Gate Run persistence', () => {
+  it.each([TaskPhase.REVIEW, TaskPhase.DONE])(
+    'atomically rejects a new run after the Task reaches %s',
+    async (phase) => {
+      await withTemporaryDatabase(async (databasePath) => {
+        await seedTask(databasePath);
+        const persistence = openSqlitePersistence(databasePath);
+        try {
+          let current = (await persistence.tasks.findById('task-1'))!;
+          for (const next of [TaskPhase.PLANNING, TaskPhase.RUNNING, TaskPhase.REVIEW] as const) {
+            const expected = current.phase;
+            current = transitionTask(current, next);
+            await persistence.tasks.update(current, expected);
+          }
+          if (phase === TaskPhase.DONE) {
+            const expected = current.phase;
+            current = transitionTask(current, TaskPhase.DONE);
+            await persistence.tasks.update(current, expected);
+          }
+
+          await expect(
+            persistence.qualityGateRuns.insert(runningRun(`run-${phase}`, 100)),
+          ).rejects.toBeInstanceOf(SqlitePersistenceError);
+          await expect(persistence.qualityGateRuns.listByTaskId('task-1')).resolves.toEqual([]);
+        } finally {
+          persistence.close();
+        }
+      });
+    },
+  );
+
   it('round-trips structured command, Worktree provenance, and terminal output across connections', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       await seedTask(databasePath);
@@ -125,6 +157,27 @@ describe('SQLite Quality Gate Run persistence', () => {
           failed,
           retry,
         ]);
+        await expect(persistence.qualityGateRuns.listRecentByTaskId('task-1', 1)).resolves.toEqual([
+          retry,
+        ]);
+        await expect(
+          persistence.qualityGateRuns.readReviewEvidenceByTaskId('task-1', 1),
+        ).resolves.toEqual({ evidence: [], hasRunning: true, totalCount: 2 });
+        const boundedEvidence = await persistence.qualityGateRuns.readReviewEvidenceByTaskId(
+          'task-1',
+          2,
+        );
+        expect(boundedEvidence).toMatchObject({
+          evidence: [
+            { id: failed.id, observedStatus: failed.status },
+            { id: retry.id, observedStatus: retry.status },
+          ],
+          hasRunning: true,
+          totalCount: 2,
+        });
+        expect(boundedEvidence.evidence[0]).not.toHaveProperty('output');
+        expect(boundedEvidence.evidence[0]).not.toHaveProperty('gate');
+        expect(boundedEvidence.evidence[0]).not.toHaveProperty('worktreePath');
         await expect(persistence.qualityGateRuns.insert(first)).rejects.toBeInstanceOf(
           EntityAlreadyExistsError,
         );

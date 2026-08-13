@@ -1,10 +1,12 @@
 import { TaskPhase, transitionTask, type AgentSession, type Task } from '@agentterm/domain';
 
 import { AgentSessionCoordinator } from './agent-session-coordinator';
+import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import {
   EntityAlreadyExistsError,
   EntityNotFoundError,
   TaskExecutionRetryError,
+  TaskExecutionPhaseError,
   TaskExecutionStartError,
 } from './errors';
 import type {
@@ -17,6 +19,7 @@ import type {
   TaskWorktreeRepository,
 } from './ports';
 import { ensureTaskWorktree } from './task-worktree-use-cases';
+import { serializeTaskWorkflow } from './task-workflow-serialization';
 
 export interface StartTaskExecutionInput {
   readonly environment: Readonly<Record<string, string>>;
@@ -44,13 +47,11 @@ export interface TaskExecutionRetryResult extends TaskExecutionStartResult {
   readonly previousSession: AgentSession;
 }
 
-const taskExecutionOperationTails = new Map<string, Promise<void>>();
-
 export async function startTaskExecution(
   input: StartTaskExecutionInput,
   dependencies: StartTaskExecutionDependencies,
 ): Promise<TaskExecutionStartResult> {
-  return serializeTaskExecution(input.taskId, () =>
+  return serializeTaskWorkflow(input.taskId, () =>
     startTaskExecutionExclusive(input, dependencies),
   );
 }
@@ -59,7 +60,7 @@ export async function retryTaskExecution(
   input: StartTaskExecutionInput,
   dependencies: StartTaskExecutionDependencies,
 ): Promise<TaskExecutionRetryResult> {
-  return serializeTaskExecution(input.taskId, async () => {
+  return serializeTaskWorkflow(input.taskId, async () => {
     assertNewSessionId(input.sessionId);
     const task = await requireExecutionTask(input.taskId, dependencies);
     validateExecutionPhase(task);
@@ -128,9 +129,10 @@ async function executeTaskAttempt(
     if (currentTask === undefined) {
       throw new EntityNotFoundError('Task', input.taskId);
     }
+    validateExecutionPhase(currentTask);
     runningTask = toRunning(currentTask);
     if (runningTask !== currentTask) {
-      await dependencies.tasks.update(runningTask);
+      await dependencies.tasks.update(runningTask, currentTask.phase);
     }
   } catch (error) {
     throw new TaskExecutionStartError('TASK_STATE', input.taskId, input.sessionId, worktree, {
@@ -182,7 +184,7 @@ function assertNoActiveSession(
   taskId: string,
   sessionId: string,
 ): void {
-  const active = sessions.find((session) => !isTerminalSession(session));
+  const active = sessions.find(hasUnsettledTaskCodeWriter);
   if (active !== undefined) {
     throw new TaskExecutionRetryError('ACTIVE_SESSION_EXISTS', taskId, sessionId, {
       activeSessionId: active.id,
@@ -194,28 +196,6 @@ function isTerminalSession(session: AgentSession): boolean {
   return session.status === 'EXITED' || session.status === 'FAILED';
 }
 
-async function serializeTaskExecution<Result>(
-  taskId: string,
-  operation: () => Promise<Result>,
-): Promise<Result> {
-  const predecessor = taskExecutionOperationTails.get(taskId) ?? Promise.resolve();
-  let release = (): void => undefined;
-  const completion = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const tail = predecessor.then(() => completion);
-  taskExecutionOperationTails.set(taskId, tail);
-  await predecessor;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (taskExecutionOperationTails.get(taskId) === tail) {
-      taskExecutionOperationTails.delete(taskId);
-    }
-  }
-}
-
 function assertNewSessionId(sessionId: string): void {
   if (typeof sessionId !== 'string' || sessionId.trim().length === 0) {
     throw new TypeError('Agent Session id must not be blank.');
@@ -224,7 +204,7 @@ function assertNewSessionId(sessionId: string): void {
 
 function validateExecutionPhase(task: Task): void {
   if (!canStartTaskExecution(task)) {
-    transitionTask(task, TaskPhase.RUNNING);
+    throw new TaskExecutionPhaseError(task.id, task.phase);
   }
 }
 

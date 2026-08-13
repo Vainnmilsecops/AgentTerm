@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createProject as createDomainProject,
+  createTask as createDomainTask,
+  transitionTask as transitionDomainTask,
   TaskPhase,
   type Project,
   type Task,
@@ -46,8 +48,8 @@ class InMemoryTaskRepository implements TaskRepository {
     this.tasks.set(task.id, task);
   }
 
-  public async update(task: Task): Promise<void> {
-    if (!this.tasks.has(task.id)) {
+  public async update(task: Task, expectedPhase: Task['phase']): Promise<void> {
+    if (this.tasks.get(task.id)?.phase !== expectedPhase) {
       throw new Error(`Task ${task.id} is missing from the fake repository.`);
     }
 
@@ -143,5 +145,34 @@ describe('transitionTask', () => {
       to: TaskPhase.RUNNING,
     });
     await expect(tasks.findById('task-1')).resolves.toEqual(backlog);
+  });
+
+  it('requires the structured Review Flow for transitions into or out of REVIEW', async () => {
+    const tasks = new InMemoryTaskRepository();
+    const running = transitionDomainTask(
+      transitionDomainTask(createDomainTask(validTaskInput), TaskPhase.PLANNING),
+      TaskPhase.RUNNING,
+    );
+    await tasks.insert(running);
+
+    await expect(
+      transitionTask({ taskId: running.id, to: TaskPhase.REVIEW }, tasks),
+    ).rejects.toMatchObject({
+      name: 'TaskReviewFlowRequiredError',
+      from: TaskPhase.RUNNING,
+      to: TaskPhase.REVIEW,
+    });
+    await expect(tasks.findById(running.id)).resolves.toEqual(running);
+
+    const review = transitionDomainTask(running, TaskPhase.REVIEW);
+    await tasks.update(review, running.phase);
+    await expect(
+      transitionTask({ taskId: review.id, to: TaskPhase.DONE }, tasks),
+    ).rejects.toMatchObject({
+      name: 'TaskReviewFlowRequiredError',
+      from: TaskPhase.REVIEW,
+      to: TaskPhase.DONE,
+    });
+    await expect(tasks.findById(review.id)).resolves.toEqual(review);
   });
 });

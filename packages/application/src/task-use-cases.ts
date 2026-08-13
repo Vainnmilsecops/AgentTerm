@@ -6,7 +6,11 @@ import {
   type TaskPhase,
 } from '@agentterm/domain';
 
-import { EntityAlreadyExistsError, EntityNotFoundError } from './errors';
+import {
+  EntityAlreadyExistsError,
+  EntityNotFoundError,
+  TaskReviewFlowRequiredError,
+} from './errors';
 import type { ProjectRepository, TaskRepository } from './ports';
 
 export interface TransitionTaskInput {
@@ -43,7 +47,14 @@ export async function transitionTask(
     throw new EntityNotFoundError('Task', input.taskId);
   }
 
+  if (
+    (task.phase === 'RUNNING' && input.to === 'REVIEW') ||
+    (task.phase === 'REVIEW' && (input.to === 'RUNNING' || input.to === 'DONE'))
+  ) {
+    throw new TaskReviewFlowRequiredError(task.phase, input.to);
+  }
+
   const transitionedTask = transitionDomainTask(task, input.to);
-  await tasks.update(transitionedTask);
+  await tasks.update(transitionedTask, task.phase);
   return transitionedTask;
 }

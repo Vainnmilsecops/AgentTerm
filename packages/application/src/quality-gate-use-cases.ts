@@ -1,4 +1,5 @@
 import {
+  TaskPhase,
   completeQualityGateRun,
   startQualityGateRun,
   type QualityGateRun,
@@ -8,6 +9,7 @@ import {
   EntityNotFoundError,
   QualityGateExecutionError,
   QualityGatePersistenceError,
+  QualityGateProcessUnsettledError,
 } from './errors';
 import type {
   GitTaskWorktreeLifecycle,
@@ -59,6 +61,9 @@ async function runQualityGateExclusive(
   const task = await dependencies.tasks.findById(input.taskId);
   if (task === undefined) {
     throw new EntityNotFoundError('Task', input.taskId);
+  }
+  if (task.phase === TaskPhase.REVIEW || task.phase === TaskPhase.DONE) {
+    throw new QualityGateExecutionError('TASK_PHASE_NOT_RUNNABLE', input.taskId);
   }
   const gate = await dependencies.gates.findById(input.gateId);
   if (gate === undefined || gate.id !== input.gateId) {
@@ -113,18 +118,29 @@ async function runQualityGateExclusive(
       timeoutMs: gate.timeoutMs,
       workingDirectory: actualWorktree.worktreePath,
     });
-  } catch {
-    processResult = {
-      kind: 'infrastructure-error',
-      output: '',
-      reason: 'PROCESS_PROTOCOL_ERROR',
-      truncated: false,
-    };
+  } catch (error) {
+    throw new QualityGateProcessUnsettledError(
+      running,
+      'PROCESS_RESULT_UNAVAILABLE',
+      { text: '', truncated: false },
+      { cause: error },
+    );
   }
 
+  const sanitizedResult = sanitizeProcessResult(
+    processResult,
+    redactValues,
+    dependencies.maxOutputBytes,
+  );
+  if (hasUnsettledProcess(sanitizedResult)) {
+    throw new QualityGateProcessUnsettledError(running, 'TERMINATION_UNCONFIRMED', {
+      text: sanitizedResult.output,
+      truncated: sanitizedResult.truncated,
+    });
+  }
   const observedRun = completeFromProcessResult(
     running,
-    sanitizeProcessResult(processResult, redactValues, dependencies.maxOutputBytes),
+    sanitizedResult,
     Math.max(dependencies.clock(), running.startedAt),
   );
   try {
@@ -133,6 +149,13 @@ async function runQualityGateExclusive(
     throw new QualityGatePersistenceError(observedRun, { cause: error });
   }
   return observedRun;
+}
+
+function hasUnsettledProcess(result: QualityGateProcessResult): boolean {
+  return (
+    (result.kind === 'timed-out' && result.terminationFailed) ||
+    (result.kind === 'infrastructure-error' && result.reason === 'TERMINATION_FAILED')
+  );
 }
 
 function sanitizeProcessResult(
