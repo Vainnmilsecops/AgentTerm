@@ -179,13 +179,19 @@ Updated: 2026-08-13
   id, action, Task target, and decision note agree. Review snapshots accept at most 1,000 Artifact and
   1,000 Quality Gate associations; exceeding either limit is an explicit readiness failure rather
   than silently dropping evidence.
+- Task change inspection is a read-only Application port implemented by the existing Git Worktree
+  lifecycle adapter. It verifies the exact persisted primary Worktree, reads committed changes from
+  the Task base commit through `HEAD`, and reads staged, unstaged, conflicted, and untracked state
+  from porcelain-v2/name-status NUL records. The file list is capped at 500 paths; the renderer loads
+  only the selected file's patch, omits binary/unsupported previews, and rejects patches above
+  128 KiB or 2,000 changed lines. Inspector results are evidence only and never change Task phase.
 
 ## Blockers
 
 No implementation blocker is known. Node.js 22.13 emits its documented experimental warning for
 `node:sqlite`; Electron 43's Node.js 24 runtime does not emit that warning in the current smoke test.
-Git status can still execute repository-configured clean/process filters. Stronger isolation for
-untrusted repositories is deferred; current inspection must follow an explicit user trust decision.
+Git status and diff can still execute repository-configured clean/process filters. Stronger isolation
+for untrusted repositories is deferred; current inspection must follow an explicit user trust decision.
 Worktree checkout can likewise execute configured clean/smudge/process filters even though hooks are
 disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator owns PTY
 handles, and startup can now reconcile persisted sessions that no longer have ownership.
@@ -215,7 +221,7 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-Bind startup session reconciliation, artifact/review reads, `loadAgentWorkspace`,
+Bind startup session reconciliation, artifact/review/change-inspection reads, `loadAgentWorkspace`,
 `startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`, `retryTaskExecution`, the three explicit Review commands, and terminal attachment
 to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime

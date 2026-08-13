@@ -420,6 +420,50 @@ export interface GitTaskWorktreeLifecycle {
   inspect(input: InspectGitTaskWorktreeInput): Promise<TaskWorktreeInspection>;
 }
 
+export type TaskChangeArea = 'COMMITTED' | 'CONFLICTED' | 'STAGED' | 'UNSTAGED' | 'UNTRACKED';
+
+export type TaskFileChangeKind =
+  'ADDED' | 'COPIED' | 'DELETED' | 'MODIFIED' | 'RENAMED' | 'UNMERGED' | 'UNTRACKED';
+
+export interface TaskFileChange {
+  readonly area: TaskChangeArea;
+  readonly kind: TaskFileChangeKind;
+  readonly path: string;
+  readonly previousPath?: string;
+}
+
+export interface TaskChangeSet {
+  readonly files: readonly TaskFileChange[];
+  readonly totalFiles: number;
+  readonly truncated: boolean;
+}
+
+export interface TaskFileDiffRequest {
+  readonly area: TaskChangeArea;
+  readonly path: string;
+  readonly previousPath?: string;
+}
+
+export interface TaskFileDiff extends TaskFileChange {
+  readonly additions: number | undefined;
+  readonly binary: boolean | undefined;
+  readonly deletions: number | undefined;
+  readonly omittedReason?: 'BINARY' | 'TOO_LARGE' | 'UNSUPPORTED';
+  readonly patch?:
+    | {
+        readonly text: string;
+        readonly truncated: false;
+      }
+    | undefined;
+}
+
+export interface TaskChangeInspector {
+  /** Reads a bounded, deterministic list from the exact verified primary Task Worktree. */
+  listChanges(worktree: TaskWorktreeRecord): Promise<TaskChangeSet>;
+  /** Reads one bounded patch only when the requested identity is still a current change. */
+  getFileDiff(worktree: TaskWorktreeRecord, request: TaskFileDiffRequest): Promise<TaskFileDiff>;
+}
+
 export interface TaskWorktreeRepository {
   findByTaskId(taskId: string): Promise<TaskWorktreeRecord | undefined>;
   insertReservation(worktree: TaskWorktree): Promise<TaskWorktreeRecord>;
