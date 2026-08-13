@@ -1,4 +1,4 @@
-import { TaskPhase, transitionTask, type AgentSession, type Task } from '@agentterm/domain';
+import { TaskPhase, type AgentSession, type Task } from '@agentterm/domain';
 
 import { AgentSessionCoordinator } from './agent-session-coordinator';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
@@ -9,6 +9,7 @@ import {
   TaskExecutionRetryError,
   TaskExecutionPhaseError,
   TaskExecutionStartError,
+  TaskPlanningPhaseError,
 } from './errors';
 import type {
   GitTaskWorktreeLifecycle,
@@ -58,6 +59,10 @@ export interface TaskExecutionRetryResult extends TaskExecutionStartResult {
   readonly previousSession: AgentSession;
 }
 
+export interface TaskPlanningStartResult extends TaskExecutionStartResult {
+  readonly previousSession: AgentSession | undefined;
+}
+
 export async function startTaskExecution(
   input: StartTaskExecutionInput,
   dependencies: StartTaskExecutionDependencies,
@@ -84,7 +89,26 @@ export async function retryTaskExecution(
     if (previousSession === undefined || !isTerminalSession(previousSession)) {
       throw new TaskExecutionRetryError('NO_RETRYABLE_SESSION', input.taskId, input.sessionId);
     }
-    const execution = await executeTaskAttempt(input, dependencies);
+    const execution = await executeTaskAttempt(input, dependencies, TaskPhase.RUNNING);
+    return Object.freeze({ ...execution, previousSession });
+  });
+}
+
+export async function startTaskPlanning(
+  input: StartTaskExecutionInput,
+  dependencies: StartTaskExecutionDependencies,
+): Promise<TaskPlanningStartResult> {
+  return serializeTaskWorkflow(input.taskId, async () => {
+    assertNewSessionId(input.sessionId);
+    assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
+    const task = await requireExecutionTask(input.taskId, dependencies);
+    validatePlanningPhase(task);
+    await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
+    await assertNoOwnedRuntime(input, dependencies.sessionCoordinator);
+    const history = await dependencies.sessionCoordinator.listByTaskId(input.taskId);
+    assertNoActiveSession(history, input.taskId, input.sessionId);
+    const previousSession = history.at(-1);
+    const execution = await executeTaskAttempt(input, dependencies, TaskPhase.PLANNING);
     return Object.freeze({ ...execution, previousSession });
   });
 }
@@ -105,7 +129,7 @@ async function startTaskExecutionExclusive(
     throw new TaskExecutionRetryError('RETRY_REQUIRED', input.taskId, input.sessionId);
   }
 
-  return executeTaskAttempt(input, dependencies);
+  return executeTaskAttempt(input, dependencies, TaskPhase.RUNNING);
 }
 
 async function assertNoOwnedRuntime(
@@ -123,6 +147,7 @@ async function assertNoOwnedRuntime(
 async function executeTaskAttempt(
   input: StartTaskExecutionInput,
   dependencies: StartTaskExecutionDependencies,
+  expectedPhase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING,
 ): Promise<TaskExecutionStartResult> {
   const worktree = await ensureTaskWorktree(
     { taskId: input.taskId },
@@ -132,17 +157,18 @@ async function executeTaskAttempt(
     dependencies.git,
   );
 
-  let runningTask: Task;
+  let currentTask: Task;
   try {
-    const currentTask = await dependencies.tasks.findById(input.taskId);
-    if (currentTask === undefined) {
+    const storedTask = await dependencies.tasks.findById(input.taskId);
+    if (storedTask === undefined) {
       throw new EntityNotFoundError('Task', input.taskId);
     }
-    validateExecutionPhase(currentTask);
-    runningTask = toRunning(currentTask);
-    if (runningTask !== currentTask) {
-      await dependencies.tasks.update(runningTask, currentTask.phase);
+    if (expectedPhase === TaskPhase.PLANNING) {
+      validatePlanningPhase(storedTask);
+    } else {
+      validateExecutionPhase(storedTask);
     }
+    currentTask = storedTask;
   } catch (error) {
     throw new TaskExecutionStartError('TASK_STATE', input.taskId, input.sessionId, worktree, {
       cause: error,
@@ -157,9 +183,10 @@ async function executeTaskAttempt(
       initialSize: input.initialSize,
       sessionId: input.sessionId,
       taskId: input.taskId,
+      expectedTaskPhase: expectedPhase,
       workingDirectory: worktree.worktree.worktreePath,
     });
-    return Object.freeze({ session, task: runningTask, worktree });
+    return Object.freeze({ session, task: currentTask, worktree });
   } catch (error) {
     const session = await readSessionAfterFailure(dependencies.sessionCoordinator, input.sessionId);
     throw new TaskExecutionStartError('SESSION_START', input.taskId, input.sessionId, worktree, {
@@ -225,11 +252,17 @@ function validateExecutionPhase(task: Task): void {
 }
 
 export function canStartTaskExecution(task: Pick<Task, 'phase'>): boolean {
-  return task.phase === TaskPhase.PLANNING || task.phase === TaskPhase.RUNNING;
+  return task.phase === TaskPhase.RUNNING;
 }
 
-function toRunning(task: Task): Task {
-  return task.phase === TaskPhase.RUNNING ? task : transitionTask(task, TaskPhase.RUNNING);
+export function canStartTaskPlanning(task: Pick<Task, 'phase'>): boolean {
+  return task.phase === TaskPhase.PLANNING;
+}
+
+function validatePlanningPhase(task: Task): void {
+  if (!canStartTaskPlanning(task)) {
+    throw new TaskPlanningPhaseError(task.id, task.phase);
+  }
 }
 
 async function readSessionAfterFailure(

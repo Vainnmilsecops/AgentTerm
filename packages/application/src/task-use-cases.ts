@@ -9,6 +9,7 @@ import {
 import {
   EntityAlreadyExistsError,
   EntityNotFoundError,
+  TaskPlanningFlowRequiredError,
   TaskReviewFlowRequiredError,
 } from './errors';
 import type { ProjectRepository, TaskRepository } from './ports';
@@ -48,9 +49,13 @@ export async function transitionTask(
   }
 
   if (
+    (task.phase === 'PLANNING' && input.to === 'RUNNING') ||
     (task.phase === 'RUNNING' && input.to === 'REVIEW') ||
     (task.phase === 'REVIEW' && (input.to === 'RUNNING' || input.to === 'DONE'))
   ) {
+    if (task.phase === 'PLANNING') {
+      throw new TaskPlanningFlowRequiredError(task.phase, input.to);
+    }
     throw new TaskReviewFlowRequiredError(task.phase, input.to);
   }
 

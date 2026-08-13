@@ -62,7 +62,7 @@ export interface AgentCatalog {
 export interface AgentSessionRepository {
   findById(id: string): Promise<AgentSession | undefined>;
   /** Inserts one new attempt and must never replace history or admit a second active attempt for its Task. */
-  insert(session: AgentSession): Promise<void>;
+  insert(session: AgentSession, expectedTaskPhase?: 'PLANNING' | 'RUNNING'): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;
   /** Returns sessions whose status/history still indicates possible live runtime ownership. */
@@ -92,7 +92,7 @@ export interface TaskReviewQualityGateEvidenceSnapshot {
 export interface ExecutionArtifactRepository {
   findById(id: string): Promise<ExecutionArtifact | undefined>;
   /** Inserts one immutable artifact and must never replace an existing identity. */
-  insert(artifact: ExecutionArtifact): Promise<void>;
+  insert(artifact: ExecutionArtifact, expectedTaskPhase?: Task['phase']): Promise<void>;
   /** Returns Task artifact history from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]>;
   /** Returns at most `limit` newest artifacts, still ordered from oldest to newest. */
@@ -102,6 +102,28 @@ export interface ExecutionArtifactRepository {
     taskId: string,
     limit: number,
   ): Promise<TaskReviewArtifactEvidenceSnapshot>;
+}
+
+export interface TaskPlanningArtifactRepository extends ExecutionArtifactRepository {
+  /** Returns the newest immutable artifact of this kind for exact readiness decisions. */
+  findLatestByTaskIdAndKind(
+    taskId: string,
+    kind: ExecutionArtifact['kind'],
+  ): Promise<ExecutionArtifact | undefined>;
+}
+
+export interface TaskPlanningRepository {
+  /** Atomically rechecks exact Plan/session evidence and moves PLANNING to RUNNING. */
+  acceptPlan(
+    plan: ExecutionArtifact,
+    nextTask: Task,
+    expectedSessionRevisions: readonly TaskPlanningSessionRevision[],
+  ): Promise<void>;
+}
+
+export interface TaskPlanningSessionRevision {
+  readonly historySequence: number;
+  readonly id: string;
 }
 
 export interface PtyTerminalSize {

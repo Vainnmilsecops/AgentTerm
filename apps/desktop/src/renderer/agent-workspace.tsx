@@ -19,6 +19,7 @@ export interface AgentWorkspaceProps {
 }
 
 export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
+  readonly onAcceptPlan: () => void;
   readonly onApproveReview: () => void;
   readonly onRefresh: () => void;
   readonly onRequestChanges: () => void;
@@ -28,6 +29,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onSelectAgent?: (agentId: string) => void;
   readonly onSelectTask: (taskId: string) => void;
   readonly onStartTask: () => void;
+  readonly onStartPlanning: () => void;
   readonly snapshot: WorkspaceSnapshot;
 }
 
@@ -54,6 +56,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
   return (
     <AgentWorkspaceView
       {...(client === undefined ? {} : { client })}
+      onAcceptPlan={() => void controller?.acceptSelectedPlan()}
       onApproveReview={() => void controller?.approveSelectedTaskReview()}
       onRefresh={() => void controller?.refresh()}
       onRequestChanges={() => void controller?.requestSelectedTaskChanges()}
@@ -63,6 +66,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onSelectAgent={(agentId) => controller?.selectAgent(agentId)}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
       onStartTask={() => void controller?.startSelectedTask()}
+      onStartPlanning={() => void controller?.startSelectedPlanning()}
       snapshot={snapshot}
     />
   );
@@ -70,6 +74,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
 
 export function AgentWorkspaceView({
   client,
+  onAcceptPlan,
   onApproveReview,
   onRefresh,
   onRequestChanges,
@@ -79,6 +84,7 @@ export function AgentWorkspaceView({
   onSelectAgent,
   onSelectTask,
   onStartTask,
+  onStartPlanning,
   snapshot,
 }: AgentWorkspaceViewProps) {
   if (snapshot.kind === 'loading') {
@@ -105,6 +111,9 @@ export function AgentWorkspaceView({
   const selected = findTask(snapshot, snapshot.selectedTaskId);
   const selectedProject = findProject(snapshot, selected?.task.projectId);
   const actionsBusy = snapshot.activeAction !== undefined;
+  const planningAttempt = selected?.canStartPlanning || selected?.canRevisePlan;
+  const firstExecutionAfterPlan =
+    selected === undefined ? false : isFirstExecutionAfterPlan(selected);
 
   return (
     <main className="workspace-shell">
@@ -133,10 +142,13 @@ export function AgentWorkspaceView({
                   aria-label="Coding agent"
                   disabled={
                     actionsBusy ||
-                    (!selected.canStartExecution && !selected.canRetryExecution) ||
+                    (!selected.canStartExecution &&
+                      !selected.canRetryExecution &&
+                      !selected.canStartPlanning &&
+                      !selected.canRevisePlan) ||
                     snapshot.overview.agents.every((agent) => agent.kind !== 'available')
                   }
-                  title="Used for the next Start or Retry attempt."
+                  title="Used for the next planning or execution attempt."
                   onChange={(event) => onSelectAgent?.(event.currentTarget.value)}
                   value={snapshot.selectedAgentId ?? ''}
                 >
@@ -155,19 +167,47 @@ export function AgentWorkspaceView({
               </button>
               <button
                 className="primary-action"
-                disabled={!canExecute(selected, snapshot.selectedAgentId) || actionsBusy}
-                onClick={selected.canRetryExecution ? onRetryTask : onStartTask}
-                title={startActionTitle(selected, snapshot.selectedAgentId)}
+                disabled={!canStartAttempt(selected, snapshot.selectedAgentId) || actionsBusy}
+                onClick={
+                  planningAttempt
+                    ? onStartPlanning
+                    : selected.canRetryExecution
+                      ? onRetryTask
+                      : onStartTask
+                }
+                title={startAttemptTitle(selected, snapshot.selectedAgentId)}
                 type="button"
               >
-                {isExecutionActionForTask(snapshot, selected.task.id)
-                  ? selected.canRetryExecution
-                    ? 'Retrying…'
-                    : 'Starting…'
-                  : selected.canRetryExecution
-                    ? 'Retry execution'
-                    : 'Start execution'}
+                {isAttemptActionForTask(snapshot, selected.task.id)
+                  ? planningAttempt
+                    ? 'Planning…'
+                    : selected.canRetryExecution
+                      ? firstExecutionAfterPlan
+                        ? 'Starting…'
+                        : 'Retrying…'
+                      : 'Starting…'
+                  : planningAttempt
+                    ? selected.latestPlan === undefined
+                      ? 'Start planning'
+                      : 'Revise plan'
+                    : selected.canRetryExecution
+                      ? firstExecutionAfterPlan
+                        ? 'Start execution'
+                        : 'Retry execution'
+                      : 'Start execution'}
               </button>
+              {selected.canAcceptPlan && selected.latestPlan !== undefined ? (
+                <button
+                  className="primary-action"
+                  disabled={actionsBusy}
+                  onClick={onAcceptPlan}
+                  type="button"
+                >
+                  {isSelectedAction(snapshot, selected.task.id, 'accept-plan')
+                    ? 'Accepting Plan…'
+                    : 'Accept Plan and enter RUNNING'}
+                </button>
+              ) : null}
               {selected.canRequestReview ? (
                 <button
                   className="secondary-action"
@@ -251,6 +291,7 @@ export function AgentWorkspaceView({
             ) : null}
           </div>
 
+          <PlanningSummary plan={selected.latestPlan} />
           <ReviewHistory reviews={selected.reviewHistory} />
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
@@ -578,17 +619,27 @@ function WorkspaceMessage({
   );
 }
 
-function canExecute(task: WorkspaceTaskOverview, selectedAgentId: string | undefined): boolean {
-  return (task.canRetryExecution || task.canStartExecution) && selectedAgentId !== undefined;
+function canStartAttempt(
+  task: WorkspaceTaskOverview,
+  selectedAgentId: string | undefined,
+): boolean {
+  return (
+    (task.canRetryExecution ||
+      task.canStartExecution ||
+      task.canStartPlanning ||
+      task.canRevisePlan) &&
+    selectedAgentId !== undefined
+  );
 }
 
-function isExecutionActionForTask(
+function isAttemptActionForTask(
   snapshot: Extract<WorkspaceSnapshot, { kind: 'ready' }>,
   taskId: string,
 ): boolean {
   return (
     isSelectedAction(snapshot, taskId, 'start-execution') ||
-    isSelectedAction(snapshot, taskId, 'retry-execution')
+    isSelectedAction(snapshot, taskId, 'retry-execution') ||
+    isSelectedAction(snapshot, taskId, 'start-planning')
   );
 }
 
@@ -600,21 +651,60 @@ function isSelectedAction(
   return snapshot.activeAction?.taskId === taskId && snapshot.activeAction.kind === kind;
 }
 
-function startActionTitle(
+function startAttemptTitle(
   task: WorkspaceTaskOverview,
   selectedAgentId: string | undefined,
 ): string {
-  if ((task.canRetryExecution || task.canStartExecution) && selectedAgentId === undefined) {
+  if (
+    (task.canRetryExecution ||
+      task.canStartExecution ||
+      task.canStartPlanning ||
+      task.canRevisePlan) &&
+    selectedAgentId === undefined
+  ) {
     return 'No configured coding agent is currently available.';
   }
   if (task.canRetryExecution) {
+    if (isFirstExecutionAfterPlan(task)) {
+      return 'Launch execution from the accepted Plan in the existing primary Task Worktree.';
+    }
     return 'Reuse the primary Task Worktree and launch a new Agent Session attempt.';
+  }
+  if (task.canStartPlanning || task.canRevisePlan) {
+    return 'Reuse the primary Task Worktree and launch a new planning Agent Session.';
   }
   return task.canStartExecution
     ? 'Provision or reuse the Task Worktree and launch a new Agent Session.'
     : task.activeSession === undefined
       ? 'The Task must be in PLANNING or RUNNING before execution can start.'
       : 'The Task already has an active Agent Session.';
+}
+
+function isFirstExecutionAfterPlan(task: WorkspaceTaskOverview): boolean {
+  return (
+    task.task.phase === 'RUNNING' &&
+    task.latestPlan?.sessionId !== undefined &&
+    task.latestPlan.sessionId === task.latestSession?.id
+  );
+}
+
+function PlanningSummary({ plan }: { readonly plan: WorkspaceTaskOverview['latestPlan'] }) {
+  if (plan === undefined) return null;
+  return (
+    <section className="planning-summary" aria-labelledby="planning-summary-heading">
+      <header>
+        <div>
+          <p className="eyebrow">Latest immutable planning artifact</p>
+          <h3 id="planning-summary-heading">Current plan</h3>
+        </div>
+        <span>{plan.id}</span>
+      </header>
+      <p className="artifact-card__provenance">
+        Session {plan.sessionId ?? 'unattributed'} · {plan.validation}
+      </p>
+      <pre>{plan.content}</pre>
+    </section>
+  );
 }
 
 function formatAgentOption(agent: AgentWorkspaceOverview['agents'][number]): string {

@@ -15,9 +15,12 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentSessionCoordinator,
   ConfiguredAgentCatalog,
+  acceptTaskPlan,
+  createTaskPlan,
   createTask,
   retryTaskExecution,
   startTaskExecution,
+  startTaskPlanning,
   transitionTask,
   type PtyHandle,
   type PtyLaunchSpec,
@@ -25,7 +28,12 @@ import {
   type PtyRuntimeEvent,
   type PtyRuntimeEventSink,
 } from '@agentterm/application';
-import { AgentSessionStatus, TaskPhase, createProject } from '@agentterm/domain';
+import {
+  AgentSessionStatus,
+  TaskPhase,
+  createProject,
+  transitionTask as transitionTaskState,
+} from '@agentterm/domain';
 
 import {
   CodexAdapter,
@@ -113,21 +121,84 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
           worktrees: persistence.worktrees,
         };
         const systemRoot = getEnvironmentVariable('SYSTEMROOT') ?? 'C:\\Windows';
-        const input = {
+        const planningInput = {
           agentId: 'codex',
           environment: { SystemRoot: systemRoot, WINDIR: systemRoot },
           initialSize: { columns: 120, rows: 36 },
-          sessionId: 'session-execution-1',
+          sessionId: 'session-planning-1',
           taskId: 'task-execution',
         };
 
-        const first = await startTaskExecution(input, dependencies);
+        const planningAttempt = await startTaskPlanning(planningInput, dependencies);
         runtime.emit(0, { exitCode: 0, kind: 'exited', sequence: 2 });
-        await sessions.findById(input.sessionId);
-        const trackedPath = join(first.worktree.worktree.worktreePath, 'tracked.txt');
-        const untrackedPath = join(first.worktree.worktree.worktreePath, 'recovery-notes.txt');
+        await sessions.findById(planningInput.sessionId);
+        const firstPlan = await createTaskPlan(
+          {
+            content: '# Plan\n\nImplement the execution slice without replacing prior evidence.',
+            createdAt: now++,
+            id: 'plan-execution-1',
+            sessionId: planningInput.sessionId,
+            taskId: planningInput.taskId,
+          },
+          {
+            artifacts: persistence.artifacts,
+            sessions: persistence.sessions,
+            tasks: persistence.tasks,
+          },
+        );
+        const trackedPath = join(planningAttempt.worktree.worktree.worktreePath, 'tracked.txt');
+        const untrackedPath = join(
+          planningAttempt.worktree.worktree.worktreePath,
+          'recovery-notes.txt',
+        );
         writeFileSync(trackedPath, 'uncommitted retry work\n');
         writeFileSync(untrackedPath, 'preserve this Vietnamese recovery note\n');
+        const revisedPlanningAttempt = await startTaskPlanning(
+          { ...planningInput, sessionId: 'session-planning-2' },
+          dependencies,
+        );
+        expect(revisedPlanningAttempt.worktree).toMatchObject({
+          kind: 'reused',
+          status: {
+            isDirty: true,
+            unstagedPaths: ['tracked.txt'],
+            untrackedPaths: ['recovery-notes.txt'],
+          },
+        });
+        runtime.emit(1, { exitCode: 0, kind: 'exited', sequence: 2 });
+        await sessions.findById('session-planning-2');
+        const revisedPlan = await createTaskPlan(
+          {
+            content: '# Plan\n\nRevised Plan that preserves the existing dirty Worktree.',
+            createdAt: now++,
+            id: 'plan-execution-2',
+            sessionId: 'session-planning-2',
+            taskId: planningInput.taskId,
+          },
+          {
+            artifacts: persistence.artifacts,
+            sessions: persistence.sessions,
+            tasks: persistence.tasks,
+          },
+        );
+        await acceptTaskPlan(
+          { planId: revisedPlan.id, taskId: planningInput.taskId },
+          {
+            artifacts: persistence.artifacts,
+            planning: persistence.tasks,
+            sessions: persistence.sessions,
+            tasks: persistence.tasks,
+          },
+        );
+        const first = await retryTaskExecution(
+          {
+            ...planningInput,
+            sessionId: 'session-execution-1',
+          },
+          dependencies,
+        );
+        runtime.emit(2, { exitCode: 0, kind: 'exited', sequence: 2 });
+        await sessions.findById('session-execution-1');
         persistence.close();
         persistence = openSqlitePersistence(databasePath);
         const recoveredSessions = new AgentSessionCoordinator({
@@ -139,11 +210,11 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         });
         const second = await retryTaskExecution(
           {
-            agentId: input.agentId,
-            environment: input.environment,
-            initialSize: input.initialSize,
+            agentId: planningInput.agentId,
+            environment: planningInput.environment,
+            initialSize: planningInput.initialSize,
             sessionId: 'session-execution-2',
-            taskId: input.taskId,
+            taskId: planningInput.taskId,
           },
           {
             git: new GitCliTaskWorktreeLifecycle(worktreesRoot),
@@ -154,7 +225,8 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
           },
         );
 
-        expect(first.worktree.kind).toBe('created');
+        expect(planningAttempt.worktree.kind).toBe('created');
+        expect(first.worktree.kind).toBe('reused');
         expect(second.worktree.kind).toBe('reused');
         expect(second.worktree.worktree).toEqual(first.worktree.worktree);
         expect(second.worktree.status).toMatchObject({
@@ -167,18 +239,26 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
           'preserve this Vietnamese recovery note\n',
         );
         expect(existsSync(first.worktree.worktree.worktreePath)).toBe(true);
-        expect(runtime.specs).toHaveLength(2);
+        expect(runtime.specs).toHaveLength(4);
         for (const spec of runtime.specs) {
           expect(spec.executablePath).toBeTruthy();
           expect(spec.workingDirectory).toBe(first.worktree.worktree.worktreePath);
           expect(spec.arguments.slice(-2)).toEqual(['--cd', first.worktree.worktree.worktreePath]);
         }
-        await expect(persistence.tasks.findById(input.taskId)).resolves.toMatchObject({
+        await expect(persistence.tasks.findById(planningInput.taskId)).resolves.toMatchObject({
           phase: TaskPhase.RUNNING,
         });
-        await expect(persistence.sessions.listByTaskId(input.taskId)).resolves.toMatchObject([
-          { agentId: 'codex', id: input.sessionId, status: AgentSessionStatus.EXITED },
+        await expect(
+          persistence.sessions.listByTaskId(planningInput.taskId),
+        ).resolves.toMatchObject([
+          { agentId: 'codex', id: planningInput.sessionId, status: AgentSessionStatus.EXITED },
+          { agentId: 'codex', id: 'session-planning-2', status: AgentSessionStatus.EXITED },
+          { agentId: 'codex', id: 'session-execution-1', status: AgentSessionStatus.EXITED },
           { agentId: 'codex', id: 'session-execution-2', status: AgentSessionStatus.WORKING },
+        ]);
+        await expect(persistence.artifacts.listByTaskId(planningInput.taskId)).resolves.toEqual([
+          firstPlan,
+          revisedPlan,
         ]);
         expect(countRegisteredWorktrees(canonicalRepositoryPath)).toBe(2);
       } finally {
@@ -245,6 +325,12 @@ describe('Task execution through the built-in agent catalog', () => {
             persistence.tasks,
           );
           await transitionTask({ taskId, to: TaskPhase.PLANNING }, persistence.tasks);
+          const planningTask = await persistence.tasks.findById(taskId);
+          if (planningTask === undefined) throw new Error('fixture Task missing');
+          await persistence.tasks.update(
+            transitionTaskState(planningTask, TaskPhase.RUNNING),
+            TaskPhase.PLANNING,
+          );
 
           const result = await startTaskExecution(
             {
@@ -315,6 +401,12 @@ describe('Task execution through the built-in agent catalog', () => {
         await transitionTask(
           { taskId: 'task-claude-launch-failure', to: TaskPhase.PLANNING },
           persistence.tasks,
+        );
+        const planningFailureTask = await persistence.tasks.findById('task-claude-launch-failure');
+        if (planningFailureTask === undefined) throw new Error('fixture Task missing');
+        await persistence.tasks.update(
+          transitionTaskState(planningFailureTask, TaskPhase.RUNNING),
+          TaskPhase.PLANNING,
         );
         const failure = await startTaskExecution(
           {

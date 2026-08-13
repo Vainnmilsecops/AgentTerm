@@ -21,6 +21,7 @@ import {
   TaskExecutionRetryError,
   TaskExecutionStartError,
   retryTaskExecution,
+  startTaskPlanning,
   startTaskExecution,
   type AgentAdapter,
   type AgentIdentity,
@@ -317,7 +318,7 @@ function taskAt(phase: TaskPhaseValue): Task {
   return task;
 }
 
-function createFixture(phase: TaskPhaseValue = TaskPhase.PLANNING) {
+function createFixture(phase: TaskPhaseValue = TaskPhase.RUNNING) {
   const events: string[] = [];
   const tasks = new MemoryTaskRepository([taskAt(phase)], events);
   const localProjects = new MemoryLocalProjectLocator(project);
@@ -353,6 +354,18 @@ function createFixture(phase: TaskPhaseValue = TaskPhase.PLANNING) {
 }
 
 describe('startTaskExecution', () => {
+  it('rejects PLANNING because only the explicit planning workflow may run in that phase', async () => {
+    const fixture = createFixture(TaskPhase.PLANNING);
+
+    await expect(startTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+      name: 'TaskExecutionPhaseError',
+      phase: TaskPhase.PLANNING,
+    });
+
+    expect(fixture.git.ensureCalls).toBe(0);
+    expect(fixture.runtime.specs).toEqual([]);
+  });
+
   it('rejects an unknown Agent before reading Task or Git state', async () => {
     const fixture = createFixture();
 
@@ -426,7 +439,7 @@ describe('startTaskExecution', () => {
     expect(fixture.runtime.specs).toEqual([]);
   });
 
-  it('provisions before RUNNING and launches the Session in the primary Worktree', async () => {
+  it('launches from RUNNING in the primary Worktree without changing Task phase', async () => {
     const fixture = createFixture();
     const observedEvents: PtyRuntimeEvent[] = [];
 
@@ -445,7 +458,6 @@ describe('startTaskExecution', () => {
       'worktree:PROVISIONING',
       'git:ensure',
       'worktree:PROVISIONING->PRESENT',
-      'task:RUNNING',
       'session:STARTING',
       `adapter:${primaryWorktree.worktreePath}`,
       `pty:${primaryWorktree.worktreePath}`,
@@ -479,7 +491,7 @@ describe('startTaskExecution', () => {
 
     expect(fixture.events).toEqual(eventsBeforeRestart);
     expect(fixture.git.ensureCalls).toBe(1);
-    expect(fixture.tasks.update).toHaveBeenCalledTimes(1);
+    expect(fixture.tasks.update).not.toHaveBeenCalled();
     await expect(
       fixture.sessionRepository.listByTaskId(executionInput.taskId),
     ).resolves.toHaveLength(1);
@@ -511,7 +523,7 @@ describe('startTaskExecution', () => {
 
     await expect(startTaskExecution(executionInput, fixture.dependencies)).rejects.toBe(gitFailure);
 
-    expect((await fixture.tasks.findById(executionInput.taskId))?.phase).toBe(TaskPhase.PLANNING);
+    expect((await fixture.tasks.findById(executionInput.taskId))?.phase).toBe(TaskPhase.RUNNING);
     expect(fixture.worktrees.record?.lifecycleState).toBe('PROVISIONING');
     expect(fixture.runtime.specs).toEqual([]);
     await expect(fixture.sessionRepository.listByTaskId(executionInput.taskId)).resolves.toEqual(
@@ -524,29 +536,14 @@ describe('startTaskExecution', () => {
     expect(fixture.git.ensureCalls).toBe(2);
   });
 
-  it('preserves a ready Worktree and starts no process when Task persistence fails', async () => {
+  it('reuses a ready Worktree without rewriting the RUNNING Task', async () => {
     const fixture = createFixture();
-    fixture.tasks.failNextUpdate = true;
+    const started = await startTaskExecution(executionInput, fixture.dependencies);
 
-    const failure = await startTaskExecution(executionInput, fixture.dependencies).catch(
-      (error: unknown) => error,
-    );
-
-    expect(failure).toBeInstanceOf(TaskExecutionStartError);
-    expect(failure).toMatchObject({
-      sessionId: executionInput.sessionId,
-      stage: 'TASK_STATE',
-      taskId: executionInput.taskId,
-      worktree: { worktree: primaryWorktree },
-    });
+    expect(started.task.phase).toBe(TaskPhase.RUNNING);
     expect(fixture.worktrees.record?.lifecycleState).toBe('PRESENT');
-    expect(fixture.runtime.specs).toEqual([]);
-    await expect(fixture.sessionRepository.listByTaskId(executionInput.taskId)).resolves.toEqual(
-      [],
-    );
-
-    const retried = await startTaskExecution(executionInput, fixture.dependencies);
-    expect(retried.worktree.kind).toBe('reused');
+    expect(fixture.runtime.specs).toHaveLength(1);
+    expect(fixture.tasks.update).not.toHaveBeenCalled();
     expect(fixture.git.ensureCalls).toBe(1);
   });
 
@@ -676,6 +673,63 @@ describe('startTaskExecution', () => {
       phase: TaskPhase.RUNNING,
     });
   });
+});
+
+describe('startTaskPlanning', () => {
+  it('launches the selected Agent in a primary Worktree while Task stays PLANNING', async () => {
+    const fixture = createFixture(TaskPhase.PLANNING);
+
+    const result = await startTaskPlanning(executionInput, fixture.dependencies);
+
+    expect(result).toMatchObject({
+      previousSession: undefined,
+      session: { agentId: 'codex', id: 'session-1', status: AgentSessionStatus.WORKING },
+      task: { phase: TaskPhase.PLANNING },
+      worktree: { kind: 'created', worktree: primaryWorktree },
+    });
+    expect((await fixture.tasks.findById(executionInput.taskId))?.phase).toBe(TaskPhase.PLANNING);
+    expect(fixture.runtime.specs[0]).toMatchObject({
+      workingDirectory: primaryWorktree.worktreePath,
+    });
+  });
+
+  it('re-plans with a new AgentSession and reuses dirty Worktree history', async () => {
+    const fixture = createFixture(TaskPhase.PLANNING);
+    await startTaskPlanning(executionInput, fixture.dependencies);
+    fixture.runtime.emit(0, { exitCode: 0, kind: 'exited', sequence: 2 });
+    await fixture.sessionCoordinator.findById(executionInput.sessionId);
+
+    const revised = await startTaskPlanning(
+      { ...executionInput, agentId: 'other-agent', sessionId: 'session-2' },
+      fixture.dependencies,
+    );
+
+    expect(revised).toMatchObject({
+      previousSession: { agentId: 'codex', id: 'session-1', status: AgentSessionStatus.EXITED },
+      session: { agentId: 'other-agent', id: 'session-2', status: AgentSessionStatus.WORKING },
+      task: { phase: TaskPhase.PLANNING },
+      worktree: { kind: 'reused', worktree: primaryWorktree },
+    });
+    expect(fixture.git.ensureCalls).toBe(1);
+    await expect(
+      fixture.sessionRepository.listByTaskId(executionInput.taskId),
+    ).resolves.toMatchObject([{ id: 'session-1' }, { id: 'session-2' }]);
+  });
+
+  it.each([TaskPhase.BACKLOG, TaskPhase.RUNNING, TaskPhase.REVIEW, TaskPhase.DONE])(
+    'rejects planning from Task phase %s before Git mutation',
+    async (phase) => {
+      const fixture = createFixture(phase);
+
+      await expect(startTaskPlanning(executionInput, fixture.dependencies)).rejects.toMatchObject({
+        name: 'TaskPlanningPhaseError',
+        phase,
+      });
+
+      expect(fixture.git.ensureCalls).toBe(0);
+      expect(fixture.runtime.specs).toEqual([]);
+    },
+  );
 });
 
 describe('retryTaskExecution', () => {

@@ -20,10 +20,12 @@ Updated: 2026-08-13
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application startup reconciliation now finds persisted Agent Sessions whose history still implies possible runtime ownership, including a fatal runtime failure with no observed process exit, and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
-- Application now exposes `startTaskExecution` for a history-free `PLANNING` or already-`RUNNING` Task: it resolves a user-selected stable agent ID before Task or Git mutation, ensures or reuses its primary Worktree, persists `RUNNING`, records that exact identity in a fresh Agent Session, and launches the selected adapter there.
+- Application now exposes `startTaskPlanning` for a `PLANNING` Task: it resolves the user-selected stable agent before Git mutation, creates or reuses the primary Task Worktree, records a fresh Agent Session, and keeps the Task in `PLANNING`. Re-plan attempts append new Sessions in the same Worktree.
+- A session-produced structured Plan is stored as a new immutable `planning/plan.md` artifact. Only explicit user acceptance of the exact latest persisted Plan moves `PLANNING -> RUNNING`; SQLite atomically rechecks Task phase, Plan identity/provenance, the complete Session revision snapshot, and absence of a possible live writer. Agent output and process exit never accept a Plan.
+- `startTaskExecution` now requires an already-`RUNNING` history-free Task. After planning or an earlier execution attempt, `retryTaskExecution` creates the next selected-agent Session in the existing primary Worktree without cleaning it or replacing history.
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, resolves the user's selected stable agent ID, reuses the primary Worktree without cleaning dirty code, and creates a new Session while preserving every earlier attempt.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
-- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector shows availability and basic capabilities and selects the agent for the next Start or Retry attempt; historical unknown IDs remain visible through a raw-ID fallback.
+- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector chooses the agent for the next planning or execution attempt; the workspace shows the latest Plan and explicit Start planning, Revise plan, and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
 - Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
 - Domain now models configured `LINT`, `TYPECHECK`, `TEST`, and `BUILD` Quality Gates plus immutable runs whose runtime status and evidence are independent from `TaskPhase`.
@@ -111,8 +113,9 @@ Updated: 2026-08-13
   `RUNTIME_OWNERSHIP_LOST` failure event through revision-checked history append. The
   operation is idempotent, preserves partial progress for a later retry, and needs no schema change
   because migration 4 already stores the required lifecycle evidence.
-- Task execution orders external effects deliberately: validate phase, ensure/reuse the Worktree,
-  persist `RUNNING`, then create and launch a new Session. A later failure preserves the ready
+- Planning and execution order external effects deliberately: validate the exact phase, ensure/reuse the Worktree,
+  then create and launch a phase-bound new Session. Plan acceptance owns the explicit `PLANNING -> RUNNING`
+  transition before any execution attempt. A later launch failure preserves the ready
   Worktree and durable Task/Session checkpoint for inspection; it never deletes Git state or
   pretends SQLite can roll back Git or a spawned process. Reusing an old Session id is rejected.
 - Retry serializes execution admission per Task and rejects missing history, an unconfigured selected agent, any
@@ -139,6 +142,9 @@ Updated: 2026-08-13
   history. SQLite stores validated text and fixed contract metadata directly, so this slice adds no
   user-controlled filesystem path. Metadata excludes environment and credential data, and the
   desktop renders artifact content as escaped plain text instead of executable HTML.
+- Plan creation is phase-bound and requires same-Task Agent Session provenance. Accept Plan uses the
+  latest immutable Plan rather than a mutable file or agent claim; re-planning appends a new Session
+  and Plan and makes older Plans historical without deleting either artifact or the Worktree.
 - Quality Gate execution is a one-shot Application workflow, not an agent claim or Task transition.
   It serializes with in-process Worktree lifecycle operations, inspects but never provisions or
   cleans the Worktree, inserts `RUNNING` before spawn, and finalizes the same immutable run through
@@ -210,7 +216,7 @@ trusted-repository limitation around configured clean/process filters.
 ## Next Step
 
 Bind startup session reconciliation, artifact/review reads, `loadAgentWorkspace`,
-`startTaskExecution`, `retryTaskExecution`, the three explicit Review commands, and terminal attachment
+`startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`, `retryTaskExecution`, the three explicit Review commands, and terminal attachment
 to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch

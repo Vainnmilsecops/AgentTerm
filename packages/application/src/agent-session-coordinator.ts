@@ -1,5 +1,6 @@
 import {
   AgentSessionStatus,
+  TaskPhase,
   createAgentSession,
   recordAgentSessionEvent,
   type AgentSession,
@@ -36,6 +37,8 @@ export interface StartAgentSessionInput {
   readonly initialSize: PtyTerminalSize;
   readonly sessionId: string;
   readonly taskId: string;
+  /** Defaults to RUNNING for compatibility; planning must opt in explicitly. */
+  readonly expectedTaskPhase?: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING;
   readonly workingDirectory: string;
 }
 
@@ -292,7 +295,7 @@ export class AgentSessionCoordinator {
       id: input.sessionId,
       taskId: input.taskId,
     });
-    await this.sessions.insert(starting);
+    await this.sessions.insert(starting, input.expectedTaskPhase ?? TaskPhase.RUNNING);
 
     let command;
     try {

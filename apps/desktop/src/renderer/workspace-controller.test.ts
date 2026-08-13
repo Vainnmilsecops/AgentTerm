@@ -4,12 +4,26 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentWorkspaceOverview, WorkspaceTaskOverview } from '@agentterm/application';
 
-import { AgentWorkspaceView } from './agent-workspace';
+import {
+  AgentWorkspaceView as AgentWorkspaceViewComponent,
+  type AgentWorkspaceViewProps,
+} from './agent-workspace';
 import {
   WorkspaceController,
   type AgentWorkspaceClient,
   type WorkspaceSnapshot,
 } from './workspace-controller';
+
+type TestWorkspaceViewProps = Omit<AgentWorkspaceViewProps, 'onAcceptPlan' | 'onStartPlanning'> &
+  Partial<Pick<AgentWorkspaceViewProps, 'onAcceptPlan' | 'onStartPlanning'>>;
+
+function AgentWorkspaceView(props: TestWorkspaceViewProps) {
+  return createElement(AgentWorkspaceViewComponent, {
+    onAcceptPlan: () => undefined,
+    onStartPlanning: () => undefined,
+    ...props,
+  });
+}
 
 const project = Object.freeze({
   id: 'project-1',
@@ -73,9 +87,13 @@ const failedTestRun: WorkspaceTaskOverview['qualityGateRuns'][number] = Object.f
   taskId: runningTask.id,
 });
 const emptyReviewState = Object.freeze({
+  canAcceptPlan: false,
   canApproveReview: false,
   canRequestChanges: false,
   canRequestReview: false,
+  canRevisePlan: false,
+  canStartPlanning: false,
+  latestPlan: undefined,
   latestReview: undefined,
   reviewHistory: Object.freeze([]),
 });
@@ -104,11 +122,33 @@ const planningOverview: AgentWorkspaceOverview = Object.freeze({
           activeSession: undefined,
           artifacts: [],
           canRetryExecution: false,
-          canStartExecution: true,
+          canStartExecution: false,
+          canStartPlanning: true,
           latestSession: undefined,
           previousSession: undefined,
           qualityGateRuns: [],
           task: planningTask,
+        },
+      ],
+    },
+  ],
+});
+const runningStartOverview: AgentWorkspaceOverview = Object.freeze({
+  agents: availableAgents,
+  projects: [
+    {
+      project,
+      tasks: [
+        {
+          ...emptyReviewState,
+          activeSession: undefined,
+          artifacts: [],
+          canRetryExecution: false,
+          canStartExecution: true,
+          latestSession: undefined,
+          previousSession: undefined,
+          qualityGateRuns: [],
+          task: runningTask,
         },
       ],
     },
@@ -224,6 +264,7 @@ const pendingReviewOverview = Object.freeze({
       project,
       tasks: [
         {
+          ...emptyReviewState,
           activeSession: undefined,
           artifacts: [],
           canApproveReview: true,
@@ -264,6 +305,12 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public loadFailure: Error | undefined;
   public startGate: Promise<void> | undefined;
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
+    async () => undefined,
+  );
+  public readonly startTaskPlanning = vi.fn<AgentWorkspaceClient['startTaskPlanning']>(
+    async () => undefined,
+  );
+  public readonly acceptTaskPlan = vi.fn<AgentWorkspaceClient['acceptTaskPlan']>(
     async () => undefined,
   );
   public readonly retryTaskExecution = vi.fn<AgentWorkspaceClient['retryTaskExecution']>(
@@ -401,16 +448,17 @@ describe('WorkspaceController', () => {
     expect(client.startTaskExecution).not.toHaveBeenCalled();
   });
 
-  it('starts the selected Task once, reloads the overview, and preserves selection', async () => {
+  it('starts planning with the selected Agent without dispatching execution', async () => {
     const client = new FakeWorkspaceClient();
     client.loadResults = [planningOverview, failedOverview];
     const controller = new WorkspaceController(client);
     await controller.load();
 
-    await Promise.all([controller.startSelectedTask(), controller.startSelectedTask()]);
+    await Promise.all([controller.startSelectedPlanning(), controller.startSelectedPlanning()]);
 
-    expect(client.startTaskExecution).toHaveBeenCalledOnce();
-    expect(client.startTaskExecution).toHaveBeenCalledWith({ agentId: 'codex', taskId: 'task-1' });
+    expect(client.startTaskPlanning).toHaveBeenCalledOnce();
+    expect(client.startTaskPlanning).toHaveBeenCalledWith({ agentId: 'codex', taskId: 'task-1' });
+    expect(client.startTaskExecution).not.toHaveBeenCalled();
     expect(controller.snapshot).toMatchObject({
       actionError: undefined,
       kind: 'ready',
@@ -421,6 +469,70 @@ describe('WorkspaceController', () => {
       latestSession: { status: 'FAILED' },
       task: { phase: 'RUNNING' },
     });
+  });
+
+  it('accepts the exact latest Plan and reloads the RUNNING Task', async () => {
+    const plan = Object.freeze({
+      canonicalName: 'planning/plan.md' as const,
+      content: '# Plan\n\nImplement after explicit acceptance.',
+      createdAt: 1_800_000_000_100,
+      format: 'markdown' as const,
+      id: 'plan-latest',
+      kind: 'plan' as const,
+      phase: 'PLANNING' as const,
+      schemaVersion: 1 as const,
+      sessionId: failedSession.id,
+      taskId: planningTask.id,
+      validation: 'VALID' as const,
+    });
+    const ready = {
+      ...planningOverview,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...planningOverview.projects[0]!.tasks[0]!,
+              artifacts: [plan],
+              canAcceptPlan: true,
+              canRevisePlan: true,
+              canStartPlanning: false,
+              latestPlan: plan,
+              latestSession: failedSession,
+            },
+          ],
+        },
+      ],
+    } satisfies AgentWorkspaceOverview;
+    const running = {
+      ...ready,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...ready.projects[0]!.tasks[0]!,
+              canAcceptPlan: false,
+              canRetryExecution: true,
+              canRevisePlan: false,
+              task: runningTask,
+            },
+          ],
+        },
+      ],
+    } satisfies AgentWorkspaceOverview;
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [ready, running];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await controller.acceptSelectedPlan();
+
+    expect(client.acceptTaskPlan).toHaveBeenCalledWith({
+      planId: plan.id,
+      taskId: planningTask.id,
+    });
+    expect(selectedTask(controller.snapshot)).toMatchObject({ task: { phase: 'RUNNING' } });
   });
 
   it('retries a terminal attempt once and selects the newly active Session', async () => {
@@ -605,6 +717,7 @@ describe('WorkspaceController', () => {
     });
 
     const startClient = new FakeWorkspaceClient();
+    startClient.loadResults = [runningStartOverview];
     startClient.startTaskExecution.mockRejectedValueOnce(new Error('OPENAI_API_KEY=secret'));
     const startController = new WorkspaceController(startClient);
     await startController.load();
@@ -673,6 +786,7 @@ describe('WorkspaceController', () => {
 
   it('does not report a successful execution side effect as failed when only refresh fails', async () => {
     const client = new FakeWorkspaceClient();
+    client.loadResults = [runningStartOverview];
     const controller = new WorkspaceController(client);
     await controller.load();
     client.loadFailure = new Error('database became unavailable');
@@ -842,6 +956,131 @@ describe('WorkspaceController', () => {
 });
 
 describe('AgentWorkspaceView', () => {
+  it('renders the latest Plan and explicit Accept and Revise actions while staying PLANNING', () => {
+    const plan = Object.freeze({
+      canonicalName: 'planning/plan.md' as const,
+      content: '# Plan\n\n1. Inspect.\n2. Implement.\n3. Validate.',
+      createdAt: 1_800_000_000_100,
+      format: 'markdown' as const,
+      id: 'plan-visible',
+      kind: 'plan' as const,
+      phase: 'PLANNING' as const,
+      schemaVersion: 1 as const,
+      sessionId: failedSession.id,
+      taskId: planningTask.id,
+      validation: 'VALID' as const,
+    });
+    const overview: AgentWorkspaceOverview = {
+      ...planningOverview,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...planningOverview.projects[0]!.tasks[0]!,
+              artifacts: [plan],
+              canAcceptPlan: true,
+              canRevisePlan: true,
+              canStartPlanning: false,
+              latestPlan: plan,
+              latestSession: failedSession,
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onAcceptPlan: () => undefined,
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectAgent: () => undefined,
+        onSelectTask: () => undefined,
+        onStartPlanning: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview,
+          selectedAgentId: 'codex',
+          selectedTaskId: planningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Current plan');
+    expect(markup).toContain('plan-visible');
+    expect(markup).toContain('1. Inspect.');
+    expect(markup).toContain('Revise plan');
+    expect(markup).toContain('Accept Plan and enter RUNNING');
+    expect(markup).toContain('Task phase</span><strong>PLANNING');
+    expect(markup).not.toContain('Task phase</span><strong>RUNNING');
+  });
+
+  it('labels the first post-acceptance attempt as Start execution even though Session history is preserved', () => {
+    const plan = Object.freeze({
+      canonicalName: 'planning/plan.md' as const,
+      content: '# Plan\n\nExecute only after acceptance.',
+      createdAt: 1_800_000_000_100,
+      format: 'markdown' as const,
+      id: 'plan-accepted',
+      kind: 'plan' as const,
+      phase: 'PLANNING' as const,
+      schemaVersion: 1 as const,
+      sessionId: failedSession.id,
+      taskId: runningTask.id,
+      validation: 'VALID' as const,
+    });
+    const overview: AgentWorkspaceOverview = {
+      ...failedOverview,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...failedOverview.projects[0]!.tasks[0]!,
+              artifacts: [plan],
+              latestPlan: plan,
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectAgent: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview,
+          selectedAgentId: 'codex',
+          selectedTaskId: runningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('>Start execution</button>');
+    expect(markup).not.toContain('>Retry execution</button>');
+  });
+
   it('enables the accessible agent selector for Retry and labels current and historical identities', () => {
     const historicalSession = Object.freeze({ ...failedSession, agentId: 'legacy-agent' });
     const overview: AgentWorkspaceOverview = {
@@ -891,7 +1130,7 @@ describe('AgentWorkspaceView', () => {
 
     expect(markup).toContain('aria-label="Coding agent"');
     expect(markup).toContain('Agent for next attempt');
-    expect(markup).toContain('Used for the next Start or Retry attempt.');
+    expect(markup).toContain('Used for the next planning or execution attempt.');
     expect(markup).not.toMatch(
       /<select[^>]*disabled=""[^>]*aria-label="Coding agent"|<select[^>]*aria-label="Coding agent"[^>]*disabled=""/u,
     );

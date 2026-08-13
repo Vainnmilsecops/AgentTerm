@@ -175,4 +175,19 @@ describe('transitionTask', () => {
     });
     await expect(tasks.findById(review.id)).resolves.toEqual(review);
   });
+
+  it('requires Accept Plan for the PLANNING to RUNNING transition', async () => {
+    const tasks = new InMemoryTaskRepository();
+    const planning = transitionDomainTask(createDomainTask(validTaskInput), TaskPhase.PLANNING);
+    await tasks.insert(planning);
+
+    await expect(
+      transitionTask({ taskId: planning.id, to: TaskPhase.RUNNING }, tasks),
+    ).rejects.toMatchObject({
+      from: TaskPhase.PLANNING,
+      name: 'TaskPlanningFlowRequiredError',
+      to: TaskPhase.RUNNING,
+    });
+    await expect(tasks.findById(planning.id)).resolves.toEqual(planning);
+  });
 });

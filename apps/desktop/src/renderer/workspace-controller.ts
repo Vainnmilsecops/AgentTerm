@@ -3,16 +3,24 @@ import type { AgentWorkspaceOverview } from '@agentterm/application';
 import type { TerminalSessionClient } from './terminal-controller';
 
 export interface AgentWorkspaceClient extends TerminalSessionClient {
+  acceptTaskPlan(input: { readonly planId: string; readonly taskId: string }): Promise<void>;
   approveTaskReview(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
   retryTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
+  startTaskPlanning(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
 }
 
 export type WorkspaceActionKind =
-  'approve-review' | 'request-changes' | 'request-review' | 'retry-execution' | 'start-execution';
+  | 'accept-plan'
+  | 'approve-review'
+  | 'request-changes'
+  | 'request-review'
+  | 'retry-execution'
+  | 'start-execution'
+  | 'start-planning';
 
 export interface WorkspaceAction {
   readonly kind: WorkspaceActionKind;
@@ -128,6 +136,14 @@ export class WorkspaceController {
     return this.executeSelectedAction('retry-execution');
   }
 
+  public startSelectedPlanning(): Promise<void> {
+    return this.executeSelectedAction('start-planning');
+  }
+
+  public acceptSelectedPlan(): Promise<void> {
+    return this.executeSelectedAction('accept-plan');
+  }
+
   public requestSelectedTaskReview(): Promise<void> {
     return this.executeSelectedAction('request-review');
   }
@@ -155,21 +171,26 @@ export class WorkspaceController {
       return Promise.resolve();
     }
 
-    const reviewId =
+    const evidenceId =
       kind === 'approve-review' || kind === 'request-changes'
         ? selected.latestReview?.id
-        : undefined;
-    if ((kind === 'approve-review' || kind === 'request-changes') && reviewId === undefined) {
+        : kind === 'accept-plan'
+          ? selected.latestPlan?.id
+          : undefined;
+    if (
+      (kind === 'approve-review' || kind === 'request-changes' || kind === 'accept-plan') &&
+      evidenceId === undefined
+    ) {
       return Promise.resolve();
     }
     if (
-      (kind === 'start-execution' || kind === 'retry-execution') &&
+      (kind === 'start-execution' || kind === 'retry-execution' || kind === 'start-planning') &&
       selectedAgentId === undefined
     ) {
       return Promise.resolve();
     }
 
-    const attempt = this.performAction({ kind, taskId }, reviewId, selectedAgentId);
+    const attempt = this.performAction({ kind, taskId }, evidenceId, selectedAgentId);
     this.actionAttempt = attempt;
     void attempt
       .finally(() => {
@@ -188,7 +209,7 @@ export class WorkspaceController {
 
   private async performAction(
     action: WorkspaceAction,
-    reviewId: string | undefined,
+    evidenceId: string | undefined,
     agentId: string | undefined,
   ): Promise<void> {
     const current = this.snapshot;
@@ -204,7 +225,7 @@ export class WorkspaceController {
       }),
     );
     try {
-      await runWorkspaceAction(this.client, action, reviewId, agentId);
+      await runWorkspaceAction(this.client, action, evidenceId, agentId);
       sideEffectCompleted = true;
       const overview = await this.client.loadWorkspace();
       if (!this.disposed) {
@@ -267,10 +288,16 @@ export class WorkspaceController {
 async function runWorkspaceAction(
   client: AgentWorkspaceClient,
   action: WorkspaceAction,
-  reviewId: string | undefined,
+  evidenceId: string | undefined,
   agentId: string | undefined,
 ): Promise<void> {
   switch (action.kind) {
+    case 'start-planning':
+      await client.startTaskPlanning({ agentId: requireAgentId(agentId), taskId: action.taskId });
+      return;
+    case 'accept-plan':
+      await client.acceptTaskPlan({ planId: requirePlanId(evidenceId), taskId: action.taskId });
+      return;
     case 'start-execution':
       await client.startTaskExecution({ agentId: requireAgentId(agentId), taskId: action.taskId });
       return;
@@ -282,13 +309,13 @@ async function runWorkspaceAction(
       return;
     case 'approve-review':
       await client.approveTaskReview({
-        reviewId: requireReviewId(reviewId),
+        reviewId: requireReviewId(evidenceId),
         taskId: action.taskId,
       });
       return;
     case 'request-changes':
       await client.requestTaskChanges({
-        reviewId: requireReviewId(reviewId),
+        reviewId: requireReviewId(evidenceId),
         taskId: action.taskId,
       });
   }
@@ -306,6 +333,10 @@ function canRunAction(
   kind: WorkspaceActionKind,
 ): boolean {
   switch (kind) {
+    case 'start-planning':
+      return task.canStartPlanning || task.canRevisePlan;
+    case 'accept-plan':
+      return task.canAcceptPlan && task.latestPlan !== undefined;
     case 'start-execution':
       return task.canStartExecution;
     case 'retry-execution':
@@ -319,6 +350,13 @@ function canRunAction(
   }
 }
 
+function requirePlanId(planId: string | undefined): string {
+  if (planId === undefined) {
+    throw new TypeError('A valid latest Plan is required.');
+  }
+  return planId;
+}
+
 function requireReviewId(reviewId: string | undefined): string {
   if (reviewId === undefined) {
     throw new TypeError('A pending Task Review is required.');
@@ -328,6 +366,10 @@ function requireReviewId(reviewId: string | undefined): string {
 
 function actionFailureMessage(kind: WorkspaceActionKind): string {
   switch (kind) {
+    case 'start-planning':
+      return 'Task planning could not be started.';
+    case 'accept-plan':
+      return 'Task Plan could not be accepted.';
     case 'start-execution':
       return 'Task execution could not be started.';
     case 'retry-execution':
@@ -343,6 +385,10 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
 
 function refreshFailureMessage(kind: WorkspaceActionKind): string {
   switch (kind) {
+    case 'start-planning':
+      return 'Task planning started, but workspace status could not be refreshed.';
+    case 'accept-plan':
+      return 'Task Plan accepted, but workspace status could not be refreshed.';
     case 'start-execution':
     case 'retry-execution':
       return 'Task execution started, but workspace status could not be refreshed.';

@@ -5,10 +5,10 @@ import { AgentSessionPersistenceError } from './errors';
 import type {
   AgentCatalog,
   AgentSessionRepository,
-  ExecutionArtifactRepository,
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
+  TaskPlanningArtifactRepository,
   TaskReviewRepository,
 } from './ports';
 import { loadAgentWorkspace, type AgentWorkspaceOverview } from './workspace-overview';
@@ -63,7 +63,7 @@ export async function restoreAgentWorkspaceAfterRestart(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
-  artifacts: ExecutionArtifactRepository,
+  artifacts: TaskPlanningArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
   reviews: TaskReviewRepository,
   agents: AgentCatalog,

@@ -186,6 +186,15 @@ class FakeArtifactRepository implements ExecutionArtifactRepository {
     return this.artifacts.find((artifact) => artifact.id === id);
   }
 
+  public async findLatestByTaskIdAndKind(
+    taskId: string,
+    kind: ExecutionArtifact['kind'],
+  ): Promise<ExecutionArtifact | undefined> {
+    return this.artifacts
+      .filter((artifact) => artifact.taskId === taskId && artifact.kind === kind)
+      .at(-1);
+  }
+
   public async insert(): Promise<never> {
     throw new Error('insert is not used by the workspace overview');
   }
@@ -340,12 +349,16 @@ describe('loadAgentWorkspace', () => {
             {
               activeSession: workingSummary,
               artifacts: [plan, summary],
+              canAcceptPlan: false,
               canRetryExecution: false,
+              canRevisePlan: false,
               canStartExecution: false,
+              canStartPlanning: false,
               canApproveReview: false,
               canRequestChanges: false,
               canRequestReview: false,
               latestSession: workingSummary,
+              latestPlan: plan,
               latestReview: undefined,
               previousSession: summarize(exited),
               qualityGateRuns: [summarizeGateRun(lintPassed), summarizeGateRun(testsFailed)],
@@ -355,12 +368,16 @@ describe('loadAgentWorkspace', () => {
             {
               activeSession: olderActiveSummary,
               artifacts: [],
+              canAcceptPlan: false,
               canRetryExecution: false,
+              canRevisePlan: false,
               canStartExecution: false,
+              canStartPlanning: false,
               canApproveReview: false,
               canRequestChanges: false,
               canRequestReview: false,
               latestSession: latestFailedSummary,
+              latestPlan: undefined,
               latestReview: undefined,
               previousSession: olderActiveSummary,
               qualityGateRuns: [],
@@ -459,15 +476,18 @@ describe('loadAgentWorkspace', () => {
       ),
       TaskPhase.RUNNING,
     );
-    const artifacts = Array.from({ length: 21 }, (_, index) =>
-      createExecutionArtifact({
-        content: `# Plan\n\nArtifact ${index}.`,
+    const artifacts = Array.from({ length: 21 }, (_, index) => {
+      const planningArtifact = index === 0;
+      return createExecutionArtifact({
+        content: planningArtifact
+          ? '# Plan\n\nAccepted plan remains independently discoverable.'
+          : `# Execution Summary\n\nArtifact ${index}.`,
         createdAt: index,
         id: `artifact-${index}`,
-        kind: 'plan',
+        kind: planningArtifact ? 'plan' : 'execution-summary',
         taskId: runningTask.id,
-      }),
-    );
+      });
+    });
     const artifactRepository = new FakeArtifactRepository(artifacts);
 
     const workspace = await loadAgentWorkspace(
@@ -483,6 +503,7 @@ describe('loadAgentWorkspace', () => {
     expect(workspace.projects[0]?.tasks[0]?.artifacts).toHaveLength(20);
     expect(workspace.projects[0]?.tasks[0]?.artifacts[0]?.id).toBe('artifact-1');
     expect(workspace.projects[0]?.tasks[0]?.artifacts.at(-1)?.id).toBe('artifact-20');
+    expect(workspace.projects[0]?.tasks[0]?.latestPlan?.id).toBe('artifact-0');
     expect(artifactRepository.listAllCalls).toBe(0);
     expect(artifactRepository.recentLimits).toEqual([20]);
     expect(artifactRepository.reviewEvidenceLimits).toEqual([0]);
@@ -542,9 +563,61 @@ describe('loadAgentWorkspace', () => {
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
-      { canRetryExecution: false, canStartExecution: false, task: { phase: 'BACKLOG' } },
-      { canRetryExecution: false, canStartExecution: true, task: { phase: 'PLANNING' } },
+      {
+        canRetryExecution: false,
+        canStartExecution: false,
+        canStartPlanning: false,
+        task: { phase: 'BACKLOG' },
+      },
+      {
+        canRetryExecution: false,
+        canStartExecution: false,
+        canStartPlanning: true,
+        task: { phase: 'PLANNING' },
+      },
     ]);
+  });
+
+  it('publishes latest Plan readiness and allows an immutable re-plan after terminal planning', async () => {
+    const project: LocalProject = {
+      id: 'project-planning',
+      name: 'Planning',
+      rootPath: 'D:\\Repositories\\Planning',
+    };
+    const task = transitionTask(
+      createTask({ id: 'planning-task', projectId: project.id, title: 'Create a plan' }),
+      TaskPhase.PLANNING,
+    );
+    const session = exitSession(startSession('session-plan', task.id, 100), 0, 101);
+    const plan = createExecutionArtifact({
+      content: '# Plan\n\nPreserve history and wait for explicit acceptance.',
+      createdAt: 102,
+      id: 'plan-1',
+      kind: 'plan',
+      sessionId: session.id,
+      taskId: task.id,
+    });
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([task]),
+      new FakeSessionRepository([session]),
+      new FakeArtifactRepository([plan]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+      defaultAgents,
+    );
+
+    expect(workspace.projects[0]?.tasks[0]).toMatchObject({
+      canAcceptPlan: true,
+      canRetryExecution: false,
+      canRevisePlan: true,
+      canStartExecution: false,
+      canStartPlanning: false,
+      latestPlan: { id: plan.id, sessionId: session.id },
+      latestSession: { id: session.id, status: 'EXITED' },
+      task: { phase: TaskPhase.PLANNING },
+    });
   });
 
   it('offers retry only for an eligible Task whose latest Session is terminal', async () => {

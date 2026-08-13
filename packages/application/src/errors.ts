@@ -178,6 +178,47 @@ export class AgentNotConfiguredError extends Error {
   }
 }
 
+export class TaskPlanningFlowRequiredError extends Error {
+  public readonly from: TaskPhase;
+  public readonly to: TaskPhase;
+
+  public constructor(from: TaskPhase, to: TaskPhase) {
+    super('The Task can enter RUNNING only through explicit plan acceptance.');
+    this.name = 'TaskPlanningFlowRequiredError';
+    this.from = from;
+    this.to = to;
+  }
+}
+
+export class TaskPlanningPhaseError extends Error {
+  public readonly phase: TaskPhase;
+  public readonly taskId: string;
+
+  public constructor(taskId: string, phase: TaskPhase) {
+    super(`Task ${taskId} cannot start planning from ${phase}.`);
+    this.name = 'TaskPlanningPhaseError';
+    this.phase = phase;
+    this.taskId = taskId;
+  }
+}
+
+export type TaskPlanReadinessFailure =
+  'ACTIVE_SESSION' | 'PLAN_NOT_FOUND' | 'PLAN_NOT_LATEST' | 'PLAN_PROVENANCE_INVALID';
+
+export class TaskPlanReadinessError extends Error {
+  public readonly planId: string;
+  public readonly reason: TaskPlanReadinessFailure;
+  public readonly taskId: string;
+
+  public constructor(reason: TaskPlanReadinessFailure, taskId: string, planId: string) {
+    super('The selected Plan is not ready for acceptance.');
+    this.name = 'TaskPlanReadinessError';
+    this.planId = planId;
+    this.reason = reason;
+    this.taskId = taskId;
+  }
+}
+
 export class AgentSessionPersistenceError extends Error {
   public readonly sessionId: string;
 
