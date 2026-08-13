@@ -112,6 +112,7 @@ describe('Agent Session startup restore with SQLite', () => {
           reopened.qualityGateRuns,
           reopened.reviews,
           new ConfiguredAgentCatalog([codexAdapter]),
+          reopened.taskDependencies,
         );
         const sessions = await reopened.sessions.listByTaskId('task-1');
 

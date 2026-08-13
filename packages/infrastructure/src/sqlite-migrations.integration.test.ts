@@ -118,6 +118,8 @@ describe('SQLite migrations', () => {
                  'quality_gate_runs_task_ordinal_index',
                  'task_reviews_one_pending_per_task_index',
                  'task_reviews_task_ordinal_index',
+                 'task_dependencies_project_index',
+                 'tasks_identity_project_index',
                  'tasks_project_id_index',
                  'project_roots_recent_index'
                )
@@ -133,6 +135,7 @@ describe('SQLite migrations', () => {
           'project_roots',
           'projects',
           'quality_gate_runs',
+          'task_dependencies',
           'task_review_artifacts',
           'task_review_changed_paths',
           'task_review_quality_gates',
@@ -148,6 +151,7 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
           { name: 'task-reviews', version: 7 },
+          { name: 'task-dependencies', version: 8 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -158,8 +162,10 @@ describe('SQLite migrations', () => {
           { name: 'project_roots_recent_index' },
           { name: 'quality_gate_runs_identity_task_index' },
           { name: 'quality_gate_runs_task_ordinal_index' },
+          { name: 'task_dependencies_project_index' },
           { name: 'task_reviews_one_pending_per_task_index' },
           { name: 'task_reviews_task_ordinal_index' },
+          { name: 'tasks_identity_project_index' },
           { name: 'tasks_project_id_index' },
         ]);
       } finally {
@@ -343,6 +349,7 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
           { name: 'task-reviews', version: 7 },
+          { name: 'task-dependencies', version: 8 },
         ]);
       } finally {
         migrated.close();
@@ -414,6 +421,7 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
           { name: 'task-reviews', version: 7 },
+          { name: 'task-dependencies', version: 8 },
         ]);
       } finally {
         migrated.close();
@@ -504,6 +512,7 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
           { name: 'task-reviews', version: 7 },
+          { name: 'task-dependencies', version: 8 },
         ]);
       } finally {
         migrated.close();
@@ -565,6 +574,7 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
           { name: 'task-reviews', version: 7 },
+          { name: 'task-dependencies', version: 8 },
         ]);
       } finally {
         migrated.close();
@@ -615,6 +625,7 @@ describe('SQLite migrations', () => {
             version: 6,
           },
           expect.objectContaining({ name: 'task-reviews', version: 7 }),
+          expect.objectContaining({ name: 'task-dependencies', version: 8 }),
         ]);
       } finally {
         migrated.close();

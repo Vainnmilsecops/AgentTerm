@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 ## Current State
 
@@ -24,8 +24,11 @@ Updated: 2026-08-13
 - A session-produced structured Plan is stored as a new immutable `planning/plan.md` artifact. Only explicit user acceptance of the exact latest persisted Plan moves `PLANNING -> RUNNING`; SQLite atomically rechecks Task phase, Plan identity/provenance, the complete Session revision snapshot, and absence of a possible live writer. Agent output and process exit never accept a Plan.
 - `startTaskExecution` now requires an already-`RUNNING` history-free Task. After planning or an earlier execution attempt, `retryTaskExecution` creates the next selected-agent Session in the existing primary Worktree without cleaning it or replacing history.
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, resolves the user's selected stable agent ID, reuses the primary Worktree without cleaning dirty code, and creates a new Session while preserving every earlier attempt.
+- Domain and Application now model required same-Project Task dependencies as a small directed acyclic graph with explicit add, remove, list, and readiness use cases. `BLOCKED` is derived when any direct dependency is not explicitly `DONE`; it is not a new Task phase and completion never launches a dependent Task automatically.
+- Migration 8 stores unique dependency edges with same-Project foreign keys and a cycle-prevention trigger. Planning, initial execution, and retry check readiness before Git work and again before Session launch, while SQLite rejects a new Session atomically if a required Task is incomplete. Existing Worktrees and immutable Session history remain untouched when admission is blocked.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector chooses the agent for the next planning or execution attempt; the workspace shows the latest Plan and explicit Start planning, Revise plan, and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
+- The workspace read model and desktop also expose dependency summaries and a text-labeled `BLOCKED` / `READY` state. Incomplete required Tasks disable planning and execution actions with an explicit reason; no provider-specific or Git logic is added to Presentation.
 - Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
 - Domain now models configured `LINT`, `TYPECHECK`, `TEST`, and `BUILD` Quality Gates plus immutable runs whose runtime status and evidence are independent from `TaskPhase`.
@@ -123,6 +126,10 @@ Updated: 2026-08-13
   atomic SQLite admission check is the cross-process backstop. Earlier attempts remain immutable;
   an agent switch is a new Session in the existing valid primary Worktree, and a failed retry is another truthful Session checkpoint
   and never completes the Task or triggers an automatic retry loop.
+- Dependency readiness is orthogonal to `TaskPhase`: an edge is satisfied only when its required Task is `DONE`.
+  Dependency writes are serialized transactionally and constrained to one Project; they never create, clean, or
+  replace a Worktree, Session, Artifact, gate, or Review record. A later completion only changes the next derived
+  workspace read and does not schedule execution.
 - Terminal rendering uses `@xterm/xterm` with the fit addon and a renderer-local controller. The
   controller consumes only the Application session attachment contract; detach is observer cleanup,
   not stop, and an exit disables input while preserving the visible terminal buffer. Output is a
@@ -221,12 +228,13 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-Bind startup session reconciliation, artifact/review/change-inspection reads, `loadAgentWorkspace`,
+Bind startup session reconciliation, artifact/review/change-inspection/dependency reads, `loadAgentWorkspace`,
 `startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`, `retryTaskExecution`, the three explicit Review commands, and terminal attachment
 to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch
 environment, Review identifiers and decision timestamps, database path, and managed Worktree root;
+validated dependency add/remove commands must likewise remain behind this Application boundary;
 the renderer must not receive raw filesystem,
 Git, database, process, or environment capability. Process reattachment, provider-native resume,
 output replay, and cross-process live-execution reconciliation remain later lifecycle slices.

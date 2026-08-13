@@ -5,6 +5,7 @@ import type {
   QualityGate,
   QualityGateRun,
   Task,
+  TaskDependency,
   TaskReview,
   TaskReviewArtifactEvidence,
   TaskReviewCodeState,
@@ -507,4 +508,12 @@ export interface TaskRepository {
 
 export interface TaskCatalog {
   listByProjectId(projectId: string): Promise<readonly Task[]>;
+}
+
+export interface TaskDependencyRepository {
+  /** Atomically inserts only a same-Project, unique, acyclic dependency. */
+  add(dependency: TaskDependency): Promise<void>;
+  listByProjectId(projectId: string): Promise<readonly TaskDependency[]>;
+  listByTaskId(taskId: string): Promise<readonly TaskDependency[]>;
+  remove(dependency: TaskDependency): Promise<boolean>;
 }

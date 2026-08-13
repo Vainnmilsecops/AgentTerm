@@ -18,6 +18,7 @@ import type {
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
+  TaskDependencyRepository,
   TaskReviewRepository,
   TaskPlanningArtifactRepository,
 } from './ports';
@@ -42,6 +43,8 @@ export interface WorkspaceTaskOverview {
   readonly canRevisePlan: boolean;
   readonly canStartExecution: boolean;
   readonly canStartPlanning: boolean;
+  readonly blocked: boolean;
+  readonly dependencies: readonly TaskDependencySummary[];
   readonly latestSession: AgentSessionSummary | undefined;
   readonly latestReview: TaskReviewSummary | undefined;
   readonly latestPlan: ExecutionArtifact | undefined;
@@ -49,6 +52,13 @@ export interface WorkspaceTaskOverview {
   readonly qualityGateRuns: readonly QualityGateRunSummary[];
   readonly reviewHistory: readonly TaskReviewSummary[];
   readonly task: Task;
+}
+
+export interface TaskDependencySummary {
+  readonly id: string;
+  readonly phase: Task['phase'];
+  readonly satisfied: boolean;
+  readonly title: string;
 }
 
 export type TaskReviewFreshness = 'HISTORICAL_SNAPSHOT' | 'REVALIDATE_ON_APPROVAL';
@@ -154,6 +164,7 @@ export async function loadAgentWorkspace(
   qualityGateRuns: QualityGateRunRepository,
   reviews: TaskReviewRepository,
   agents: AgentCatalog,
+  taskDependencies: TaskDependencyRepository,
 ): Promise<AgentWorkspaceOverview> {
   const agentSummaries = await listAgentSummaries(agents);
   const recentProjects = await projects.listRecent();
@@ -169,6 +180,7 @@ export async function loadAgentWorkspace(
             gateHistory,
             gateEvidence,
             reviewAttempts,
+            dependencyEdges,
           ] = await Promise.all([
             sessions.listByTaskId(task.id),
             artifacts.listRecentByTaskId(task.id, maximumWorkspaceArtifacts),
@@ -176,7 +188,23 @@ export async function loadAgentWorkspace(
             qualityGateRuns.listRecentByTaskId(task.id, maximumWorkspaceGateRuns),
             qualityGateRuns.readReviewEvidenceByTaskId(task.id, 0),
             reviews.listRecentByTaskId(task.id, maximumWorkspaceReviewAttempts),
+            taskDependencies.listByTaskId(task.id),
           ]);
+          const dependencySummaries = Object.freeze(
+            dependencyEdges.map(({ dependencyTaskId }): TaskDependencySummary => {
+              const dependency = projectTasks.find(({ id }) => id === dependencyTaskId);
+              if (dependency === undefined || dependency.projectId !== task.projectId) {
+                throw new Error('Task dependency state is inconsistent with its Project.');
+              }
+              return Object.freeze({
+                id: dependency.id,
+                phase: dependency.phase,
+                satisfied: dependency.phase === TaskPhase.DONE,
+                title: dependency.title,
+              });
+            }),
+          );
+          const blocked = dependencySummaries.some(({ satisfied }) => !satisfied);
           const latestPlan = await artifacts.findLatestByTaskIdAndKind(
             task.id,
             ExecutionArtifactKind.PLAN,
@@ -200,6 +228,7 @@ export async function loadAgentWorkspace(
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
             artifacts: Object.freeze([...artifactHistory]),
+            blocked,
             canAcceptPlan:
               phaseAllowsPlanning &&
               !hasUnsettledReviewWriter &&
@@ -220,19 +249,28 @@ export async function loadAgentWorkspace(
                 (task.phase === TaskPhase.REVIEW && reviewAttempts.length === 0)),
             canRetryExecution:
               phaseAllowsExecution &&
+              !blocked &&
               activeSession === undefined &&
               !hasUnsettledReviewWriter &&
               isTerminal(latestSession) &&
               latestSession !== undefined,
             canRevisePlan:
               phaseAllowsPlanning &&
+              !blocked &&
               activeSession === undefined &&
               !hasUnsettledReviewWriter &&
               isTerminal(latestSession),
             canStartExecution:
-              phaseAllowsExecution && activeSession === undefined && latestSession === undefined,
+              phaseAllowsExecution &&
+              !blocked &&
+              activeSession === undefined &&
+              latestSession === undefined,
             canStartPlanning:
-              phaseAllowsPlanning && activeSession === undefined && latestSession === undefined,
+              phaseAllowsPlanning &&
+              !blocked &&
+              activeSession === undefined &&
+              latestSession === undefined,
+            dependencies: dependencySummaries,
             latestPlan,
             latestSession: summarizeSession(latestSession),
             latestReview: reviewHistory[0],

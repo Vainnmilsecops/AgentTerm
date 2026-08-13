@@ -95,12 +95,14 @@ const failedTestRun: WorkspaceTaskOverview['qualityGateRuns'][number] = Object.f
   taskId: runningTask.id,
 });
 const emptyReviewState = Object.freeze({
+  blocked: false,
   canAcceptPlan: false,
   canApproveReview: false,
   canRequestChanges: false,
   canRequestReview: false,
   canRevisePlan: false,
   canStartPlanning: false,
+  dependencies: Object.freeze([]),
   latestPlan: undefined,
   latestReview: undefined,
   reviewHistory: Object.freeze([]),
@@ -1167,6 +1169,73 @@ describe('AgentWorkspaceView', () => {
 
     expect(markup).toContain('>Start execution</button>');
     expect(markup).not.toContain('>Retry execution</button>');
+  });
+
+  it('renders incomplete dependencies as a blocked derived state without an execution action', () => {
+    const overview: AgentWorkspaceOverview = {
+      ...runningStartOverview,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              blocked: true,
+              canStartExecution: false,
+              dependencies: [
+                {
+                  id: 'task-required',
+                  phase: 'RUNNING',
+                  satisfied: false,
+                  title: 'Prepare shared API',
+                },
+                {
+                  id: 'task-complete',
+                  phase: 'DONE',
+                  satisfied: true,
+                  title: 'Define contracts',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectAgent: () => undefined,
+        onSelectTask: () => undefined,
+        onStartPlanning: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview,
+          selectedAgentId: 'codex',
+          selectedTaskId: runningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('Dependencies</span><strong>BLOCKED');
+    expect(markup).toContain('Task dependencies');
+    expect(markup).toContain('Prepare shared API');
+    expect(markup).toContain('RUNNING · Required');
+    expect(markup).toContain('Define contracts');
+    expect(markup).toContain('DONE · Complete');
+    expect(markup).toContain(
+      'title="Complete all required Task dependencies before starting another Agent Session."',
+    );
+    expect(markup).toContain('disabled=""');
   });
 
   it('enables the accessible agent selector for Retry and labels current and historical identities', () => {

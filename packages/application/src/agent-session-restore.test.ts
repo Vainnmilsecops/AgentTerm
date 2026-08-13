@@ -244,6 +244,12 @@ describe('restoreAgentWorkspaceAfterRestart', () => {
         listRecentByTaskId: async () => [],
       },
       agents,
+      {
+        add: async () => never(),
+        listByProjectId: async () => [],
+        listByTaskId: async () => [],
+        remove: async () => false,
+      },
       () => createdAt + 100,
     );
 

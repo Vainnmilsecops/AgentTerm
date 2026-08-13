@@ -11,6 +11,26 @@ import type { TaskPhase } from '@agentterm/domain';
 export type EntityKind =
   'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task' | 'TaskReview';
 
+export class TaskDependencyProjectMismatchError extends Error {
+  public constructor(
+    public readonly taskId: string,
+    public readonly dependencyTaskId: string,
+  ) {
+    super('A Task dependency must belong to the same Project.');
+    this.name = 'TaskDependencyProjectMismatchError';
+  }
+}
+
+export class TaskDependencyBlockedError extends Error {
+  public constructor(
+    public readonly taskId: string,
+    public readonly blockingTaskIds: readonly string[],
+  ) {
+    super('The Task is blocked by incomplete required Tasks.');
+    this.name = 'TaskDependencyBlockedError';
+  }
+}
+
 export type TaskReviewReadinessFailure =
   | 'ACTIVE_QUALITY_GATE'
   | 'ACTIVE_SESSION'
