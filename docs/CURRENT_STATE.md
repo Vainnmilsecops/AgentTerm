@@ -26,8 +26,8 @@ Updated: 2026-08-14
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, resolves the user's selected stable agent ID, reuses the primary Worktree without cleaning dirty code, and creates a new Session while preserving every earlier attempt.
 - Domain and Application now model required same-Project Task dependencies as a small directed acyclic graph with explicit add, remove, list, and readiness use cases. `BLOCKED` is derived when any direct dependency is not explicitly `DONE`; it is not a new Task phase and completion never launches a dependent Task automatically.
 - Migration 8 stores unique dependency edges with same-Project foreign keys and a cycle-prevention trigger. Planning, initial execution, and retry check readiness before Git work and again before Session launch, while SQLite rejects a new Session atomically if a required Task is incomplete. Existing Worktrees and immutable Session history remain untouched when admission is blocked.
-- The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
-- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector chooses the agent for the next planning or execution attempt; the workspace shows the latest Plan and explicit Start planning, Revise plan, and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
+- The desktop now supports multiple renderer-owned workspace tabs and up to two xterm.js panes per tab. Each pane owns one stable terminal controller and exact Agent Session attachment; hidden tabs stay mounted to preserve independent live buffers, while close detaches listeners without terminating the process. The Application coordinator rejects a second interactive consumer for the same live Session.
+- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds tabbed/split terminals, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector chooses the agent for the next planning or execution attempt; the workspace shows the latest Plan and explicit Start planning, Revise plan, and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
 - The workspace read model and desktop also expose dependency summaries and a text-labeled `BLOCKED` / `READY` state. Incomplete required Tasks disable planning and execution actions with an explicit reason; no provider-specific or Git logic is added to Presentation.
 - Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
@@ -44,7 +44,7 @@ Updated: 2026-08-14
 - Application now exposes explicit Pull Request inspection, Task-branch push, and create-or-refresh use cases. Infrastructure verifies the exact persisted primary Worktree, attached Task branch, base ancestry, clean code state, and a supported `github.com` HTTPS or SSH remote. Push pins the inspected commit to the named remote branch without force; no agent/session event invokes either mutation.
 - GitHub PR lookup and mutation reuse the installed `gh` CLI through structured argv and bounded JSON stdin. Readiness separately checks an active authenticated `github.com` account through `gh auth status` without requesting or persisting its token. A matching open or merged PR is reused, a closed PR is reopened, and a new PR is created only when no exact repository/head/base/current-commit match exists. Migration 9 stores only bounded GitHub PR identity/status metadata; it excludes body, commands, environment, credentials, and provider output.
 - The desktop loads Pull Request state lazily for the selected Task and shows repository, head/base, push readiness, stored PR number/status/URL, and explicit Push / Create or refresh controls. Errors are sanitized at the controller boundary, and PR evidence never changes Task phase or Review decisions.
-- The desktop now has a searchable command palette opened by `Ctrl+Shift+P`, with accent-insensitive Vietnamese/Unicode search, wrapping arrow-key navigation, contextual Task/action commands, and explicit `Alt+1` / `Alt+2` / `Alt+3` focus shortcuts for sidebar, workspace, and terminal. Ordinary terminal keys are not intercepted.
+- The desktop now has a searchable command palette opened by `Ctrl+Shift+P`, with accent-insensitive Vietnamese/Unicode search, wrapping arrow-key navigation, contextual Task/action commands, and explicit `Alt+1` / `Alt+2` / `Alt+3` focus shortcuts for sidebar, workspace, and terminal. `Alt+[` / `Alt+]` switch tabs and their Shift variants switch panes; ordinary terminal keys are not intercepted.
 - Application exposes only configured Quality Gate `id`/`kind` summaries plus Task-level run readiness to Presentation. Eligible palette commands dispatch the existing explicit gate workflow through the workspace client; executable, argv, environment, and run-identity policy remain outside the renderer.
 
 ## Decisions
@@ -137,8 +137,12 @@ Updated: 2026-08-14
   workspace read and does not schedule execution.
 - Terminal rendering uses `@xterm/xterm` with the fit addon and a renderer-local controller. The
   controller consumes only the Application session attachment contract; detach is observer cleanup,
-  not stop, and an exit disables input while preserving the visible terminal buffer. Output is a
-  live stream and is not persisted or replayed after a later attachment.
+  not stop, and an exit disables input while preserving the visible terminal buffer. Application
+  grants at most one interactive attachment for each owned live Session, so input, output, and
+  resize cannot be routed through competing panes. Tab and pane layout is immutable Presentation
+  state with a fixed two-pane limit rather than a general tiling model; inactive tabs remain mounted,
+  activation refits the visible xterm, and closing a pane or tab disposes its subscriptions. Output
+  is a live stream and is not persisted or replayed after a later attachment.
 - Workspace reads use the Application `loadAgentWorkspace` use case over `ProjectCatalog`,
   `TaskCatalog`, and immutable session history. The read model selects the latest nonterminal
   session independently from the newest historical session, so a `FAILED` or `EXITED` attempt never
@@ -233,6 +237,10 @@ renderer still has no validated preload/IPC binding to the main-process reposito
 coordinator. Until that composition and its database/worktree/environment policy are added, the
 desktop shell intentionally renders a recoverable connection-unavailable state rather than using
 demo data or exposing Infrastructure to React.
+Workspace tabs and split panes are intentionally renderer-local in this foundation; their layout is
+not persisted or restored after an application restart. Closing UI detaches observers only, while a
+later reattachment cannot replay output emitted during the detached interval because terminal output
+is not durable Session evidence.
 If AgentTerm exits after a gate process finishes but before its final SQLite checkpoint, or process
 tree cleanup cannot be confirmed, that run remains durably `RUNNING` and Review admission is blocked.
 Automatic reconciliation of such orphan or unsettled gate attempts is deferred; a retry must use a

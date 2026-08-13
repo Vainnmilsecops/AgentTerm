@@ -19,24 +19,43 @@ import {
   type AgentWorkspaceClient,
   type WorkspaceSnapshot,
 } from './workspace-controller';
+import {
+  createWorkspaceLayout,
+  openWorkspaceTab,
+  splitWorkspaceTerminal,
+} from './workspace-layout';
 
 type TestWorkspaceViewProps = Omit<
   AgentWorkspaceViewProps,
   | 'onAcceptPlan'
+  | 'onCloseWorkspacePane'
+  | 'onCloseWorkspaceTab'
   | 'onCreatePullRequest'
+  | 'onCycleWorkspacePane'
+  | 'onCycleWorkspaceTab'
   | 'onPushTaskBranch'
   | 'onRunQualityGate'
+  | 'onSelectWorkspacePane'
+  | 'onSelectWorkspaceTab'
   | 'onSelectTaskChange'
+  | 'onSplitTerminal'
   | 'onStartPlanning'
 > &
   Partial<
     Pick<
       AgentWorkspaceViewProps,
       | 'onAcceptPlan'
+      | 'onCloseWorkspacePane'
+      | 'onCloseWorkspaceTab'
       | 'onCreatePullRequest'
+      | 'onCycleWorkspacePane'
+      | 'onCycleWorkspaceTab'
       | 'onPushTaskBranch'
       | 'onRunQualityGate'
+      | 'onSelectWorkspacePane'
+      | 'onSelectWorkspaceTab'
       | 'onSelectTaskChange'
+      | 'onSplitTerminal'
       | 'onStartPlanning'
     >
   >;
@@ -44,10 +63,17 @@ type TestWorkspaceViewProps = Omit<
 function AgentWorkspaceView(props: TestWorkspaceViewProps) {
   return createElement(AgentWorkspaceViewComponent, {
     onAcceptPlan: () => undefined,
+    onCloseWorkspacePane: () => undefined,
+    onCloseWorkspaceTab: () => undefined,
     onCreatePullRequest: () => undefined,
+    onCycleWorkspacePane: () => undefined,
+    onCycleWorkspaceTab: () => undefined,
     onPushTaskBranch: () => undefined,
     onRunQualityGate: () => undefined,
+    onSelectWorkspacePane: () => undefined,
+    onSelectWorkspaceTab: () => undefined,
     onSelectTaskChange: () => undefined,
+    onSplitTerminal: () => undefined,
     onStartPlanning: () => undefined,
     ...props,
   });
@@ -83,6 +109,10 @@ const workingSession: NonNullable<WorkspaceTaskOverview['activeSession']> = Obje
   failureCode: undefined,
   id: 'session-working',
   status: 'WORKING',
+  taskId: runningTask.id,
+});
+const defaultWorkspaceLayout = createWorkspaceLayout({
+  sessionId: workingSession.id,
   taskId: runningTask.id,
 });
 const passedLintRun: WorkspaceTaskOverview['qualityGateRuns'][number] = Object.freeze({
@@ -453,6 +483,121 @@ describe('WorkspaceController', () => {
       selectedTaskId: 'task-1',
     });
     expect(selectedTask(controller.snapshot)?.task.title).toBe('Nối terminal tiếng Việt');
+  });
+
+  it('opens, switches, cycles, and closes Task workspace tabs without losing their Sessions', async () => {
+    const secondTask = Object.freeze({
+      ...runningTask,
+      id: 'task-2',
+      title: 'Second live Task',
+    });
+    const secondSession = Object.freeze({
+      ...workingSession,
+      id: 'session-2',
+      taskId: secondTask.id,
+    });
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      agents: availableAgents,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              activeSession: workingSession,
+              latestSession: workingSession,
+            },
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              activeSession: secondSession,
+              latestSession: secondSession,
+              task: secondTask,
+            },
+          ],
+        },
+      ],
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [overview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    controller.selectTask('task-2');
+    expect(controller.snapshot).toMatchObject({
+      layout: {
+        activeTabId: 'task:task-2',
+        tabs: [
+          { panes: [{ sessionId: 'session-working' }], taskId: 'task-1' },
+          { panes: [{ sessionId: 'session-2' }], taskId: 'task-2' },
+        ],
+      },
+      selectedTaskId: 'task-2',
+      terminalSessionId: 'session-2',
+    });
+
+    controller.selectWorkspaceTab('task:task-1');
+    expect(controller.snapshot).toMatchObject({ selectedTaskId: 'task-1' });
+    controller.cycleWorkspaceTab(1);
+    expect(controller.snapshot).toMatchObject({ selectedTaskId: 'task-2' });
+    controller.closeWorkspaceTab('task:task-2');
+    expect(controller.snapshot).toMatchObject({
+      layout: { activeTabId: 'task:task-1', tabs: [{ taskId: 'task-1' }] },
+      selectedTaskId: 'task-1',
+      terminalSessionId: 'session-working',
+    });
+  });
+
+  it('splits, focuses, and closes terminal panes using only distinct active Sessions', async () => {
+    const secondTask = Object.freeze({ ...runningTask, id: 'task-2', title: 'Second live Task' });
+    const secondSession = Object.freeze({ ...workingSession, id: 'session-2', taskId: 'task-2' });
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      agents: availableAgents,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              activeSession: workingSession,
+              latestSession: workingSession,
+            },
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              activeSession: secondSession,
+              latestSession: secondSession,
+              task: secondTask,
+            },
+          ],
+        },
+      ],
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [overview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    controller.splitSelectedTerminal('session-2');
+    expect(controller.snapshot).toMatchObject({
+      layout: {
+        tabs: [
+          {
+            panes: [{ sessionId: 'session-working' }, { sessionId: 'session-2' }],
+          },
+        ],
+      },
+      terminalSessionId: 'session-2',
+    });
+    controller.cycleWorkspacePane(-1);
+    expect(controller.snapshot).toMatchObject({ terminalSessionId: 'session-working' });
+    const splitPane =
+      controller.snapshot.kind === 'ready' ? controller.snapshot.layout.tabs[0]!.panes[1]! : null;
+    if (splitPane === null) throw new Error('Expected split pane.');
+    controller.closeWorkspacePane(splitPane.id);
+    expect(controller.snapshot).toMatchObject({
+      layout: { tabs: [{ panes: [{ sessionId: 'session-working' }] }] },
+      terminalSessionId: 'session-working',
+    });
+    expect(client.attachTerminal).not.toHaveBeenCalled();
   });
 
   it('lists safe Quality Gates and runs one for the selected eligible Task', async () => {
@@ -1198,6 +1343,7 @@ describe('command palette discoverability', () => {
           activeAction: undefined,
           changeInspection: { kind: 'idle' },
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview: runningStartOverview,
           pullRequestInspection: { kind: 'idle' },
           qualityGates: [{ id: 'lint', kind: 'LINT' }],
@@ -1212,7 +1358,71 @@ describe('command palette discoverability', () => {
     expect(markup).toContain('Ctrl+Shift+P');
     expect(markup).toContain('id="workspace-sidebar"');
     expect(markup).toContain('id="workspace-main"');
-    expect(markup).toContain('id="workspace-terminal"');
+    expect(markup).toContain('data-active-terminal-pane="true"');
+  });
+
+  it('renders keyboard-native workspace tabs and isolated split terminal panes', () => {
+    const secondTask = Object.freeze({ ...runningTask, id: 'task-2', title: 'Second Task' });
+    const secondSession = Object.freeze({ ...workingSession, id: 'session-2', taskId: 'task-2' });
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      agents: availableAgents,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              activeSession: workingSession,
+              latestSession: workingSession,
+            },
+            {
+              ...runningStartOverview.projects[0]!.tasks[0]!,
+              activeSession: secondSession,
+              latestSession: secondSession,
+              task: secondTask,
+            },
+          ],
+        },
+      ],
+    });
+    const layout = splitWorkspaceTerminal(
+      openWorkspaceTab(defaultWorkspaceLayout, { taskId: 'task-2' }),
+      { sessionId: 'session-2', taskId: 'task-2' },
+    );
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          layout,
+          overview,
+          selectedAgentId: 'codex',
+          selectedTaskId: 'task-2',
+          terminalSessionId: 'session-2',
+        },
+      }),
+    );
+
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain('Workspace tabs');
+    expect(markup).toContain('Second Task');
+    expect(markup).toContain('aria-selected="true"');
+    expect(markup).toContain('aria-label="Close workspace tab: Second Task"');
+    expect(markup).toContain('aria-label="Terminal pane 2');
+    expect(markup).toContain('data-active-terminal-pane="true"');
+    expect(markup).toContain('aria-label="Close terminal pane 2"');
+    expect(markup).toContain('Alt+]');
+    expect(markup).toContain('Alt+Shift+]');
   });
 });
 
@@ -1268,6 +1478,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: planningTask.id,
@@ -1330,6 +1541,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1389,6 +1601,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1448,6 +1661,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1490,6 +1704,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: undefined,
           selectedTaskId: planningTask.id,
@@ -1523,6 +1738,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: undefined,
           selectedTaskId: runningTask.id,
@@ -1576,6 +1792,7 @@ describe('AgentWorkspaceView', () => {
             taskId: runningTask.id,
           },
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview: runningStartOverview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1605,6 +1822,7 @@ describe('AgentWorkspaceView', () => {
       actionError: undefined,
       activeAction: undefined,
       kind: 'ready' as const,
+      layout: defaultWorkspaceLayout,
       overview: runningStartOverview,
       selectedAgentId: 'codex',
       selectedTaskId: runningTask.id,
@@ -1677,6 +1895,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview: eligibleReviewOverview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1706,6 +1925,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           activeAction: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview: pendingReviewOverview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1786,6 +2006,7 @@ describe('AgentWorkspaceView', () => {
         snapshot: {
           actionError: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1809,6 +2030,7 @@ describe('AgentWorkspaceView', () => {
     const snapshot: WorkspaceSnapshot = {
       actionError: undefined,
       kind: 'ready',
+      layout: defaultWorkspaceLayout,
       overview: failedOverview,
       selectedAgentId: 'codex',
       selectedTaskId: 'task-1',
@@ -1878,6 +2100,7 @@ describe('AgentWorkspaceView', () => {
         snapshot: {
           actionError: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1917,6 +2140,7 @@ describe('AgentWorkspaceView', () => {
         snapshot: {
           actionError: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview,
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
@@ -1959,6 +2183,7 @@ describe('AgentWorkspaceView', () => {
         snapshot: {
           actionError: undefined,
           kind: 'ready',
+          layout: defaultWorkspaceLayout,
           overview: planningOverview,
           selectedAgentId: 'codex',
           selectedTaskId: planningTask.id,
@@ -1994,6 +2219,7 @@ describe('AgentWorkspaceView', () => {
         snapshot: {
           actionError: undefined,
           kind: 'ready',
+          layout: Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) }),
           overview: { agents: availableAgents, projects: [] },
           selectedAgentId: 'codex',
           selectedTaskId: undefined,

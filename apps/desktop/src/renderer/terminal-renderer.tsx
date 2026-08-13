@@ -10,12 +10,30 @@ import {
 import { XtermTerminalSurface } from './xterm-terminal-surface';
 
 export interface TerminalRendererProps {
+  readonly active?: boolean;
+  readonly canClose?: boolean;
   readonly client?: TerminalSessionClient;
+  readonly closeLabel?: string;
+  readonly label?: string;
+  readonly onActivate?: () => void;
+  readonly onClose?: () => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
+  readonly paneId?: string;
   readonly sessionId?: string;
 }
 
-export function TerminalRenderer({ client, onRuntimeEvent, sessionId }: TerminalRendererProps) {
+export function TerminalRenderer({
+  active = true,
+  canClose = false,
+  client,
+  closeLabel = 'Close terminal pane',
+  label = 'Agent Session terminal',
+  onActivate,
+  onClose,
+  onRuntimeEvent,
+  paneId = 'primary',
+  sessionId,
+}: TerminalRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | undefined>(undefined);
   const runtimeEventRef = useRef(onRuntimeEvent);
@@ -36,21 +54,33 @@ export function TerminalRenderer({ client, onRuntimeEvent, sessionId }: Terminal
     );
     controllerRef.current = controller;
     controller.mount(container);
-    void controller.setSession(sessionId, client);
     return () => {
       if (controllerRef.current === controller) {
         controllerRef.current = undefined;
       }
       controller.dispose();
     };
+  }, [client]);
+
+  useEffect(() => {
+    void controllerRef.current?.setSession(sessionId, client);
   }, [client, sessionId]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    controllerRef.current?.refreshLayout();
+  }, [active]);
 
   return (
     <section
       className="terminal-panel"
-      aria-label="Agent Session terminal"
-      id="workspace-terminal"
+      aria-label={label}
+      data-active-terminal-pane={active ? 'true' : 'false'}
+      data-terminal-pane-id={paneId}
       onFocus={(event) => {
+        onActivate?.();
         if (event.currentTarget === event.target) {
           controllerRef.current?.focus();
         }
@@ -60,7 +90,25 @@ export function TerminalRenderer({ client, onRuntimeEvent, sessionId }: Terminal
       <header className="terminal-panel__header">
         <span className={`terminal-status terminal-status--${state}`} aria-hidden="true" />
         <span aria-live="polite">{statusLabel(state)}</span>
-        <kbd>Alt+3</kbd>
+        <span className="terminal-panel__identity">{sessionId ?? 'No Session'}</span>
+        {active ? <kbd>Alt+3</kbd> : null}
+        <button
+          aria-label={closeLabel}
+          className="terminal-panel__close"
+          disabled={!canClose}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClose?.();
+          }}
+          title={
+            canClose
+              ? 'Detach this terminal pane without stopping the Agent Session.'
+              : 'A workspace tab keeps at least one terminal pane.'
+          }
+          type="button"
+        >
+          {'\u00d7'}
+        </button>
       </header>
       <div className="terminal-panel__viewport" ref={containerRef} />
     </section>

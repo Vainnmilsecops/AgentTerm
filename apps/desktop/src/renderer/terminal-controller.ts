@@ -20,6 +20,7 @@ export interface TerminalSurface {
   onInput(sink: (data: string) => void): () => void;
   onResize(sink: (size: PtyTerminalSize) => void): () => void;
   open(container: HTMLElement): void;
+  refresh(): void;
   reset(): void;
   write(data: string): void;
 }
@@ -156,6 +157,12 @@ export class TerminalController {
   public focus(): void {
     if (!this.disposed && this.inputSubscription !== undefined) {
       this.surface.focus();
+    }
+  }
+
+  public refreshLayout(): void {
+    if (!this.disposed && this.inputSubscription !== undefined) {
+      this.surface.refresh();
     }
   }
 

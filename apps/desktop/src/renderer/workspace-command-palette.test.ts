@@ -172,5 +172,27 @@ describe('command palette keyboard model', () => {
     expect(resolveWorkspaceGlobalShortcut({ altKey: true, code: 'Digit3', key: '3' })).toBe(
       'focus-terminal',
     );
+    expect(resolveWorkspaceGlobalShortcut({ altKey: true, code: 'BracketLeft', key: '[' })).toBe(
+      'previous-tab',
+    );
+    expect(resolveWorkspaceGlobalShortcut({ altKey: true, code: 'BracketRight', key: ']' })).toBe(
+      'next-tab',
+    );
+    expect(
+      resolveWorkspaceGlobalShortcut({
+        altKey: true,
+        code: 'BracketLeft',
+        key: '[',
+        shiftKey: true,
+      }),
+    ).toBe('previous-pane');
+    expect(
+      resolveWorkspaceGlobalShortcut({
+        altKey: true,
+        code: 'BracketRight',
+        key: ']',
+        shiftKey: true,
+      }),
+    ).toBe('next-pane');
   });
 });

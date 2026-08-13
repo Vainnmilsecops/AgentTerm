@@ -303,6 +303,16 @@ export class AgentSessionRuntimeOwnershipError extends Error {
   }
 }
 
+export class AgentSessionTerminalAttachmentConflictError extends Error {
+  public readonly sessionId: string;
+
+  public constructor(sessionId: string) {
+    super(`Agent Session ${sessionId} already has an interactive terminal attachment.`);
+    this.name = 'AgentSessionTerminalAttachmentConflictError';
+    this.sessionId = sessionId;
+  }
+}
+
 export class AgentSessionActiveConflictError extends Error {
   public readonly taskId: string;
 

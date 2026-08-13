@@ -89,6 +89,10 @@ export class XtermTerminalSurface implements TerminalSurface {
     }
   }
 
+  public refresh(): void {
+    this.scheduleFit();
+  }
+
   public dispose(): void {
     if (this.disposed) {
       return;
