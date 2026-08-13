@@ -13,6 +13,8 @@ import {
   type RecordProjectOpenInput,
   type TaskRepository,
   type TaskCatalog,
+  type TaskPlanningRepository,
+  type TaskPlanningSessionRevision,
   type TaskReviewRepository,
   type TaskReviewSessionRevision,
   TaskWorktreeMetadataConflictError,
@@ -196,13 +198,19 @@ export class SqliteProjectRepository
   }
 }
 
-export class SqliteTaskRepository implements TaskCatalog, TaskRepository {
+export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository, TaskRepository {
+  private readonly activeSessionByTaskIdStatement: StatementSync;
+  private readonly artifactByIdStatement: StatementSync;
+  private readonly database: DatabaseSync;
   private readonly findByIdStatement: StatementSync;
   private readonly insertStatement: StatementSync;
   private readonly listByProjectIdStatement: StatementSync;
   private readonly updateStatement: StatementSync;
+  private readonly latestPlanByTaskIdStatement: StatementSync;
+  private readonly sessionHistoryByTaskIdStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
+    this.database = database;
     this.findByIdStatement = database.prepare(
       'SELECT id, project_id, title, phase FROM tasks WHERE id = ?',
     );
@@ -214,6 +222,24 @@ export class SqliteTaskRepository implements TaskCatalog, TaskRepository {
     );
     this.updateStatement = database.prepare(
       'UPDATE tasks SET project_id = ?, title = ?, phase = ? WHERE id = ? AND phase = ?',
+    );
+    this.artifactByIdStatement = database.prepare(
+      `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
+              format, schema_version, validation, content, created_at
+       FROM execution_artifacts WHERE id = ?`,
+    );
+    this.latestPlanByTaskIdStatement = database.prepare(
+      `SELECT id FROM execution_artifacts
+       WHERE task_id = ? AND kind = 'plan'
+       ORDER BY ordinal DESC LIMIT 1`,
+    );
+    this.activeSessionByTaskIdStatement = database.prepare(
+      `SELECT session.id FROM agent_sessions AS session
+       WHERE session.task_id = ? AND ${unsettledAgentSessionWriterSql('session')}
+       LIMIT 1`,
+    );
+    this.sessionHistoryByTaskIdStatement = database.prepare(
+      `SELECT id, history_sequence FROM agent_sessions WHERE task_id = ? ORDER BY ordinal`,
     );
   }
 
@@ -249,6 +275,73 @@ export class SqliteTaskRepository implements TaskCatalog, TaskRepository {
 
     if (result.changes === 0 || result.changes === 0n) {
       throw new SqlitePersistenceError(`Cannot update missing or stale Task ${task.id}.`);
+    }
+  }
+
+  public async acceptPlan(
+    plan: ExecutionArtifact,
+    nextTask: Task,
+    expectedSessionRevisions: readonly TaskPlanningSessionRevision[],
+  ): Promise<void> {
+    assertExecutionArtifactContract(plan);
+    if (
+      plan.kind !== 'plan' ||
+      plan.phase !== TaskPhase.PLANNING ||
+      plan.sessionId === undefined ||
+      plan.taskId !== nextTask.id ||
+      nextTask.phase !== TaskPhase.RUNNING
+    ) {
+      throw new SqlitePersistenceError('Task Plan acceptance evidence is invalid.');
+    }
+
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const taskRow = this.findByIdStatement.get(plan.taskId);
+      if (taskRow === undefined) {
+        throw new SqlitePersistenceError('Task Plan acceptance Task is missing.');
+      }
+      const storedTask = mapTaskRow(taskRow);
+      let expectedNextTask: Task;
+      try {
+        expectedNextTask = transitionTask(storedTask, TaskPhase.RUNNING);
+      } catch (error) {
+        throw new SqlitePersistenceError('Task Plan acceptance phase is stale.', { cause: error });
+      }
+      if (!sameTask(expectedNextTask, nextTask)) {
+        throw new SqlitePersistenceError('Task Plan acceptance next Task is stale.');
+      }
+      if (this.activeSessionByTaskIdStatement.get(plan.taskId) !== undefined) {
+        throw new SqlitePersistenceError(
+          'Task Plan cannot be accepted while an Agent Session is active.',
+        );
+      }
+      assertExactSessionRevisions(
+        this.sessionHistoryByTaskIdStatement.all(plan.taskId),
+        expectedSessionRevisions,
+      );
+      const storedPlanRow = this.artifactByIdStatement.get(plan.id);
+      if (
+        storedPlanRow === undefined ||
+        JSON.stringify(mapExecutionArtifactRow(storedPlanRow)) !== JSON.stringify(plan) ||
+        this.latestPlanByTaskIdStatement.get(plan.taskId)?.id !== plan.id
+      ) {
+        throw new SqlitePersistenceError('Task Plan is not the exact latest persisted Plan.');
+      }
+      const result = this.updateStatement.run(
+        nextTask.projectId,
+        nextTask.title,
+        nextTask.phase,
+        nextTask.id,
+        TaskPhase.PLANNING,
+      );
+      if (result.changes === 0 || result.changes === 0n) {
+        throw new SqlitePersistenceError('Task Plan acceptance phase update is stale.');
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof SqlitePersistenceError) throw error;
+      throw new SqlitePersistenceError('Failed to accept Task Plan.', { cause: error });
     }
   }
 }
@@ -1141,17 +1234,23 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     return this.listActiveStatement.all().map((row) => this.mapSession(row));
   }
 
-  public async insert(session: AgentSession): Promise<void> {
+  public async insert(
+    session: AgentSession,
+    expectedTaskPhase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING = TaskPhase.RUNNING,
+  ): Promise<void> {
     assertInitialSession(session);
+    if (expectedTaskPhase !== TaskPhase.PLANNING && expectedTaskPhase !== TaskPhase.RUNNING) {
+      throw new SqlitePersistenceError('Agent Session expected Task phase is invalid.');
+    }
     this.database.exec('BEGIN IMMEDIATE');
     try {
       if (this.findByIdStatement.get(session.id) !== undefined) {
         throw new EntityAlreadyExistsError('AgentSession', session.id);
       }
       const taskRow = this.taskPhaseByIdStatement.get(session.taskId);
-      if (taskRow?.phase !== TaskPhase.RUNNING) {
+      if (taskRow?.phase !== expectedTaskPhase) {
         throw new SqlitePersistenceError(
-          'A new Agent Session requires its Task to remain in RUNNING.',
+          `A new Agent Session requires its Task to remain in ${expectedTaskPhase}.`,
         );
       }
       if (this.activeByTaskIdStatement.get(session.taskId) !== undefined) {
@@ -1280,12 +1379,14 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
 export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepository {
   private readonly database: DatabaseSync;
   private readonly findByIdStatement: StatementSync;
+  private readonly findLatestByTaskIdAndKindStatement: StatementSync;
   private readonly insertStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
   private readonly listRecentByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
   private readonly reviewEvidenceByTaskIdStatement: StatementSync;
   private readonly reviewEvidenceCountByTaskIdStatement: StatementSync;
+  private readonly taskPhaseByIdStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
     this.database = database;
@@ -1294,6 +1395,14 @@ export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepos
               format, schema_version, validation, content, created_at
        FROM execution_artifacts WHERE id = ?`,
     );
+    this.findLatestByTaskIdAndKindStatement = database.prepare(
+      `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
+              format, schema_version, validation, content, created_at
+       FROM execution_artifacts
+       WHERE task_id = ? AND kind = ?
+       ORDER BY ordinal DESC LIMIT 1`,
+    );
+    this.taskPhaseByIdStatement = database.prepare('SELECT phase FROM tasks WHERE id = ?');
     this.listByTaskIdStatement = database.prepare(
       `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
               format, schema_version, validation, content, created_at
@@ -1339,12 +1448,31 @@ export class SqliteExecutionArtifactRepository implements ExecutionArtifactRepos
     return row === undefined ? undefined : mapExecutionArtifactRow(row);
   }
 
-  public async insert(artifact: ExecutionArtifact): Promise<void> {
+  public async findLatestByTaskIdAndKind(
+    taskId: string,
+    kind: ExecutionArtifact['kind'],
+  ): Promise<ExecutionArtifact | undefined> {
+    const row = this.findLatestByTaskIdAndKindStatement.get(taskId, kind);
+    return row === undefined ? undefined : mapExecutionArtifactRow(row);
+  }
+
+  public async insert(
+    artifact: ExecutionArtifact,
+    expectedTaskPhase?: Task['phase'],
+  ): Promise<void> {
     assertExecutionArtifactContract(artifact);
     this.database.exec('BEGIN IMMEDIATE');
     try {
       if (this.findByIdStatement.get(artifact.id) !== undefined) {
         throw new EntityAlreadyExistsError('ExecutionArtifact', artifact.id);
+      }
+      if (
+        expectedTaskPhase !== undefined &&
+        this.taskPhaseByIdStatement.get(artifact.taskId)?.phase !== expectedTaskPhase
+      ) {
+        throw new SqlitePersistenceError(
+          `Execution Artifact requires its Task to remain in ${expectedTaskPhase}.`,
+        );
       }
       const ordinal = this.nextOrdinalStatement.get(artifact.taskId)?.next_ordinal;
       if (typeof ordinal !== 'number' || !Number.isSafeInteger(ordinal) || ordinal <= 0) {

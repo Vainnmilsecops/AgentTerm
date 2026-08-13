@@ -19,6 +19,10 @@ export {
   TaskExecutionStartError,
   TaskExecutionRetryError,
   TaskExecutionPhaseError,
+  TaskPlanningFlowRequiredError,
+  TaskPlanningPhaseError,
+  TaskPlanReadinessError,
+  type TaskPlanReadinessFailure,
   TaskReviewReadinessError,
   TaskReviewFlowRequiredError,
   type EntityKind,
@@ -107,6 +111,9 @@ export type {
   ProjectRepository,
   RecordProjectOpenInput,
   TaskRepository,
+  TaskPlanningRepository,
+  TaskPlanningArtifactRepository,
+  TaskPlanningSessionRevision,
   TaskCatalog,
   TaskWorktree,
   TaskWorktreeCleanupResult,
@@ -117,6 +124,12 @@ export type {
   TaskWorktreeRepository,
   TaskWorktreeStatus,
 } from './ports';
+export {
+  acceptTaskPlan,
+  createTaskPlan,
+  type CreateTaskPlanInput,
+  type TaskPlanningDependencies,
+} from './task-planning-use-cases';
 export {
   loadAgentWorkspace,
   type AgentSessionSummary,
@@ -145,12 +158,15 @@ export {
 } from './task-review-use-cases';
 export {
   retryTaskExecution,
+  startTaskPlanning,
   startTaskExecution,
+  canStartTaskPlanning,
   type StartTaskExecutionDependencies,
   type RetryTaskExecutionInput,
   type StartTaskExecutionInput,
   type TaskExecutionStartResult,
   type TaskExecutionRetryResult,
+  type TaskPlanningStartResult,
 } from './task-execution';
 export {
   cleanupTaskWorktree,

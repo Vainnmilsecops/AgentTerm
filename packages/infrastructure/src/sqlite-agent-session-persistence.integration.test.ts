@@ -29,7 +29,10 @@ async function withTemporaryDatabase(run: (databasePath: string) => Promise<void
   }
 }
 
-async function seedTask(databasePath: string): Promise<void> {
+async function seedTask(
+  databasePath: string,
+  phase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING = TaskPhase.RUNNING,
+): Promise<void> {
   const persistence = openSqlitePersistence(databasePath);
   try {
     await persistence.projects.insert(createProject({ id: 'project-1', name: 'AgentTerm' }));
@@ -38,8 +41,9 @@ async function seedTask(databasePath: string): Promise<void> {
       projectId: 'project-1',
       title: 'Persist sessions',
     });
+    const planning = transitionTask(backlog, TaskPhase.PLANNING);
     await persistence.tasks.insert(
-      transitionTask(transitionTask(backlog, TaskPhase.PLANNING), TaskPhase.RUNNING),
+      phase === TaskPhase.PLANNING ? planning : transitionTask(planning, TaskPhase.RUNNING),
     );
   } finally {
     persistence.close();
@@ -47,6 +51,31 @@ async function seedTask(databasePath: string): Promise<void> {
 }
 
 describe('SQLite Agent Session persistence', () => {
+  it('admits planning sessions only while Task remains exactly PLANNING', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath, TaskPhase.PLANNING);
+      const persistence = openSqlitePersistence(databasePath);
+      try {
+        await expect(
+          persistence.sessions.insert(startingSession('session-planning'), TaskPhase.PLANNING),
+        ).resolves.toBeUndefined();
+        const exited = recordAgentSessionEvent(startingSession('session-planning'), {
+          exitCode: 0,
+          kind: 'PROCESS_EXITED',
+          occurredAt: createdAt + 1,
+          reason: 'PROCESS_EXIT',
+          runtimeSequence: 1,
+        });
+        await persistence.sessions.append(exited, 1);
+        await expect(
+          persistence.sessions.insert(startingSession('session-running'), TaskPhase.RUNNING),
+        ).rejects.toBeInstanceOf(SqlitePersistenceError);
+      } finally {
+        persistence.close();
+      }
+    });
+  });
+
   it('round-trips status history across connections', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       await seedTask(databasePath);

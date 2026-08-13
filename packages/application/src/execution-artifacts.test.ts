@@ -102,8 +102,31 @@ describe('execution artifact use cases', () => {
     ).rejects.toMatchObject({ entity: 'AgentSession', id: 'missing-session' });
   });
 
+  it('binds persistence to the Artifact producing phase so a concurrent Task transition fails closed', async () => {
+    const task = taskInPhase(TaskPhase.PLANNING);
+    const artifacts = artifactRepository();
+    const insert = artifacts.insert.bind(artifacts);
+    artifacts.insert = async (artifact, expectedTaskPhase) => {
+      expect(expectedTaskPhase).toBe(TaskPhase.PLANNING);
+      await insert(artifact, expectedTaskPhase);
+    };
+
+    await createExecutionArtifact(
+      {
+        content: '# Plan\n\nBind the evidence to PLANNING.',
+        createdAt: 10,
+        id: 'artifact-phase-bound',
+        kind: ExecutionArtifactKind.PLAN,
+        taskId: task.id,
+      },
+      taskRepository(task),
+      sessionRepository(undefined),
+      artifacts,
+    );
+  });
+
   it('reads one artifact and lists immutable Task history oldest first', async () => {
-    const task = taskInPhase(TaskPhase.REVIEW);
+    const task = taskInPhase(TaskPhase.PLANNING);
     const artifacts = artifactRepository();
     const dependencies = [taskRepository(task), sessionRepository(undefined), artifacts] as const;
     await createExecutionArtifact(
@@ -118,10 +141,10 @@ describe('execution artifact use cases', () => {
     );
     await createExecutionArtifact(
       {
-        content: '# Review\n\nSecond artifact.',
+        content: '# Plan\n\nSecond version.',
         createdAt: 20,
-        id: 'artifact-review',
-        kind: ExecutionArtifactKind.REVIEW,
+        id: 'artifact-plan-revised',
+        kind: ExecutionArtifactKind.PLAN,
         taskId: task.id,
       },
       ...dependencies,
@@ -130,7 +153,7 @@ describe('execution artifact use cases', () => {
     expect((await getExecutionArtifact('artifact-plan', artifacts)).content).toContain('First');
     expect(
       (await listTaskExecutionArtifacts(task.id, dependencies[0], artifacts)).map(({ id }) => id),
-    ).toEqual(['artifact-plan', 'artifact-review']);
+    ).toEqual(['artifact-plan', 'artifact-plan-revised']);
   });
 
   it('reports a missing artifact without fabricating a value', async () => {

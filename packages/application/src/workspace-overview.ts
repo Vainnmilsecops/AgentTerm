@@ -1,5 +1,6 @@
 import {
   AgentSessionStatus,
+  ExecutionArtifactKind,
   TaskPhase,
   TaskReviewEvidenceLimits,
   TaskReviewStatus,
@@ -14,15 +15,15 @@ import {
 import type {
   AgentCatalog,
   AgentSessionRepository,
-  ExecutionArtifactRepository,
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
   TaskReviewRepository,
+  TaskPlanningArtifactRepository,
 } from './ports';
 import { listAgentSummaries, type AgentSummary } from './agent-catalog';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
-import { canStartTaskExecution } from './task-execution';
+import { canStartTaskExecution, canStartTaskPlanning } from './task-execution';
 
 const maximumWorkspaceGateRuns = 20;
 const maximumWorkspaceArtifacts = 20;
@@ -34,12 +35,16 @@ export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
   readonly artifacts: readonly ExecutionArtifact[];
   readonly canApproveReview: boolean;
+  readonly canAcceptPlan: boolean;
   readonly canRequestChanges: boolean;
   readonly canRequestReview: boolean;
   readonly canRetryExecution: boolean;
+  readonly canRevisePlan: boolean;
   readonly canStartExecution: boolean;
+  readonly canStartPlanning: boolean;
   readonly latestSession: AgentSessionSummary | undefined;
   readonly latestReview: TaskReviewSummary | undefined;
+  readonly latestPlan: ExecutionArtifact | undefined;
   readonly previousSession: AgentSessionSummary | undefined;
   readonly qualityGateRuns: readonly QualityGateRunSummary[];
   readonly reviewHistory: readonly TaskReviewSummary[];
@@ -145,7 +150,7 @@ export async function loadAgentWorkspace(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
   sessions: AgentSessionRepository,
-  artifacts: ExecutionArtifactRepository,
+  artifacts: TaskPlanningArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
   reviews: TaskReviewRepository,
   agents: AgentCatalog,
@@ -172,6 +177,10 @@ export async function loadAgentWorkspace(
             qualityGateRuns.readReviewEvidenceByTaskId(task.id, 0),
             reviews.listRecentByTaskId(task.id, maximumWorkspaceReviewAttempts),
           ]);
+          const latestPlan = await artifacts.findLatestByTaskIdAndKind(
+            task.id,
+            ExecutionArtifactKind.PLAN,
+          );
           const activeSession = findLatestActiveSession(history);
           const latestSession = history.at(-1);
           const latestReviewAttempt = reviewAttempts.at(-1);
@@ -179,6 +188,7 @@ export async function loadAgentWorkspace(
             reviewAttempts.slice().reverse().map(summarizeTaskReview),
           );
           const phaseAllowsExecution = canStartTaskExecution(task);
+          const phaseAllowsPlanning = canStartTaskPlanning(task);
           const hasUnsettledReviewWriter = history.some(hasUnsettledTaskCodeWriter);
           const hasRunningGate = gateEvidence.hasRunning;
           const reviewEvidenceIsBounded =
@@ -190,6 +200,16 @@ export async function loadAgentWorkspace(
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
             artifacts: Object.freeze([...artifactHistory]),
+            canAcceptPlan:
+              phaseAllowsPlanning &&
+              !hasUnsettledReviewWriter &&
+              latestPlan?.sessionId !== undefined &&
+              history.some(
+                (session) =>
+                  session.id === latestPlan.sessionId &&
+                  session.taskId === latestPlan.taskId &&
+                  isTerminal(session),
+              ),
             canApproveReview: hasPendingReview,
             canRequestChanges: hasPendingReview,
             canRequestReview:
@@ -204,8 +224,16 @@ export async function loadAgentWorkspace(
               !hasUnsettledReviewWriter &&
               isTerminal(latestSession) &&
               latestSession !== undefined,
+            canRevisePlan:
+              phaseAllowsPlanning &&
+              activeSession === undefined &&
+              !hasUnsettledReviewWriter &&
+              isTerminal(latestSession),
             canStartExecution:
               phaseAllowsExecution && activeSession === undefined && latestSession === undefined,
+            canStartPlanning:
+              phaseAllowsPlanning && activeSession === undefined && latestSession === undefined,
+            latestPlan,
             latestSession: summarizeSession(latestSession),
             latestReview: reviewHistory[0],
             previousSession: summarizeSession(history.at(-2)),

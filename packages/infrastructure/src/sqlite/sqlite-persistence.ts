@@ -3,11 +3,13 @@ import { createRequire } from 'node:module';
 import type {
   AgentSessionRepository,
   ExecutionArtifactRepository,
+  TaskPlanningArtifactRepository,
   LocalProjectLocator,
   ProjectCatalog,
   ProjectRepository,
   QualityGateRunRepository,
   TaskRepository,
+  TaskPlanningRepository,
   TaskReviewRepository,
   TaskCatalog,
   TaskWorktreeRepository,
@@ -30,11 +32,11 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
-  readonly artifacts: ExecutionArtifactRepository;
+  readonly artifacts: ExecutionArtifactRepository & TaskPlanningArtifactRepository;
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   readonly qualityGateRuns: QualityGateRunRepository;
   readonly sessions: AgentSessionRepository;
-  readonly tasks: TaskCatalog & TaskRepository;
+  readonly tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
   readonly reviews: TaskReviewRepository;
   readonly worktrees: TaskWorktreeRepository;
   close(): void;
@@ -50,11 +52,11 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     enableDoubleQuotedStringLiterals: false,
     enableForeignKeyConstraints: true,
   });
-  let artifacts: ExecutionArtifactRepository;
+  let artifacts: ExecutionArtifactRepository & TaskPlanningArtifactRepository;
   let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   let qualityGateRuns: QualityGateRunRepository;
   let sessions: AgentSessionRepository;
-  let tasks: TaskCatalog & TaskRepository;
+  let tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
   let reviews: TaskReviewRepository;
   let worktrees: TaskWorktreeRepository;
 

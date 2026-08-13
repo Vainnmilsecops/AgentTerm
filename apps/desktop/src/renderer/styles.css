@@ -557,6 +557,57 @@ button:focus-visible {
   background: #0d1115;
 }
 
+.planning-summary {
+  display: grid;
+  min-width: 0;
+  max-height: min(18rem, 34vh);
+  overflow: hidden;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border: 1px solid #4d693d;
+  border-radius: 0.55rem;
+  background: #10150e;
+}
+
+.planning-summary > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid #34442b;
+  padding: 0.55rem 0.7rem;
+}
+
+.planning-summary h3,
+.planning-summary p {
+  margin: 0;
+}
+
+.planning-summary h3 {
+  font-size: 0.85rem;
+}
+
+.planning-summary > header > span,
+.planning-summary > p {
+  padding: 0.35rem 0.7rem;
+  color: #9bac8e;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.66rem;
+}
+
+.planning-summary pre {
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  border-top: 1px solid #263420;
+  padding: 0.65rem 0.7rem;
+  color: #d7e4ce;
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .quality-gates__header {
   display: flex;
   align-items: center;

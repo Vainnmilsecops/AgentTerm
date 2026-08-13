@@ -29,7 +29,7 @@ export async function createExecutionArtifact(
     }
   }
 
-  await artifacts.insert(artifact);
+  await artifacts.insert(artifact, artifact.phase);
   return artifact;
 }
 
