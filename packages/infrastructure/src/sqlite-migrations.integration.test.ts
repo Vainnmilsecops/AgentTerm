@@ -83,7 +83,7 @@ function createLegacyQualityGateV5Database(database: DatabaseSync): void {
 }
 
 describe('SQLite migrations', () => {
-  it('applies the current Project, Task, Worktree, Session, Artifact, and Quality Gate schema once', async () => {
+  it('applies the current Project, Task, Worktree, Session, Artifact, Quality Gate, and Review schema once', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       openSqlitePersistence(databasePath).close();
       openSqlitePersistence(databasePath).close();
@@ -112,8 +112,12 @@ describe('SQLite migrations', () => {
                  'agent_session_events_runtime_sequence_index',
                  'agent_sessions_task_ordinal_index',
                  'agent_sessions_identity_task_index',
+                 'execution_artifacts_identity_task_index',
                  'execution_artifacts_task_history_index',
+                 'quality_gate_runs_identity_task_index',
                  'quality_gate_runs_task_ordinal_index',
+                 'task_reviews_one_pending_per_task_index',
+                 'task_reviews_task_ordinal_index',
                  'tasks_project_id_index',
                  'project_roots_recent_index'
                )
@@ -129,6 +133,10 @@ describe('SQLite migrations', () => {
           'project_roots',
           'projects',
           'quality_gate_runs',
+          'task_review_artifacts',
+          'task_review_changed_paths',
+          'task_review_quality_gates',
+          'task_reviews',
           'task_worktrees',
           'tasks',
         ]);
@@ -139,14 +147,19 @@ describe('SQLite migrations', () => {
           { name: 'agent-sessions', version: 4 },
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
+          { name: 'task-reviews', version: 7 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
           { name: 'agent_sessions_identity_task_index' },
           { name: 'agent_sessions_task_ordinal_index' },
+          { name: 'execution_artifacts_identity_task_index' },
           { name: 'execution_artifacts_task_history_index' },
           { name: 'project_roots_recent_index' },
+          { name: 'quality_gate_runs_identity_task_index' },
           { name: 'quality_gate_runs_task_ordinal_index' },
+          { name: 'task_reviews_one_pending_per_task_index' },
+          { name: 'task_reviews_task_ordinal_index' },
           { name: 'tasks_project_id_index' },
         ]);
       } finally {
@@ -329,6 +342,7 @@ describe('SQLite migrations', () => {
           { name: 'agent-sessions', version: 4 },
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
+          { name: 'task-reviews', version: 7 },
         ]);
       } finally {
         migrated.close();
@@ -399,6 +413,7 @@ describe('SQLite migrations', () => {
           { name: 'agent-sessions', version: 4 },
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
+          { name: 'task-reviews', version: 7 },
         ]);
       } finally {
         migrated.close();
@@ -488,6 +503,7 @@ describe('SQLite migrations', () => {
           { name: 'agent-sessions', version: 4 },
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
+          { name: 'task-reviews', version: 7 },
         ]);
       } finally {
         migrated.close();
@@ -548,6 +564,7 @@ describe('SQLite migrations', () => {
           { name: 'agent-sessions', version: 4 },
           { name: 'execution-artifacts', version: 5 },
           { name: 'quality-gate-runs', version: 6 },
+          { name: 'task-reviews', version: 7 },
         ]);
       } finally {
         migrated.close();
@@ -597,6 +614,7 @@ describe('SQLite migrations', () => {
             name: 'quality-gate-runs',
             version: 6,
           },
+          expect.objectContaining({ name: 'task-reviews', version: 7 }),
         ]);
       } finally {
         migrated.close();

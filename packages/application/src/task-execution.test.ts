@@ -69,11 +69,14 @@ const executionInput = Object.freeze({
 class MemoryTaskRepository implements TaskRepository {
   private readonly stored = new Map<string, Task>();
   public failNextUpdate = false;
-  public readonly update = vi.fn(async (task: Task) => {
+  public readonly update = vi.fn(async (task: Task, expectedPhase: Task['phase']) => {
     this.events.push(`task:${task.phase}`);
     if (this.failNextUpdate) {
       this.failNextUpdate = false;
       throw new Error('injected Task persistence failure');
+    }
+    if (this.stored.get(task.id)?.phase !== expectedPhase) {
+      throw new Error('stale Task phase');
     }
     this.stored.set(task.id, task);
   });
@@ -92,6 +95,10 @@ class MemoryTaskRepository implements TaskRepository {
   }
 
   public async insert(task: Task): Promise<void> {
+    this.stored.set(task.id, task);
+  }
+
+  public replace(task: Task): void {
     this.stored.set(task.id, task);
   }
 }
@@ -139,6 +146,7 @@ class MemoryTaskWorktreeRepository implements TaskWorktreeRepository {
 class MemoryGitWorktreeLifecycle implements GitTaskWorktreeLifecycle {
   public ensureFailure: Error | undefined;
   public ensureCalls = 0;
+  public onEnsure: (() => void) | undefined;
   private present = false;
 
   public constructor(private readonly events: string[]) {}
@@ -162,6 +170,7 @@ class MemoryGitWorktreeLifecycle implements GitTaskWorktreeLifecycle {
       throw this.ensureFailure;
     }
     this.present = true;
+    this.onEnsure?.();
     return { kind: 'created', status: cleanStatus, worktree: primaryWorktree };
   }
 
@@ -329,8 +338,9 @@ describe('startTaskExecution', () => {
       const fixture = createFixture(phase);
 
       await expect(startTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
-        name: 'InvalidTaskPhaseTransitionError',
-        to: TaskPhase.RUNNING,
+        name: 'TaskExecutionPhaseError',
+        phase,
+        taskId: executionInput.taskId,
       });
 
       expect(fixture.events).toEqual([]);
@@ -493,6 +503,25 @@ describe('startTaskExecution', () => {
     expect(fixture.git.ensureCalls).toBe(1);
   });
 
+  it('does not undo a concurrently admitted Review after Worktree inspection', async () => {
+    const fixture = createFixture();
+    fixture.git.onEnsure = () => fixture.tasks.replace(taskAt(TaskPhase.REVIEW));
+
+    await expect(startTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+      cause: { name: 'TaskExecutionPhaseError', phase: TaskPhase.REVIEW },
+      stage: 'TASK_STATE',
+      taskId: executionInput.taskId,
+    });
+
+    await expect(fixture.tasks.findById(executionInput.taskId)).resolves.toMatchObject({
+      phase: TaskPhase.REVIEW,
+    });
+    expect(fixture.runtime.specs).toEqual([]);
+    await expect(fixture.sessionRepository.listByTaskId(executionInput.taskId)).resolves.toEqual(
+      [],
+    );
+  });
+
   it('keeps RUNNING and the Worktree when initial Session persistence fails before spawn', async () => {
     const fixture = createFixture();
     fixture.sessionRepository.failInsert = true;
@@ -625,8 +654,9 @@ describe('retryTaskExecution', () => {
       fixture.events.length = 0;
 
       await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
-        name: 'InvalidTaskPhaseTransitionError',
-        to: TaskPhase.RUNNING,
+        name: 'TaskExecutionPhaseError',
+        phase,
+        taskId: executionInput.taskId,
       });
 
       expect(fixture.events).toEqual([]);
@@ -725,6 +755,36 @@ describe('retryTaskExecution', () => {
       previousSession: { id: 'session-1', status: AgentSessionStatus.FAILED },
       session: { id: 'session-2', status: AgentSessionStatus.WORKING },
     });
+  });
+
+  it('rejects retry when durable FAILED history has no exit or ownership-loss checkpoint', async () => {
+    const fixture = createFixture(TaskPhase.RUNNING);
+    const starting = createAgentSession({
+      agentId: 'codex',
+      createdAt: 1_800_000_000_000,
+      id: 'session-orphaned-runtime',
+      taskId: executionInput.taskId,
+    });
+    const failed = recordAgentSessionEvent(starting, {
+      code: 'RUNTIME_FAILURE',
+      fatal: true,
+      kind: 'RUNTIME_FAILED',
+      occurredAt: 1_800_000_000_001,
+      runtimeSequence: 1,
+      stage: 'RUNTIME',
+    });
+    await fixture.sessionRepository.insert(starting);
+    await fixture.sessionRepository.append(failed, 1);
+    fixture.events.length = 0;
+
+    await expect(retryTaskExecution(executionInput, fixture.dependencies)).rejects.toMatchObject({
+      activeSessionId: failed.id,
+      name: 'TaskExecutionRetryError',
+      reason: 'ACTIVE_SESSION_EXISTS',
+    });
+
+    expect(fixture.events).toEqual([]);
+    expect(fixture.git.ensureCalls).toBe(0);
   });
 
   it('rejects retry through a different agent coordinator without touching the Worktree', async () => {

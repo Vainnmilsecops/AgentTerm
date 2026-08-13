@@ -195,5 +195,23 @@ function artifactRepository(): ExecutionArtifactRepository {
       values.push(artifact);
     },
     listByTaskId: async (taskId) => values.filter((artifact) => artifact.taskId === taskId),
+    listRecentByTaskId: async (taskId, limit) =>
+      values.filter((artifact) => artifact.taskId === taskId).slice(-limit),
+    readReviewEvidenceByTaskId: async (taskId, limit) => {
+      const artifacts = values.filter((artifact) => artifact.taskId === taskId);
+      return {
+        evidence:
+          artifacts.length > limit
+            ? []
+            : artifacts.map(({ createdAt, id, kind, phase, sessionId }) => ({
+                createdAt,
+                id,
+                kind,
+                phase,
+                sessionId,
+              })),
+        totalCount: artifacts.length,
+      };
+    },
   };
 }

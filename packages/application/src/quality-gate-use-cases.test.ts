@@ -6,6 +6,8 @@ import {
   createTask,
   QualityGateKind,
   QualityGateRunStatus,
+  TaskPhase,
+  transitionTask,
   type QualityGateRun,
   type Task,
 } from '@agentterm/domain';
@@ -14,6 +16,7 @@ import {
   EntityNotFoundError,
   listQualityGateRuns,
   QualityGatePersistenceError,
+  QualityGateProcessUnsettledError,
   runQualityGate,
   type GitTaskWorktreeLifecycle,
   type LocalProject,
@@ -161,12 +164,37 @@ class FakeRuns implements QualityGateRunRepository {
   public async listByTaskId(taskId: string): Promise<readonly QualityGateRun[]> {
     return this.values.filter((run) => run.taskId === taskId);
   }
+  public async listRecentByTaskId(taskId: string, limit: number) {
+    return this.values.filter((run) => run.taskId === taskId).slice(-limit);
+  }
+  public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
+    const runs = this.values.filter((run) => run.taskId === taskId);
+    return {
+      evidence:
+        runs.length > limit
+          ? []
+          : runs.map(({ finishedAt, gate, id, startedAt, status, worktree }) => ({
+              baseCommitId: worktree.baseCommitId,
+              branchName: worktree.branchName,
+              finishedAt,
+              gateId: gate.id,
+              headCommitIdAtStart: worktree.headCommitIdAtStart,
+              id,
+              kind: gate.kind,
+              observedStatus: status,
+              startedAt,
+              worktreePathIdentity: worktree.pathIdentity,
+            })),
+      hasRunning: runs.some(({ status }) => status === QualityGateRunStatus.RUNNING),
+      totalCount: runs.length,
+    };
+  }
 }
 
 function dependencies(
   options: {
     readonly git?: FakeGit;
-    readonly processRunner?: FakeProcessRunner;
+    readonly processRunner?: QualityGateProcessRunner;
     readonly runs?: FakeRuns;
     readonly tasks?: FakeTasks;
   } = {},
@@ -315,6 +343,24 @@ describe('runQualityGate', () => {
     expect(runner.requests).toHaveLength(0);
   });
 
+  it.each([TaskPhase.REVIEW, TaskPhase.DONE])('does not start a gate from %s', async (phase) => {
+    let phasedTask = transitionTask(task, TaskPhase.PLANNING);
+    phasedTask = transitionTask(phasedTask, TaskPhase.RUNNING);
+    phasedTask = transitionTask(phasedTask, TaskPhase.REVIEW);
+    if (phase === TaskPhase.DONE) phasedTask = transitionTask(phasedTask, TaskPhase.DONE);
+    const runner = new FakeProcessRunner();
+    const runs = new FakeRuns();
+
+    await expect(
+      runQualityGate(
+        { environment: {}, gateId: gate.id, runId: `run-${phase}`, taskId: task.id },
+        dependencies({ processRunner: runner, runs, tasks: new FakeTasks(phasedTask) }),
+      ),
+    ).rejects.toMatchObject({ reason: 'TASK_PHASE_NOT_RUNNABLE', taskId: task.id });
+    expect(runs.values).toEqual([]);
+    expect(runner.requests).toEqual([]);
+  });
+
   it('rejects mismatched catalog identity and credential-like command arguments before persistence', async () => {
     const runner = new FakeProcessRunner();
     const runs = new FakeRuns();
@@ -415,21 +461,82 @@ describe('runQualityGate', () => {
     expect(runner.requests).toHaveLength(1);
   });
 
-  it('fails closed when timeout tree termination cannot be confirmed', async () => {
+  it('keeps the durable run active when timeout tree termination cannot be confirmed', async () => {
     const runner = new FakeProcessRunner({
       kind: 'timed-out',
       output: 'partial',
       terminationFailed: true,
       truncated: false,
     });
-    const completed = await runQualityGate(
-      { environment: {}, gateId: gate.id, runId: 'run-uncertain', taskId: task.id },
-      dependencies({ processRunner: runner }),
-    );
-    expect(completed).toMatchObject({
-      failureCategory: 'INFRASTRUCTURE',
-      status: 'INFRASTRUCTURE_FAILED',
+    const runs = new FakeRuns();
+
+    await expect(
+      runQualityGate(
+        { environment: {}, gateId: gate.id, runId: 'run-uncertain', taskId: task.id },
+        dependencies({ processRunner: runner, runs }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'QualityGateProcessUnsettledError',
+      observedOutput: { text: 'partial', truncated: false },
+      persistedStatus: QualityGateRunStatus.RUNNING,
+      reason: 'TERMINATION_UNCONFIRMED',
+      run: { id: 'run-uncertain', status: QualityGateRunStatus.RUNNING },
     });
+    expect(runs.values).toMatchObject([
+      { id: 'run-uncertain', status: QualityGateRunStatus.RUNNING },
+    ]);
+    expect(QualityGateProcessUnsettledError).toBeTypeOf('function');
+  });
+
+  it('keeps the durable run active when the cleanup deadline expires before process close', async () => {
+    const runner = new FakeProcessRunner({
+      kind: 'infrastructure-error',
+      output: 'cleanup still pending',
+      reason: 'TERMINATION_FAILED',
+      truncated: true,
+    });
+    const runs = new FakeRuns();
+
+    await expect(
+      runQualityGate(
+        { environment: {}, gateId: gate.id, runId: 'run-cleanup-pending', taskId: task.id },
+        dependencies({ processRunner: runner, runs }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'QualityGateProcessUnsettledError',
+      observedOutput: { text: 'cleanup still pending', truncated: true },
+      persistedStatus: QualityGateRunStatus.RUNNING,
+      reason: 'TERMINATION_UNCONFIRMED',
+      run: { id: 'run-cleanup-pending', status: QualityGateRunStatus.RUNNING },
+    });
+    expect(runs.values).toMatchObject([
+      { id: 'run-cleanup-pending', status: QualityGateRunStatus.RUNNING },
+    ]);
+  });
+
+  it('keeps the durable run active when the process runner returns no settlement result', async () => {
+    const processRunner: QualityGateProcessRunner = {
+      run: vi.fn(async () => {
+        throw new Error('runner protocol failed');
+      }),
+    };
+    const runs = new FakeRuns();
+
+    await expect(
+      runQualityGate(
+        { environment: {}, gateId: gate.id, runId: 'run-no-result', taskId: task.id },
+        dependencies({ processRunner, runs }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'QualityGateProcessUnsettledError',
+      observedOutput: { text: '', truncated: false },
+      persistedStatus: QualityGateRunStatus.RUNNING,
+      reason: 'PROCESS_RESULT_UNAVAILABLE',
+      run: { id: 'run-no-result', status: QualityGateRunStatus.RUNNING },
+    });
+    expect(runs.values).toMatchObject([
+      { id: 'run-no-result', status: QualityGateRunStatus.RUNNING },
+    ]);
   });
 
   it('redacts and bounds output again before persistence even when a runner violates its contract', async () => {

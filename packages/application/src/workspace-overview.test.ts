@@ -6,15 +6,20 @@ import {
   createExecutionArtifact,
   createQualityGate,
   createTask,
+  decideTaskReview,
   QualityGateKind,
   recordAgentSessionEvent,
+  startTaskReview,
   startQualityGateRun,
   TaskPhase,
+  TaskReviewGateAssociation,
+  TaskReviewStatus,
   transitionTask,
   type AgentSession,
   type ExecutionArtifact,
   type QualityGateRun,
   type Task,
+  type TaskReview,
 } from '@agentterm/domain';
 
 import {
@@ -25,6 +30,8 @@ import {
   type ProjectCatalog,
   type QualityGateRunRepository,
   type TaskCatalog,
+  type TaskReviewRepository,
+  type TaskReviewQualityGateEvidenceSource,
 } from './index';
 
 class FakeProjectCatalog implements ProjectCatalog {
@@ -74,6 +81,9 @@ class FakeSessionRepository implements AgentSessionRepository {
 }
 
 class FakeQualityGateRunRepository implements QualityGateRunRepository {
+  public listAllCalls = 0;
+  public readonly recentLimits: number[] = [];
+  public readonly reviewEvidenceLimits: number[] = [];
   public constructor(private readonly runs: readonly QualityGateRun[]) {}
 
   public async findById(id: string): Promise<QualityGateRun | undefined> {
@@ -89,11 +99,47 @@ class FakeQualityGateRunRepository implements QualityGateRunRepository {
   }
 
   public async listByTaskId(taskId: string): Promise<readonly QualityGateRun[]> {
+    this.listAllCalls += 1;
     return this.runs.filter((run) => run.taskId === taskId);
+  }
+
+  public async listRecentByTaskId(taskId: string, limit: number) {
+    this.recentLimits.push(limit);
+    return this.runs.filter((run) => run.taskId === taskId).slice(-limit);
+  }
+
+  public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
+    this.reviewEvidenceLimits.push(limit);
+    const runs = this.runs.filter((run) => run.taskId === taskId);
+    return {
+      evidence:
+        runs.length > limit
+          ? []
+          : runs.map(
+              ({ finishedAt, gate, id, startedAt, status, worktree }) =>
+                ({
+                  baseCommitId: worktree.baseCommitId,
+                  branchName: worktree.branchName,
+                  finishedAt,
+                  gateId: gate.id,
+                  headCommitIdAtStart: worktree.headCommitIdAtStart,
+                  id,
+                  kind: gate.kind,
+                  observedStatus: status,
+                  startedAt,
+                  worktreePathIdentity: worktree.pathIdentity,
+                }) satisfies TaskReviewQualityGateEvidenceSource,
+            ),
+      hasRunning: runs.some(({ status }) => status === 'RUNNING'),
+      totalCount: runs.length,
+    };
   }
 }
 
 class FakeArtifactRepository implements ExecutionArtifactRepository {
+  public listAllCalls = 0;
+  public readonly recentLimits: number[] = [];
+  public readonly reviewEvidenceLimits: number[] = [];
   public constructor(private readonly artifacts: readonly ExecutionArtifact[]) {}
 
   public async findById(id: string): Promise<ExecutionArtifact | undefined> {
@@ -105,7 +151,60 @@ class FakeArtifactRepository implements ExecutionArtifactRepository {
   }
 
   public async listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]> {
+    this.listAllCalls += 1;
     return this.artifacts.filter((artifact) => artifact.taskId === taskId);
+  }
+
+  public async listRecentByTaskId(taskId: string, limit: number) {
+    this.recentLimits.push(limit);
+    return this.artifacts.filter((artifact) => artifact.taskId === taskId).slice(-limit);
+  }
+
+  public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
+    this.reviewEvidenceLimits.push(limit);
+    const artifacts = this.artifacts.filter((artifact) => artifact.taskId === taskId);
+    return {
+      evidence:
+        artifacts.length > limit
+          ? []
+          : artifacts.map(({ createdAt, id, kind, phase, sessionId }) => ({
+              createdAt,
+              id,
+              kind,
+              phase,
+              sessionId,
+            })),
+      totalCount: artifacts.length,
+    };
+  }
+}
+
+class FakeTaskReviewRepository implements TaskReviewRepository {
+  public listAllCalls = 0;
+  public readonly recentLimits: number[] = [];
+
+  public constructor(private readonly reviews: readonly TaskReview[]) {}
+
+  public async findById(id: string): Promise<TaskReview | undefined> {
+    return this.reviews.find((review) => review.id === id);
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly TaskReview[]> {
+    this.listAllCalls += 1;
+    return this.reviews.filter((review) => review.taskId === taskId);
+  }
+
+  public async listRecentByTaskId(taskId: string, limit: number): Promise<readonly TaskReview[]> {
+    this.recentLimits.push(limit);
+    return this.reviews.filter((review) => review.taskId === taskId).slice(-limit);
+  }
+
+  public async begin(): Promise<never> {
+    throw new Error('begin is not used by the workspace overview');
+  }
+
+  public async decide(): Promise<never> {
+    throw new Error('decide is not used by the workspace overview');
   }
 }
 
@@ -176,6 +275,7 @@ describe('loadAgentWorkspace', () => {
       new FakeSessionRepository([exited, working, olderActive, latestFailed]),
       new FakeArtifactRepository([plan, summary]),
       new FakeQualityGateRunRepository([lintPassed, testsFailed]),
+      new FakeTaskReviewRepository([]),
     );
 
     const projectSummary = { id: project.id, name: project.name };
@@ -192,9 +292,14 @@ describe('loadAgentWorkspace', () => {
               artifacts: [plan, summary],
               canRetryExecution: false,
               canStartExecution: false,
+              canApproveReview: false,
+              canRequestChanges: false,
+              canRequestReview: false,
               latestSession: workingSummary,
+              latestReview: undefined,
               previousSession: summarize(exited),
               qualityGateRuns: [summarizeGateRun(lintPassed), summarizeGateRun(testsFailed)],
+              reviewHistory: [],
               task: runningTask,
             },
             {
@@ -202,9 +307,14 @@ describe('loadAgentWorkspace', () => {
               artifacts: [],
               canRetryExecution: false,
               canStartExecution: false,
+              canApproveReview: false,
+              canRequestChanges: false,
+              canRequestReview: false,
               latestSession: latestFailedSummary,
+              latestReview: undefined,
               previousSession: olderActiveSummary,
               qualityGateRuns: [],
+              reviewHistory: [],
               task: secondTask,
             },
           ],
@@ -255,19 +365,73 @@ describe('loadAgentWorkspace', () => {
         },
       }),
     );
+    const artifactRepository = new FakeArtifactRepository([]);
+    const gateRepository = new FakeQualityGateRunRepository(gateRuns);
 
     const workspace = await loadAgentWorkspace(
       new FakeProjectCatalog([project]),
       new FakeTaskCatalog([runningTask]),
       new FakeSessionRepository([]),
-      new FakeArtifactRepository([]),
-      new FakeQualityGateRunRepository(gateRuns),
+      artifactRepository,
+      gateRepository,
+      new FakeTaskReviewRepository([]),
     );
     const summaries = workspace.projects[0]?.tasks[0]?.qualityGateRuns;
 
     expect(summaries).toHaveLength(20);
     expect(summaries?.[0]?.id).toBe('gate-run-1');
     expect(summaries?.at(-1)?.output).toEqual({ text: 'x'.repeat(4_096), truncated: true });
+    expect(gateRepository.listAllCalls).toBe(0);
+    expect(gateRepository.recentLimits).toEqual([20]);
+    expect(gateRepository.reviewEvidenceLimits).toEqual([0]);
+    expect(artifactRepository.listAllCalls).toBe(0);
+    expect(artifactRepository.recentLimits).toEqual([20]);
+    expect(artifactRepository.reviewEvidenceLimits).toEqual([0]);
+  });
+
+  it('loads only the 20 newest Artifact payloads for workspace display', async () => {
+    const project: LocalProject = {
+      id: 'project-bounded-artifacts',
+      name: 'Bounded artifacts',
+      rootPath: 'D:\\Repositories\\Bounded artifacts',
+    };
+    const runningTask = transitionTask(
+      transitionTask(
+        createTask({
+          id: 'task-bounded-artifacts',
+          projectId: project.id,
+          title: 'Artifact history',
+        }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const artifacts = Array.from({ length: 21 }, (_, index) =>
+      createExecutionArtifact({
+        content: `# Plan\n\nArtifact ${index}.`,
+        createdAt: index,
+        id: `artifact-${index}`,
+        kind: 'plan',
+        taskId: runningTask.id,
+      }),
+    );
+    const artifactRepository = new FakeArtifactRepository(artifacts);
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([runningTask]),
+      new FakeSessionRepository([]),
+      artifactRepository,
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+    );
+
+    expect(workspace.projects[0]?.tasks[0]?.artifacts).toHaveLength(20);
+    expect(workspace.projects[0]?.tasks[0]?.artifacts[0]?.id).toBe('artifact-1');
+    expect(workspace.projects[0]?.tasks[0]?.artifacts.at(-1)?.id).toBe('artifact-20');
+    expect(artifactRepository.listAllCalls).toBe(0);
+    expect(artifactRepository.recentLimits).toEqual([20]);
+    expect(artifactRepository.reviewEvidenceLimits).toEqual([0]);
   });
 
   it('preserves recent Projects that do not have Tasks', async () => {
@@ -284,6 +448,7 @@ describe('loadAgentWorkspace', () => {
         new FakeSessionRepository([]),
         new FakeArtifactRepository([]),
         new FakeQualityGateRunRepository([]),
+        new FakeTaskReviewRepository([]),
       ),
     ).resolves.toEqual({
       projects: [{ project: { id: emptyProject.id, name: emptyProject.name }, tasks: [] }],
@@ -308,6 +473,7 @@ describe('loadAgentWorkspace', () => {
       new FakeSessionRepository([]),
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
@@ -337,16 +503,249 @@ describe('loadAgentWorkspace', () => {
       new FakeSessionRepository([failed]),
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
       activeSession: undefined,
       artifacts: [],
-      canRetryExecution: true,
+      canRetryExecution: false,
       canStartExecution: false,
+      canApproveReview: false,
+      canRequestChanges: false,
+      canRequestReview: false,
       latestSession: { id: failed.id, status: 'FAILED' },
+      latestReview: undefined,
       previousSession: undefined,
+      reviewHistory: [],
       task: { phase: 'RUNNING' },
+    });
+  });
+
+  it('does not advertise Review readiness while a gate or failed runtime writer is unsettled', async () => {
+    const project: LocalProject = {
+      id: 'project-review-readiness',
+      name: 'Review readiness',
+      rootPath: 'D:\\Repositories\\Review readiness',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'review-readiness', projectId: project.id, title: 'Wait for writers' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const failedWriter = failSession(startSession('session-failed-writer', running.id, 100), 101);
+    const runningGate = startGateRun('gate-run-active', running.id, 200);
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([running]),
+      new FakeSessionRepository([failedWriter]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([runningGate]),
+      new FakeTaskReviewRepository([]),
+    );
+
+    expect(workspace.projects[0]?.tasks[0]).toMatchObject({
+      activeSession: undefined,
+      canRequestReview: false,
+      latestSession: { id: failedWriter.id, status: 'FAILED' },
+      qualityGateRuns: [{ id: runningGate.id, status: 'RUNNING' }],
+    });
+  });
+
+  it('publishes explicit Review actions and a safe immutable evidence snapshot', async () => {
+    const project: LocalProject = {
+      id: 'project-review',
+      name: 'Review policy',
+      rootPath: 'D:\\Repositories\\Review',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'task-review', projectId: project.id, title: 'Review safely' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const reviewTask = transitionTask(running, TaskPhase.REVIEW);
+    const oldReview = decideTaskReview(createReview('review-old', reviewTask.id, 100), {
+      decidedAt: 110,
+      decisionNote: 'Needs another pass.',
+      status: TaskReviewStatus.CHANGES_REQUESTED,
+    });
+    const capturedPending = createReview('review-pending', reviewTask.id, 200, {
+      committed: [
+        'src/review.ts',
+        'D:\\private\\must-not-render.ts',
+        'C:drive-relative.ts',
+        '\\\\server\\share\\private.ts',
+        '/rooted/private.ts',
+        '\\rooted\\private.ts',
+        '../parent/private.ts',
+        'src/../../escaped.ts',
+      ],
+      conflicted: [],
+      staged: [],
+      total: 8,
+      truncated: false,
+      unstaged: [],
+      untracked: [],
+    });
+    // Simulate an untrusted persisted row that predates current Domain validation.
+    const pending = {
+      ...capturedPending,
+      codeState: {
+        ...capturedPending.codeState,
+        changes: {
+          ...capturedPending.codeState.changes,
+          committed: [...capturedPending.codeState.changes.committed, 'nul\0private.ts'],
+          total: 9,
+        },
+      },
+    } as TaskReview;
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([reviewTask]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([oldReview, pending]),
+    );
+    const overview = workspace.projects[0]?.tasks[0];
+
+    expect(overview).toMatchObject({
+      canApproveReview: true,
+      canRequestChanges: true,
+      canRequestReview: false,
+      latestReview: {
+        artifacts: [
+          {
+            createdAt: 10,
+            id: 'artifact-summary',
+            kind: 'execution-summary',
+            phase: 'RUNNING',
+            sessionId: 'session-1',
+          },
+        ],
+        codeState: {
+          branchName: 'agentterm/task/review',
+          changes: {
+            committed: ['src/review.ts'],
+            total: 9,
+            truncated: true,
+          },
+          fingerprint: 'f'.repeat(64),
+          headCommitId: 'b'.repeat(40),
+        },
+        freshness: 'REVALIDATE_ON_APPROVAL',
+        id: 'review-pending',
+        qualityGates: [
+          {
+            association: 'HEAD_MATCH_ONLY',
+            gateId: 'lint',
+            id: 'gate-run-lint',
+            observedStatus: 'PASSED',
+          },
+          {
+            association: 'STALE',
+            gateId: 'test',
+            id: 'gate-run-test',
+            observedStatus: 'FAILED',
+          },
+        ],
+        status: 'PENDING',
+      },
+      reviewHistory: [
+        { id: 'review-pending', status: 'PENDING' },
+        { id: 'review-old', status: 'CHANGES_REQUESTED' },
+      ],
+      task: { phase: 'REVIEW' },
+    });
+    expect(overview?.latestReview).toBe(overview?.reviewHistory[0]);
+    expect(Object.isFrozen(overview?.reviewHistory)).toBe(true);
+    expect(Object.isFrozen(overview?.latestReview)).toBe(true);
+    expect(Object.isFrozen(overview?.latestReview?.codeState)).toBe(true);
+    expect(Object.isFrozen(overview?.latestReview?.codeState.changes.committed)).toBe(true);
+    expect(Object.isFrozen(overview?.latestReview?.artifacts[0])).toBe(true);
+    expect(Object.isFrozen(overview?.latestReview?.qualityGates[0])).toBe(true);
+    expect(JSON.stringify(overview?.latestReview)).not.toContain('worktreePathIdentity');
+    expect(JSON.stringify(overview?.latestReview)).not.toContain('D:\\private');
+    expect(JSON.stringify(overview?.latestReview)).not.toContain('worktreePath');
+    expect(JSON.stringify(overview?.latestReview)).not.toContain('executablePath');
+    expect(JSON.stringify(overview?.latestReview)).not.toContain('output');
+  });
+
+  it('bounds Review history to the 20 newest immutable attempts', async () => {
+    const project: LocalProject = {
+      id: 'project-review-history',
+      name: 'Review history',
+      rootPath: 'D:\\Repositories\\Review history',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'review-history', projectId: project.id, title: 'Keep history' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const reviews = Array.from({ length: 21 }, (_, index) =>
+      decideTaskReview(createReview(`review-${index}`, running.id, index + 100), {
+        decidedAt: index + 200,
+        status: TaskReviewStatus.APPROVED,
+      }),
+    );
+    const reviewRepository = new FakeTaskReviewRepository(reviews);
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([running]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      reviewRepository,
+    );
+    const reviewHistory = workspace.projects[0]?.tasks[0]?.reviewHistory;
+
+    expect(reviewHistory).toHaveLength(20);
+    expect(reviewHistory?.[0]?.id).toBe('review-20');
+    expect(reviewHistory?.at(-1)?.id).toBe('review-1');
+    expect(workspace.projects[0]?.tasks[0]?.latestReview?.id).toBe('review-20');
+    expect(reviewRepository.listAllCalls).toBe(0);
+    expect(reviewRepository.recentLimits).toEqual([20]);
+  });
+
+  it('offers explicit structured Review recovery for a legacy REVIEW Task with no history', async () => {
+    const project: LocalProject = {
+      id: 'project-legacy-review',
+      name: 'Legacy Review',
+      rootPath: 'D:\\Repositories\\Legacy Review',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'legacy-review', projectId: project.id, title: 'Recover Review' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const review = transitionTask(running, TaskPhase.REVIEW);
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([review]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+    );
+
+    expect(workspace.projects[0]?.tasks[0]).toMatchObject({
+      canApproveReview: false,
+      canRequestChanges: false,
+      canRequestReview: true,
+      reviewHistory: [],
+      task: { phase: TaskPhase.REVIEW },
     });
   });
 });
@@ -424,6 +823,73 @@ function startGateRun(
       pathIdentity: 'worktree-identity',
       worktreePath: 'D:\\worktrees\\task-1',
     },
+  });
+}
+
+function createReview(
+  id: string,
+  taskId: string,
+  requestedAt: number,
+  changes: TaskReview['codeState']['changes'] = {
+    committed: ['src/review.ts'],
+    conflicted: [],
+    staged: [],
+    total: 1,
+    truncated: false,
+    unstaged: [],
+    untracked: [],
+  },
+): TaskReview {
+  return startTaskReview({
+    artifacts: [
+      {
+        createdAt: 10,
+        id: 'artifact-summary',
+        kind: 'execution-summary',
+        phase: TaskPhase.RUNNING,
+        sessionId: 'session-1',
+      },
+    ],
+    codeState: {
+      baseCommitId: 'a'.repeat(40),
+      branchName: 'agentterm/task/review',
+      changes,
+      fingerprint: 'f'.repeat(64),
+      headCommitId: 'b'.repeat(40),
+      schemaVersion: 1,
+      worktreePathIdentity: 'win32:d:\\agentterm-worktrees\\review',
+    },
+    id,
+    qualityGates: [
+      {
+        association: TaskReviewGateAssociation.HEAD_MATCH_ONLY,
+        baseCommitId: 'a'.repeat(40),
+        branchName: 'agentterm/task/review',
+        finishedAt: 20,
+        gateId: 'lint',
+        headCommitIdAtStart: 'b'.repeat(40),
+        id: 'gate-run-lint',
+        kind: QualityGateKind.LINT,
+        observedStatus: 'PASSED',
+        startedAt: 15,
+        worktreePathIdentity: 'win32:d:\\agentterm-worktrees\\review',
+      },
+      {
+        association: TaskReviewGateAssociation.STALE,
+        baseCommitId: 'a'.repeat(40),
+        branchName: 'agentterm/task/review',
+        finishedAt: 25,
+        gateId: 'test',
+        headCommitIdAtStart: 'c'.repeat(40),
+        id: 'gate-run-test',
+        kind: QualityGateKind.TEST,
+        observedStatus: 'FAILED',
+        startedAt: 21,
+        worktreePathIdentity: 'win32:d:\\agentterm-worktrees\\review',
+      },
+    ],
+    requestedAt,
+    taskId,
   });
 }
 

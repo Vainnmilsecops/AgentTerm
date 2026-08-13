@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -82,13 +82,46 @@ describe('NodeQualityGateProcessRunner with real processes', () => {
   });
 
   it.runIf(process.platform === 'win32')(
+    'does not report terminal while a detached descendant still owns the gate job',
+    async () => {
+      const workingDirectory = createTemporaryDirectory('detached-descendant');
+      const rootMarker = join(workingDirectory, 'root-exited.txt');
+      const descendantMarker = join(workingDirectory, 'descendant-finished.txt');
+      const descendantProgram = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(descendantMarker)}, 'finished'), 500);`;
+      const rootProgram = `const fs = require('node:fs'); const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantProgram)}], { detached: true, env: {}, stdio: 'ignore', windowsHide: true }); child.unref(); fs.writeFileSync(${JSON.stringify(rootMarker)}, 'exited'); process.stdout.write('ROOT_EXITED\\n');`;
+
+      const resultPromise = new NodeQualityGateProcessRunner().run({
+        arguments: ['-e', rootProgram],
+        environment: {},
+        executablePath: process.execPath,
+        maxOutputBytes: 16 * 1024,
+        redactValues: [],
+        timeoutMs: 5_000,
+        workingDirectory,
+      });
+      await waitForPath(rootMarker);
+      expect(await settlesWithin(resultPromise, 150)).toBe(false);
+      const result = await resultPromise;
+      const markerExistedWhenRunnerReturned = existsSync(descendantMarker);
+
+      expect(result).toMatchObject({ exitCode: 0, kind: 'exited', truncated: false });
+      expect(result.output).toContain('ROOT_EXITED');
+      expect(markerExistedWhenRunnerReturned).toBe(true);
+    },
+    15_000,
+  );
+
+  it.runIf(process.platform === 'win32')(
     'terminates the owned process tree after timeout',
     async () => {
       const workingDirectory = createTemporaryDirectory('timeout-tree');
+      const releaseDescendant = join(workingDirectory, 'release-descendant.txt');
+      const descendantMarker = join(workingDirectory, 'descendant-must-not-write.txt');
+      const descendantProgram = `const fs = require('node:fs'); const release = ${JSON.stringify(releaseDescendant)}; const marker = ${JSON.stringify(descendantMarker)}; const timer = setInterval(() => { if (fs.existsSync(release)) { clearInterval(timer); fs.writeFileSync(marker, 'escaped'); } }, 10);`;
       const result = await new NodeQualityGateProcessRunner().run({
         arguments: [
           '-e',
-          `const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', 'setInterval(() => undefined, 1000)'], { env: {}, stdio: 'ignore', windowsHide: true }); process.stdout.write('DESCENDANT:' + child.pid + '\\n'); setInterval(() => undefined, 1000);`,
+          `const { spawn } = require('node:child_process'); const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantProgram)}], { detached: true, env: {}, stdio: 'ignore', windowsHide: true }); child.unref(); process.stdout.write('DESCENDANT:' + child.pid + '\\n'); setInterval(() => undefined, 1000);`,
         ],
         environment: {},
         executablePath: process.execPath,
@@ -104,6 +137,8 @@ describe('NodeQualityGateProcessRunner with real processes', () => {
       const descendantPid = Number.parseInt(descendantMatch?.[1] ?? '', 10);
       await waitForProcessExit(descendantPid);
       expect(isProcessAlive(descendantPid)).toBe(false);
+      writeFileSync(releaseDescendant, 'release');
+      await expectPathToRemainMissing(descendantMarker);
     },
     15_000,
   );
@@ -144,6 +179,35 @@ async function waitForProcessExit(processId: number): Promise<void> {
   while (isProcessAlive(processId)) {
     if (Date.now() >= deadline) {
       throw new Error(`Quality-gate descendant ${processId} is still running.`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function waitForPath(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Expected test path was not created: ${path}`);
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function settlesWithin<T>(promise: Promise<T>, milliseconds: number): Promise<boolean> {
+  const marker = Symbol('not-settled');
+  const winner = await Promise.race([
+    promise.then(() => true),
+    new Promise<typeof marker>((resolve) => setTimeout(() => resolve(marker), milliseconds)),
+  ]);
+  return winner === true;
+}
+
+async function expectPathToRemainMissing(path: string): Promise<void> {
+  const deadline = Date.now() + 500;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) {
+      throw new Error(`Terminated quality-gate descendant wrote after settlement: ${path}`);
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }

@@ -8,6 +8,7 @@ import type {
   ProjectRepository,
   QualityGateRunRepository,
   TaskRepository,
+  TaskReviewRepository,
   TaskCatalog,
   TaskWorktreeRepository,
 } from '@agentterm/application';
@@ -19,6 +20,7 @@ import {
   SqliteExecutionArtifactRepository,
   SqliteQualityGateRunRepository,
   SqliteTaskRepository,
+  SqliteTaskReviewRepository,
   SqliteTaskWorktreeRepository,
 } from './repositories';
 
@@ -33,6 +35,7 @@ export interface SqlitePersistence {
   readonly qualityGateRuns: QualityGateRunRepository;
   readonly sessions: AgentSessionRepository;
   readonly tasks: TaskCatalog & TaskRepository;
+  readonly reviews: TaskReviewRepository;
   readonly worktrees: TaskWorktreeRepository;
   close(): void;
 }
@@ -52,6 +55,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let qualityGateRuns: QualityGateRunRepository;
   let sessions: AgentSessionRepository;
   let tasks: TaskCatalog & TaskRepository;
+  let reviews: TaskReviewRepository;
   let worktrees: TaskWorktreeRepository;
 
   try {
@@ -67,6 +71,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     qualityGateRuns = new SqliteQualityGateRunRepository(database);
     sessions = new SqliteAgentSessionRepository(database);
     tasks = new SqliteTaskRepository(database);
+    reviews = new SqliteTaskReviewRepository(database);
     worktrees = new SqliteTaskWorktreeRepository(database);
   } catch (error) {
     database.close();
@@ -81,6 +86,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     qualityGateRuns,
     sessions,
     tasks,
+    reviews,
     worktrees,
     close(): void {
       if (!isClosed) {

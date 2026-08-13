@@ -1,5 +1,6 @@
-import { AgentSessionStatus, recordAgentSessionEvent, type AgentSession } from '@agentterm/domain';
+import { recordAgentSessionEvent, type AgentSession } from '@agentterm/domain';
 
+import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import { AgentSessionPersistenceError } from './errors';
 import type {
   AgentSessionRepository,
@@ -7,6 +8,7 @@ import type {
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
+  TaskReviewRepository,
 } from './ports';
 import { loadAgentWorkspace, type AgentWorkspaceOverview } from './workspace-overview';
 
@@ -25,7 +27,7 @@ export async function restoreAgentSessionsAfterRestart(
   const reconciledSessions: AgentSession[] = [];
 
   for (const current of activeSessions) {
-    if (isTerminal(current)) {
+    if (!hasUnsettledTaskCodeWriter(current)) {
       continue;
     }
     const lastEvent = current.history.at(-1);
@@ -45,7 +47,7 @@ export async function restoreAgentSessionsAfterRestart(
       reconciledSessions.push(failed);
     } catch {
       const latest = await readLatest(sessions, current.id);
-      if (latest !== undefined && isTerminal(latest)) {
+      if (latest !== undefined && !hasUnsettledTaskCodeWriter(latest)) {
         reconciledSessions.push(latest);
         continue;
       }
@@ -62,10 +64,11 @@ export async function restoreAgentWorkspaceAfterRestart(
   sessions: AgentSessionRepository,
   artifacts: ExecutionArtifactRepository,
   qualityGateRuns: QualityGateRunRepository,
+  reviews: TaskReviewRepository,
   clock: () => number,
 ): Promise<AgentWorkspaceOverview> {
   await restoreAgentSessionsAfterRestart(sessions, clock);
-  return loadAgentWorkspace(projects, tasks, sessions, artifacts, qualityGateRuns);
+  return loadAgentWorkspace(projects, tasks, sessions, artifacts, qualityGateRuns, reviews);
 }
 
 async function readLatest(
@@ -77,10 +80,4 @@ async function readLatest(
   } catch {
     return undefined;
   }
-}
-
-function isTerminal(session: AgentSession): boolean {
-  return (
-    session.status === AgentSessionStatus.EXITED || session.status === AgentSessionStatus.FAILED
-  );
 }

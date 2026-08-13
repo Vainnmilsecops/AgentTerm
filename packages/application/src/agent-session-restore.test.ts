@@ -42,9 +42,7 @@ class MemoryAgentSessionRepository implements AgentSessionRepository {
   }
 
   public async listActive(): Promise<readonly AgentSession[]> {
-    return [...this.stored.values()].filter(
-      (session) => session.status !== 'EXITED' && session.status !== 'FAILED',
-    );
+    return [...this.stored.values()].filter(hasUnsettledRuntimeOwnership);
   }
 
   public async listByTaskId(taskId: string): Promise<readonly AgentSession[]> {
@@ -115,6 +113,34 @@ describe('restoreAgentSessionsAfterRestart', () => {
     await expect(repository.findById('session-1')).resolves.toEqual(restored);
   });
 
+  it('reconciles a fatal runtime failure whose process exit was never observed', async () => {
+    const failedWithoutExit = recordAgentSessionEvent(startingSession('session-1'), {
+      code: 'RUNTIME_FAILURE',
+      fatal: true,
+      kind: 'RUNTIME_FAILED',
+      occurredAt: createdAt + 1,
+      runtimeSequence: 1,
+      stage: 'RUNTIME',
+    });
+    const repository = new MemoryAgentSessionRepository([failedWithoutExit]);
+
+    const result = await restoreAgentSessionsAfterRestart(repository, () => createdAt + 2);
+
+    expect(result.reconciledSessions).toHaveLength(1);
+    await expect(repository.findById('session-1')).resolves.toMatchObject({
+      history: [
+        { kind: 'START_REQUESTED' },
+        { code: 'RUNTIME_FAILURE', kind: 'RUNTIME_FAILED', stage: 'RUNTIME' },
+        {
+          code: 'RUNTIME_OWNERSHIP_LOST',
+          kind: 'RUNTIME_FAILED',
+          stage: 'RUNTIME',
+        },
+      ],
+      status: 'FAILED',
+    });
+  });
+
   it('preserves earlier reconciliations and reports the still-active session on partial failure', async () => {
     const repository = new MemoryAgentSessionRepository([
       startingSession('session-1'),
@@ -177,18 +203,34 @@ describe('restoreAgentWorkspaceAfterRestart', () => {
         findById: async () => undefined,
         insert: async () => undefined,
         listByTaskId: async () => [],
+        listRecentByTaskId: async () => [],
+        readReviewEvidenceByTaskId: async () => ({ evidence: [], totalCount: 0 }),
       },
       {
         finalize: async () => never(),
         findById: async () => undefined,
         insert: async () => never(),
         listByTaskId: async () => [],
+        listRecentByTaskId: async () => [],
+        readReviewEvidenceByTaskId: async () => ({
+          evidence: [],
+          hasRunning: false,
+          totalCount: 0,
+        }),
+      },
+      {
+        begin: async () => never(),
+        decide: async () => never(),
+        findById: async () => undefined,
+        listByTaskId: async () => [],
+        listRecentByTaskId: async () => [],
       },
       () => createdAt + 100,
     );
 
     expect(overview.projects[0]?.tasks[0]).toMatchObject({
       activeSession: undefined,
+      canRetryExecution: true,
       latestSession: {
         failureCode: 'RUNTIME_OWNERSHIP_LOST',
         id: 'session-1',
@@ -219,4 +261,22 @@ function reportStatus(
 
 function never(): never {
   throw new Error('recordOpen is not used during workspace restore');
+}
+
+function hasUnsettledRuntimeOwnership(session: AgentSession): boolean {
+  if (session.status === 'EXITED') {
+    return false;
+  }
+  if (session.status !== 'FAILED') {
+    return true;
+  }
+  if (session.history.some((event) => event.kind === 'PROCESS_EXITED')) {
+    return false;
+  }
+  return !session.history.some(
+    (event) =>
+      event.kind === 'RUNTIME_FAILED' &&
+      event.fatal &&
+      (event.stage === 'START' || event.code === 'RUNTIME_OWNERSHIP_LOST'),
+  );
 }

@@ -6,12 +6,58 @@ import type {
   TaskWorktreeStatus,
 } from './ports';
 import type { AgentSession } from '@agentterm/domain';
+import type { TaskPhase } from '@agentterm/domain';
 
 export type EntityKind =
-  'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task';
+  'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task' | 'TaskReview';
+
+export type TaskReviewReadinessFailure =
+  | 'ACTIVE_QUALITY_GATE'
+  | 'ACTIVE_SESSION'
+  | 'EVIDENCE_LIMIT_EXCEEDED'
+  | 'STALE_CODE_STATE'
+  | 'WORKTREE_NOT_READY';
+
+export class TaskReviewReadinessError extends Error {
+  public readonly reason: TaskReviewReadinessFailure;
+  public readonly taskId: string;
+
+  public constructor(reason: TaskReviewReadinessFailure, taskId: string) {
+    super(
+      reason === 'ACTIVE_QUALITY_GATE'
+        ? 'The Task still has an active Quality Gate run.'
+        : reason === 'ACTIVE_SESSION'
+          ? 'The Task still has an active Agent Session.'
+          : reason === 'EVIDENCE_LIMIT_EXCEEDED'
+            ? 'The Task has too much Artifact or Quality Gate history for one Review snapshot.'
+            : reason === 'STALE_CODE_STATE'
+              ? 'The Task code state changed after Review began.'
+              : 'The Task primary Worktree is not ready for Review.',
+    );
+    this.name = 'TaskReviewReadinessError';
+    this.reason = reason;
+    this.taskId = taskId;
+  }
+}
+
+export class TaskReviewFlowRequiredError extends Error {
+  public readonly from: TaskPhase;
+  public readonly to: TaskPhase;
+
+  public constructor(from: TaskPhase, to: TaskPhase) {
+    super(`The structured Review Flow is required for ${from} -> ${to}.`);
+    this.name = 'TaskReviewFlowRequiredError';
+    this.from = from;
+    this.to = to;
+  }
+}
 
 export type QualityGateExecutionFailure =
-  'GATE_NOT_FOUND' | 'INVALID_ENVIRONMENT' | 'UNSAFE_COMMAND_METADATA' | 'WORKTREE_NOT_READY';
+  | 'GATE_NOT_FOUND'
+  | 'INVALID_ENVIRONMENT'
+  | 'TASK_PHASE_NOT_RUNNABLE'
+  | 'UNSAFE_COMMAND_METADATA'
+  | 'WORKTREE_NOT_READY';
 
 export class QualityGateExecutionError extends Error {
   public readonly reason: QualityGateExecutionFailure;
@@ -23,9 +69,11 @@ export class QualityGateExecutionError extends Error {
         ? 'The configured Quality Gate was not found.'
         : reason === 'INVALID_ENVIRONMENT'
           ? 'The Quality Gate environment is invalid.'
-          : reason === 'UNSAFE_COMMAND_METADATA'
-            ? 'The configured Quality Gate command contains unsafe persisted metadata.'
-            : 'The Task primary Worktree is not ready for Quality Gate execution.',
+          : reason === 'TASK_PHASE_NOT_RUNNABLE'
+            ? 'Quality Gates cannot start while the Task is in REVIEW or DONE.'
+            : reason === 'UNSAFE_COMMAND_METADATA'
+              ? 'The configured Quality Gate command contains unsafe persisted metadata.'
+              : 'The Task primary Worktree is not ready for Quality Gate execution.',
     );
     this.name = 'QualityGateExecutionError';
     this.reason = reason;
@@ -47,6 +95,29 @@ export class QualityGatePersistenceError extends Error {
     );
     this.name = 'QualityGatePersistenceError';
     this.observedRun = observedRun;
+  }
+}
+
+export type QualityGateProcessUnsettledReason =
+  'PROCESS_RESULT_UNAVAILABLE' | 'TERMINATION_UNCONFIRMED';
+
+export class QualityGateProcessUnsettledError extends Error {
+  public readonly observedOutput: Readonly<{ readonly text: string; readonly truncated: boolean }>;
+  public readonly persistedStatus = 'RUNNING' as const;
+  public readonly reason: QualityGateProcessUnsettledReason;
+  public readonly run: import('@agentterm/domain').QualityGateRun;
+
+  public constructor(
+    run: import('@agentterm/domain').QualityGateRun,
+    reason: QualityGateProcessUnsettledReason,
+    observedOutput: Readonly<{ readonly text: string; readonly truncated: boolean }>,
+    options?: ErrorOptions,
+  ) {
+    super('Quality Gate process settlement could not be confirmed.', options);
+    this.name = 'QualityGateProcessUnsettledError';
+    this.run = run;
+    this.reason = reason;
+    this.observedOutput = Object.freeze({ ...observedOutput });
   }
 }
 export type AgentAdapterFailureReason =
@@ -187,6 +258,18 @@ export class TaskExecutionRetryError extends Error {
     this.activeSessionId = options.activeSessionId;
     this.reason = reason;
     this.sessionId = sessionId;
+    this.taskId = taskId;
+  }
+}
+
+export class TaskExecutionPhaseError extends Error {
+  public readonly phase: TaskPhase;
+  public readonly taskId: string;
+
+  public constructor(taskId: string, phase: TaskPhase) {
+    super(`Task ${taskId} cannot start execution from ${phase}.`);
+    this.name = 'TaskExecutionPhaseError';
+    this.phase = phase;
     this.taskId = taskId;
   }
 }

@@ -12,6 +12,7 @@ import {
   createTask,
   recordAgentSessionEvent,
   TaskPhase,
+  transitionTask,
 } from '@agentterm/domain';
 
 import { openSqlitePersistence, SqlitePersistenceError } from './index';
@@ -32,8 +33,13 @@ async function seedTask(databasePath: string): Promise<void> {
   const persistence = openSqlitePersistence(databasePath);
   try {
     await persistence.projects.insert(createProject({ id: 'project-1', name: 'AgentTerm' }));
+    const backlog = createTask({
+      id: 'task-1',
+      projectId: 'project-1',
+      title: 'Persist sessions',
+    });
     await persistence.tasks.insert(
-      createTask({ id: 'task-1', projectId: 'project-1', title: 'Persist sessions' }),
+      transitionTask(transitionTask(backlog, TaskPhase.PLANNING), TaskPhase.RUNNING),
     );
   } finally {
     persistence.close();
@@ -73,7 +79,7 @@ describe('SQLite Agent Session persistence', () => {
         await expect(reopened.sessions.findById('session-1')).resolves.toEqual(waiting);
         await expect(reopened.sessions.listByTaskId('task-1')).resolves.toEqual([waiting]);
         await expect(reopened.tasks.findById('task-1')).resolves.toMatchObject({
-          phase: TaskPhase.BACKLOG,
+          phase: TaskPhase.RUNNING,
         });
       } finally {
         reopened.close();
@@ -271,6 +277,78 @@ describe('SQLite Agent Session persistence', () => {
         await persistence.sessions.append(exitedEvidence, 2);
 
         await expect(persistence.sessions.findById('session-1')).resolves.toEqual(exitedEvidence);
+      } finally {
+        persistence.close();
+      }
+    });
+  });
+
+  it('keeps unresolved FAILED runtime ownership active until exit or reconciliation evidence', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath);
+      const persistence = openSqlitePersistence(databasePath);
+      try {
+        const starting = startingSession('session-failed');
+        const failed = recordAgentSessionEvent(starting, {
+          code: 'RUNTIME_FAILURE',
+          fatal: true,
+          kind: 'RUNTIME_FAILED',
+          occurredAt: createdAt + 1,
+          runtimeSequence: 1,
+          stage: 'RUNTIME',
+        });
+        await persistence.sessions.insert(starting);
+        await persistence.sessions.append(failed, 1);
+
+        await expect(persistence.sessions.listActive()).resolves.toMatchObject([
+          { id: 'session-failed', status: 'FAILED' },
+        ]);
+        await expect(persistence.sessions.insert(startingSession('session-next'))).rejects.toEqual(
+          expect.objectContaining({
+            name: 'AgentSessionActiveConflictError',
+            taskId: 'task-1',
+          }),
+        );
+
+        const reconciled = recordAgentSessionEvent(failed, {
+          code: 'RUNTIME_OWNERSHIP_LOST',
+          fatal: true,
+          kind: 'RUNTIME_FAILED',
+          occurredAt: createdAt + 2,
+          stage: 'RUNTIME',
+        });
+        await persistence.sessions.append(reconciled, 2);
+
+        await expect(persistence.sessions.listActive()).resolves.toEqual([]);
+        await expect(persistence.sessions.insert(startingSession('session-next'))).resolves.toBe(
+          undefined,
+        );
+      } finally {
+        persistence.close();
+      }
+    });
+  });
+
+  it('does not retain runtime ownership when launch failed before a process was owned', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath);
+      const persistence = openSqlitePersistence(databasePath);
+      try {
+        const starting = startingSession('session-launch-failed');
+        const failed = recordAgentSessionEvent(starting, {
+          code: 'INVALID_EXECUTABLE',
+          fatal: true,
+          kind: 'RUNTIME_FAILED',
+          occurredAt: createdAt + 1,
+          stage: 'START',
+        });
+        await persistence.sessions.insert(starting);
+        await persistence.sessions.append(failed, 1);
+
+        await expect(persistence.sessions.listActive()).resolves.toEqual([]);
+        await expect(persistence.sessions.insert(startingSession('session-next'))).resolves.toBe(
+          undefined,
+        );
       } finally {
         persistence.close();
       }

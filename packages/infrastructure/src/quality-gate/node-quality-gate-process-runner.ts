@@ -1,8 +1,10 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { constants, realpath } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import { join, isAbsolute, normalize } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { fileURLToPath } from 'node:url';
 
 import type { QualityGateProcessRunner } from '@agentterm/application';
 
@@ -12,7 +14,15 @@ type QualityGateProcessResult = Awaited<ReturnType<QualityGateProcessRunner['run
 const maximumConfiguredOutputBytes = 16 * 1024 * 1024;
 const maximumConfiguredTimeoutMs = 24 * 60 * 60 * 1_000;
 const terminationGraceMs = 5_000;
-const taskkillTimeoutMs = 3_000;
+const windowsJobHostStartupGraceMs = 30_000;
+const windowsJobProtocolPrefix = 'AGENTTERM_JOB_RESULT:';
+const maximumWindowsJobProtocolBytes = 1_024;
+const windowsPowerShellRelativePath = join(
+  'System32',
+  'WindowsPowerShell',
+  'v1.0',
+  'powershell.exe',
+);
 
 interface ValidatedRequest {
   readonly arguments: readonly string[];
@@ -100,6 +110,9 @@ export class NodeQualityGateProcessRunner implements QualityGateProcessRunner {
 }
 
 function runValidatedProcess(request: ValidatedRequest): Promise<QualityGateProcessResult> {
+  if (process.platform === 'win32') {
+    return runValidatedWindowsJobProcess(request);
+  }
   return new Promise((resolve) => {
     const capturedOutput = new BoundedRedactedOutput(request.maxOutputBytes, request.redactValues);
     let child: ChildProcess;
@@ -192,7 +205,7 @@ function runValidatedProcess(request: ValidatedRequest): Promise<QualityGateProc
           });
         }, terminationGraceMs);
 
-        void terminateOwnedProcessTree(child).then((terminated) => {
+        void terminateDirectProcess(child).then((terminated) => {
           terminationAttemptCompleted = true;
           if (!terminated && !settled) {
             terminationFailed = true;
@@ -416,46 +429,13 @@ function resolveNativeRealPath(path: string): Promise<string> {
   });
 }
 
-function terminateOwnedProcessTree(child: ChildProcess): Promise<boolean> {
-  const processId = child.pid;
-  if (!Number.isSafeInteger(processId) || processId === undefined || processId <= 0) {
-    return Promise.resolve(false);
+function terminateDirectProcess(child: ChildProcess): Promise<boolean> {
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    // This non-Windows fallback cannot prove process-tree ownership.
   }
-
-  if (process.platform !== 'win32') {
-    try {
-      child.kill('SIGKILL');
-    } catch {
-      // A direct kill cannot provide process-tree ownership guarantees.
-    }
-    return Promise.resolve(false);
-  }
-
-  const systemRoot = getEnvironmentVariable('SystemRoot');
-  if (systemRoot === undefined || !isAbsolute(systemRoot) || systemRoot.includes('\0')) {
-    return Promise.resolve(false);
-  }
-  const taskkillPath = join(systemRoot, 'System32', 'taskkill.exe');
-
-  return new Promise((resolve) => {
-    try {
-      execFile(
-        taskkillPath,
-        ['/PID', String(processId), '/T', '/F'],
-        {
-          encoding: 'utf8',
-          env: { SystemRoot: systemRoot, WINDIR: systemRoot },
-          maxBuffer: 64 * 1024,
-          shell: false,
-          timeout: taskkillTimeoutMs,
-          windowsHide: true,
-        },
-        (error) => resolve(error === null),
-      );
-    } catch {
-      resolve(false);
-    }
-  });
+  return Promise.resolve(false);
 }
 
 function getEnvironmentVariable(name: string): string | undefined {
@@ -466,6 +446,274 @@ function getEnvironmentVariable(name: string): string | undefined {
     }
   }
   return undefined;
+}
+
+interface WindowsJobHostResult {
+  readonly exitCode: number;
+  readonly kind: 'exited' | 'infrastructure-error' | 'timed-out';
+  readonly terminationFailed: boolean;
+}
+
+function runValidatedWindowsJobProcess(
+  request: ValidatedRequest,
+): Promise<QualityGateProcessResult> {
+  return new Promise((resolve) => {
+    const stderrOutput = new BoundedRedactedOutput(request.maxOutputBytes, request.redactValues);
+    const nonce = randomBytes(32).toString('hex');
+    let child: ChildProcess;
+    let settled = false;
+    const stdout = new WindowsJobStdoutAccumulator(
+      request.maxOutputBytes,
+      request.redactValues,
+      nonce,
+    );
+
+    const finish = (result: QualityGateProcessResult): void => {
+      if (settled) return;
+      settled = true;
+      resolve(Object.freeze(result));
+    };
+    const failUnsettled = (): void => {
+      const output = stderrOutput.finish();
+      finish({
+        kind: 'infrastructure-error',
+        output: output.output,
+        reason: 'TERMINATION_FAILED',
+        truncated: output.truncated,
+      });
+    };
+
+    let powerShellPath: string;
+    let hostScriptPath: string;
+    try {
+      powerShellPath = verifiedWindowsPowerShellPath();
+      hostScriptPath = fileURLToPath(new URL('./windows-job-process-host.ps1', import.meta.url));
+      assertTrustedHostAsset(hostScriptPath);
+      child = spawn(
+        powerShellPath,
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          hostScriptPath,
+        ],
+        {
+          cwd: request.workingDirectory,
+          env: createWindowsJobHostEnvironment(),
+          shell: false,
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        },
+      );
+    } catch {
+      failUnsettled();
+      return;
+    }
+
+    const startupDeadline = setTimeout(
+      () => {
+        try {
+          child.kill();
+        } catch {
+          // The unsettled result below remains the durable failure evidence.
+        }
+        failUnsettled();
+      },
+      request.timeoutMs + terminationGraceMs + windowsJobHostStartupGraceMs,
+    );
+
+    child.stdout?.on('data', (chunk: Buffer | string) => stdout.append(chunk));
+    child.stderr?.on('data', (chunk: Buffer | string) => stderrOutput.append(chunk));
+    child.stdout?.once('error', failUnsettled);
+    child.stderr?.once('error', failUnsettled);
+    child.stdin?.once('error', failUnsettled);
+    child.once('error', failUnsettled);
+    child.once('close', (exitCode) => {
+      clearTimeout(startupDeadline);
+      if (settled || exitCode !== 0) {
+        failUnsettled();
+        return;
+      }
+
+      const parsed = stdout.finish();
+      if (parsed === undefined) {
+        failUnsettled();
+        return;
+      }
+      const stderr = stderrOutput.finish();
+      const combinedOutput = new BoundedRedactedOutput(
+        request.maxOutputBytes,
+        request.redactValues,
+      );
+      combinedOutput.append(parsed.output.output);
+      combinedOutput.append(stderr.output);
+      const output = combinedOutput.finish();
+      const outputTruncated = parsed.output.truncated || stderr.truncated || output.truncated;
+      if (parsed.result.kind === 'exited') {
+        finish({
+          exitCode: parsed.result.exitCode,
+          kind: 'exited',
+          output: output.output,
+          truncated: outputTruncated,
+        });
+        return;
+      }
+      if (parsed.result.kind === 'timed-out') {
+        finish({
+          kind: 'timed-out',
+          output: output.output,
+          terminationFailed: parsed.result.terminationFailed,
+          truncated: outputTruncated,
+        });
+        return;
+      }
+      finish({
+        kind: 'infrastructure-error',
+        output: output.output,
+        reason: parsed.result.terminationFailed ? 'TERMINATION_FAILED' : 'PROCESS_PROTOCOL_ERROR',
+        truncated: outputTruncated,
+      });
+    });
+
+    try {
+      const requestBytes = JSON.stringify({
+        arguments: request.arguments,
+        environment: request.environment,
+        executablePath: request.executablePath,
+        nonce,
+        schemaVersion: 1,
+        timeoutMs: request.timeoutMs,
+        workingDirectory: request.workingDirectory,
+      });
+      child.stdin?.end(requestBytes, 'utf8');
+    } catch {
+      try {
+        child.kill();
+      } catch {
+        // The unsettled result below remains the durable failure evidence.
+      }
+      failUnsettled();
+    }
+  });
+}
+
+function verifiedWindowsPowerShellPath(): string {
+  const systemRoot = getEnvironmentVariable('SystemRoot');
+  if (systemRoot === undefined || !isAbsolute(systemRoot) || systemRoot.includes('\0')) {
+    throw new InvalidProcessRequestError();
+  }
+  return normalize(join(systemRoot, windowsPowerShellRelativePath));
+}
+
+function assertTrustedHostAsset(hostScriptPath: string): void {
+  const moduleDirectory = normalize(fileURLToPath(new URL('.', import.meta.url)));
+  const expectedPath = normalize(join(moduleDirectory, 'windows-job-process-host.ps1'));
+  if (!isAbsolute(hostScriptPath) || normalize(hostScriptPath) !== expectedPath) {
+    throw new InvalidProcessRequestError();
+  }
+}
+
+function createWindowsJobHostEnvironment(): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const name of ['SystemRoot', 'WINDIR', 'TEMP', 'TMP'] as const) {
+    const value = getEnvironmentVariable(name);
+    if (value !== undefined && !value.includes('\0')) {
+      environment[name] = value;
+    }
+  }
+  return environment;
+}
+
+class WindowsJobStdoutAccumulator {
+  private readonly capturedOutput: BoundedRedactedOutput;
+  private readonly marker: Buffer;
+  private markerCount = 0;
+  private tail = Buffer.alloc(0);
+
+  public constructor(maximumBytes: number, redactValues: readonly string[], nonce: string) {
+    this.capturedOutput = new BoundedRedactedOutput(maximumBytes, redactValues);
+    this.marker = Buffer.from(`\n${windowsJobProtocolPrefix}${nonce}:`, 'ascii');
+  }
+
+  public append(chunk: Buffer | string): void {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8');
+    const combined = Buffer.concat([this.tail, bytes]);
+    this.markerCount += countBufferOccurrences(
+      Buffer.concat([
+        this.tail.subarray(Math.max(0, this.tail.length - this.marker.length + 1)),
+        bytes,
+      ]),
+      this.marker,
+    );
+    const retained = Math.min(combined.length, maximumWindowsJobProtocolBytes);
+    const outputBytes = combined.length - retained;
+    if (outputBytes > 0) {
+      this.capturedOutput.append(combined.subarray(0, outputBytes));
+    }
+    this.tail = Buffer.from(combined.subarray(outputBytes));
+  }
+
+  public finish():
+    | {
+        readonly output: { readonly output: string; readonly truncated: boolean };
+        readonly result: WindowsJobHostResult;
+      }
+    | undefined {
+    if (this.markerCount !== 1) return undefined;
+    const markerIndex = this.tail.lastIndexOf(this.marker);
+    if (markerIndex < 0) return undefined;
+    this.capturedOutput.append(this.tail.subarray(0, markerIndex));
+    const suffix = this.tail.subarray(markerIndex + this.marker.length);
+    const endingIndex = suffix.indexOf(0x0a);
+    if (endingIndex < 1 || endingIndex !== suffix.length - 1) return undefined;
+    const encoded = suffix.subarray(0, endingIndex).toString('ascii');
+    const result = parseWindowsJobHostResult(encoded);
+    if (result === undefined) return undefined;
+    return { output: this.capturedOutput.finish(), result };
+  }
+}
+
+function parseWindowsJobHostResult(encoded: string): WindowsJobHostResult | undefined {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+  } catch {
+    return undefined;
+  }
+  if (!isWindowsJobHostResult(parsed)) {
+    return undefined;
+  }
+  return parsed;
+}
+
+function countBufferOccurrences(haystack: Buffer, needle: Buffer): number {
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = haystack.indexOf(needle, offset);
+    if (index < 0) return count;
+    count += 1;
+    offset = index + needle.length;
+  }
+}
+
+function isWindowsJobHostResult(value: unknown): value is WindowsJobHostResult {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === 3 &&
+    ['exited', 'infrastructure-error', 'timed-out'].includes(String(record.kind)) &&
+    Number.isSafeInteger(record.exitCode) &&
+    typeof record.terminationFailed === 'boolean' &&
+    ((record.kind === 'exited' && record.terminationFailed === false) || record.kind !== 'exited')
+  );
 }
 
 function getErrorCode(error: unknown): string | number | undefined {

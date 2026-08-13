@@ -1,11 +1,11 @@
 import { TaskPhase, type TaskPhase as TaskPhaseValue } from './task-phase';
 
-const nextTaskPhase: Readonly<Record<TaskPhaseValue, TaskPhaseValue | null>> = {
-  [TaskPhase.BACKLOG]: TaskPhase.PLANNING,
-  [TaskPhase.PLANNING]: TaskPhase.RUNNING,
-  [TaskPhase.RUNNING]: TaskPhase.REVIEW,
-  [TaskPhase.REVIEW]: TaskPhase.DONE,
-  [TaskPhase.DONE]: null,
+const allowedNextTaskPhases: Readonly<Record<TaskPhaseValue, readonly TaskPhaseValue[]>> = {
+  [TaskPhase.BACKLOG]: [TaskPhase.PLANNING],
+  [TaskPhase.PLANNING]: [TaskPhase.RUNNING],
+  [TaskPhase.RUNNING]: [TaskPhase.REVIEW],
+  [TaskPhase.REVIEW]: [TaskPhase.RUNNING, TaskPhase.DONE],
+  [TaskPhase.DONE]: [],
 };
 
 export interface Task {
@@ -42,7 +42,7 @@ export function createTask(input: CreateTaskInput): Task {
 }
 
 export function transitionTask(task: Task, to: TaskPhaseValue): Task {
-  if (nextTaskPhase[task.phase] !== to) {
+  if (!allowedNextTaskPhases[task.phase].includes(to)) {
     throw new InvalidTaskPhaseTransitionError(task.phase, to);
   }
 

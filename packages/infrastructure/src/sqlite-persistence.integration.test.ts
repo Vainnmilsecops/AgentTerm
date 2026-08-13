@@ -14,6 +14,7 @@ import {
   createProject as createDomainProject,
   createTask as createDomainTask,
   TaskPhase,
+  transitionTask as transitionDomainTask,
 } from '@agentterm/domain';
 
 import { openSqlitePersistence, SqlitePersistenceError } from './index';
@@ -97,17 +98,19 @@ describe('SQLite persistence', () => {
           persistence.tasks,
         );
 
-        const transitions = [
-          [TaskPhase.PLANNING, 'PLANNING'],
-          [TaskPhase.RUNNING, 'RUNNING'],
-          [TaskPhase.REVIEW, 'REVIEW'],
-          [TaskPhase.DONE, 'DONE'],
-        ] as const;
+        const transitions = Object.freeze([
+          TaskPhase.PLANNING,
+          TaskPhase.RUNNING,
+          TaskPhase.REVIEW,
+          TaskPhase.DONE,
+        ]);
 
-        for (const [to, expectedPhase] of transitions) {
-          task = await transitionTask({ taskId: task.id, to }, persistence.tasks);
+        for (const to of transitions) {
+          const expectedPhase = task.phase;
+          task = transitionDomainTask(task, to);
+          await persistence.tasks.update(task, expectedPhase);
           await expect(persistence.tasks.findById(task.id)).resolves.toMatchObject({
-            phase: expectedPhase,
+            phase: to,
           });
         }
       } finally {
@@ -137,11 +140,41 @@ describe('SQLite persistence', () => {
           EntityAlreadyExistsError,
         );
         await expect(
-          persistence.tasks.update({ ...task, id: 'missing-task' }),
+          persistence.tasks.update({ ...task, id: 'missing-task' }, task.phase),
         ).rejects.toBeInstanceOf(SqlitePersistenceError);
 
         await expect(persistence.projects.findById(project.id)).resolves.toEqual(project);
         await expect(persistence.tasks.findById(task.id)).resolves.toEqual(task);
+      } finally {
+        persistence.close();
+      }
+    });
+  });
+
+  it('rejects a stale Task update instead of overwriting a newer Review phase', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const persistence = openSqlitePersistence(databasePath);
+
+      try {
+        const project = createDomainProject({ id: 'project-1', name: 'AgentTerm' });
+        const backlog = createDomainTask({
+          id: 'task-1',
+          projectId: project.id,
+          title: 'Preserve newer phase',
+        });
+        const planning = transitionDomainTask(backlog, TaskPhase.PLANNING);
+        const running = transitionDomainTask(planning, TaskPhase.RUNNING);
+        const review = transitionDomainTask(running, TaskPhase.REVIEW);
+        await persistence.projects.insert(project);
+        await persistence.tasks.insert(backlog);
+        await persistence.tasks.update(planning, TaskPhase.BACKLOG);
+        await persistence.tasks.update(running, TaskPhase.PLANNING);
+        await persistence.tasks.update(review, TaskPhase.RUNNING);
+
+        await expect(persistence.tasks.update(running, TaskPhase.PLANNING)).rejects.toBeInstanceOf(
+          SqlitePersistenceError,
+        );
+        await expect(persistence.tasks.findById(backlog.id)).resolves.toEqual(review);
       } finally {
         persistence.close();
       }
