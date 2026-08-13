@@ -17,6 +17,9 @@ Updated: 2026-08-14
 - Infrastructure implements that port with Windows ConPTY through pinned `node-pty` 1.1.0 in one dedicated host process per terminal; real Windows and Electron 43 smoke tests cover input, output, resize, exit, cleanup, native loading, attached-child termination, and host/handle release.
 - Application now owns a provider-neutral coding-agent catalog. Each small `AgentAdapter` contributes an immutable stable identity, inspection result, capability identifiers, and structured launch command; Infrastructure provides built-in Codex, Claude, and Gemini adapters under stable IDs `codex`, `claude`, and `gemini`.
 - The built-in registry probes installed CLI versions with bounded no-shell commands, exposes `SESSION_RESUME` only when the CLI advertises it, and launches each provider interactively in the exact Task Worktree through the existing PTY port. Windows npm shims are never executed directly: official package metadata and entrypoints are verified first, with Node injection variables rejected for Node-backed CLIs.
+- Domain now models versioned Application Settings with conservative defaults for the default coding agent, per-agent executable overrides, and terminal font size. Application exposes safe read/update use cases, validates the default agent identity and custom executable availability through an inspection port, and uses optimistic revisions so concurrent windows cannot silently overwrite one another.
+- Migration 10 seeds one backward-compatible Settings singleton (`codex`, 14 px) and stores normalized executable overrides in SQLite. Updates replace the singleton and overrides atomically; no token, credential, authentication state, command arguments, environment, shell, or speculative Git/workspace preference is stored.
+- Infrastructure can compose the built-in Codex, Claude, and Gemini catalog from persisted executable overrides and inspect an override through its owning adapter. The desktop Settings panel displays safe availability/version/capability evidence, chooses the default agent for the next attempt, and applies terminal font changes live without detaching or terminating an Agent Session. CLI authentication remains CLI-owned, and executable changes apply only to future application composition.
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application startup reconciliation now finds persisted Agent Sessions whose history still implies possible runtime ownership, including a fatal runtime failure with no observed process exit, and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
@@ -110,6 +113,12 @@ Updated: 2026-08-14
   version string, command, or environment to Presentation. `codex` remains the stable built-in ID,
   so migration-4 Sessions need no schema or data migration. Unknown historical IDs stay readable,
   and a later retry can explicitly select any currently available registered agent.
+- Application Settings are a small versioned Domain value rather than a provider-shaped plugin configuration.
+  Presentation reads and updates them only through Application ports. Custom executable strings are
+  validated by the matching Infrastructure adapter before persistence, errors are sanitized at the
+  renderer boundary, and a settings update never reconstructs the live catalog or restarts an active
+  PTY. Default shell and Git/workspace preferences are deliberately deferred because the current
+  product has no corresponding runtime consumer.
 - Agent Session status is independent from Task workflow: `STARTING`, `WORKING`, `IDLE`,
   `WAITING_INPUT`, `EXITED`, and `FAILED` are Domain states for one runtime attempt. The
   Application coordinator persists `STARTING` before launch, serializes PTY evidence, retains
@@ -237,6 +246,10 @@ renderer still has no validated preload/IPC binding to the main-process reposito
 coordinator. Until that composition and its database/worktree/environment policy are added, the
 desktop shell intentionally renders a recoverable connection-unavailable state rather than using
 demo data or exposing Infrastructure to React.
+Settings read/update and startup catalog composition likewise have no production preload/main-process
+binding yet. Persisted executable overrides therefore take effect only once that composition reads
+Settings before constructing the immutable agent catalog; this foundation intentionally does not
+restart the application or any active Session when the row changes.
 Workspace tabs and split panes are intentionally renderer-local in this foundation; their layout is
 not persisted or restored after an application restart. Closing UI detaches observers only, while a
 later reattachment cannot replay output emitted during the detached interval because terminal output
@@ -256,6 +269,7 @@ trusted-repository limitation around configured clean/process filters.
 ## Next Step
 
 Bind startup session reconciliation, artifact/review/change-inspection/dependency/PR reads,
+Settings read/update and settings-backed built-in agent catalog construction,
 `loadAgentWorkspace`, `startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`,
 `retryTaskExecution`, the three explicit Review commands, terminal attachment, explicit Task-branch
 push, configured Quality Gate listing/execution, and Pull Request create-or-refresh commands to the sandboxed renderer through a narrow validated

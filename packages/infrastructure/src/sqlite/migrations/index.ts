@@ -7,6 +7,7 @@ import { qualityGateRunsMigration } from './0006-quality-gate-runs';
 import { taskReviewsMigration } from './0007-task-reviews';
 import { taskDependenciesMigration } from './0008-task-dependencies';
 import { pullRequestsMigration } from './0009-pull-requests';
+import { applicationSettingsMigration } from './0010-application-settings';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -24,4 +25,5 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   taskReviewsMigration,
   taskDependenciesMigration,
   pullRequestsMigration,
+  applicationSettingsMigration,
 ];

@@ -7,6 +7,7 @@ import type { WorkspaceLayout, WorkspaceTerminalPane, WorkspaceTab } from './wor
 export interface WorkspaceTerminalsProps {
   readonly client?: TerminalSessionClient;
   readonly layout: WorkspaceLayout;
+  readonly fontSize?: number;
   readonly onActivatePane: (paneId: string) => void;
   readonly onActivateTab: (tabId: string) => void;
   readonly onClosePane: (paneId: string) => void;
@@ -19,6 +20,7 @@ export interface WorkspaceTerminalsProps {
 export function WorkspaceTerminals({
   client,
   layout,
+  fontSize = 14,
   onActivatePane,
   onActivateTab,
   onClosePane,
@@ -118,6 +120,7 @@ export function WorkspaceTerminals({
                   canClose={tab.panes.length > 1}
                   {...(client === undefined ? {} : { client })}
                   closeLabel={`Close terminal pane ${paneIndex + 1}`}
+                  fontSize={fontSize}
                   key={pane.id}
                   label={paneLabel(overview, pane, paneIndex)}
                   onActivate={() => onActivatePane(pane.id)}

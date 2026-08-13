@@ -1,5 +1,14 @@
 export { createProject, type CreateProjectInput, type Project } from './project';
 export {
+  ApplicationSettingsDefaults,
+  createApplicationSettings,
+  InvalidApplicationSettingsError,
+  type AgentExecutableSetting,
+  type ApplicationSettings,
+  type CreateApplicationSettingsInput,
+  type InvalidApplicationSettingsReason,
+} from './application-settings';
+export {
   createExecutionArtifact,
   ExecutionArtifactKind,
   type CreateExecutionArtifactInput,

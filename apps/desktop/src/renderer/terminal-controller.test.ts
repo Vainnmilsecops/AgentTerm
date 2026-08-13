@@ -15,6 +15,7 @@ class FakeTerminalSurface implements TerminalSurface {
   public readonly open = vi.fn();
   public readonly refresh = vi.fn();
   public readonly reset = vi.fn();
+  public readonly setFontSize = vi.fn();
   public readonly write = vi.fn();
   public size: PtyTerminalSize = { columns: 80, rows: 24 };
   private inputSink: ((data: string) => void) | undefined;
@@ -77,6 +78,20 @@ class FakeTerminalSessionClient implements TerminalSessionClient {
 }
 
 describe('TerminalController', () => {
+  it('applies a font preference live without detaching the active Session', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.setFontSize(18);
+
+    expect(surface.setFontSize).toHaveBeenCalledWith(18);
+    expect(client.attachment.detach).not.toHaveBeenCalled();
+    expect(client.attachTerminal).toHaveBeenCalledOnce();
+  });
+
   it('focuses the mounted terminal surface on explicit workspace navigation', () => {
     const surface = new FakeTerminalSurface();
     const controller = new TerminalController(surface);

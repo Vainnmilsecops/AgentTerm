@@ -1,4 +1,5 @@
 import type {
+  ApplicationSettings,
   AgentSession,
   ExecutionArtifact,
   Project,
@@ -58,6 +59,19 @@ export interface AgentAdapter {
 export interface AgentCatalog {
   findById(id: string): AgentAdapter | undefined;
   list(): readonly AgentAdapter[];
+}
+
+export interface AgentConfigurationInspector {
+  inspect(input: {
+    readonly agentId: string;
+    readonly configuredExecutablePath?: string;
+  }): Promise<AgentAvailability>;
+}
+
+export interface ApplicationSettingsRepository {
+  get(): Promise<ApplicationSettings>;
+  /** Atomically replaces the singleton settings row when its revision matches. */
+  update(settings: ApplicationSettings, expectedRevision: number): Promise<void>;
 }
 
 export interface AgentSessionRepository {

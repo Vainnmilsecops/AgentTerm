@@ -11,6 +11,34 @@ import type { TaskPhase } from '@agentterm/domain';
 export type EntityKind =
   'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task' | 'TaskReview';
 
+export type ApplicationSettingsValidationFailure =
+  'AGENT_NOT_CONFIGURED' | 'EXECUTABLE_NOT_AVAILABLE' | 'INVALID_SETTINGS';
+
+export class ApplicationSettingsConflictError extends Error {
+  public constructor(options?: ErrorOptions) {
+    super('Application Settings changed in another window. Reload them and try again.', options);
+    this.name = 'ApplicationSettingsConflictError';
+  }
+}
+
+export class ApplicationSettingsValidationError extends Error {
+  public constructor(
+    public readonly reason: ApplicationSettingsValidationFailure,
+    public readonly agentId?: string,
+    options?: ErrorOptions,
+  ) {
+    super(
+      reason === 'AGENT_NOT_CONFIGURED'
+        ? 'The selected coding agent is not configured.'
+        : reason === 'EXECUTABLE_NOT_AVAILABLE'
+          ? 'The configured coding-agent executable is unavailable or invalid.'
+          : 'Application Settings are invalid.',
+      options,
+    );
+    this.name = 'ApplicationSettingsValidationError';
+  }
+}
+
 export type TaskPullRequestFailure =
   | 'BRANCH_NOT_PUSHED'
   | 'BRANCH_NOT_READY'

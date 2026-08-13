@@ -14,6 +14,7 @@ export interface TerminalRendererProps {
   readonly canClose?: boolean;
   readonly client?: TerminalSessionClient;
   readonly closeLabel?: string;
+  readonly fontSize?: number;
   readonly label?: string;
   readonly onActivate?: () => void;
   readonly onClose?: () => void;
@@ -27,6 +28,7 @@ export function TerminalRenderer({
   canClose = false,
   client,
   closeLabel = 'Close terminal pane',
+  fontSize = 14,
   label = 'Agent Session terminal',
   onActivate,
   onClose,
@@ -65,6 +67,10 @@ export function TerminalRenderer({
   useEffect(() => {
     void controllerRef.current?.setSession(sessionId, client);
   }, [client, sessionId]);
+
+  useEffect(() => {
+    controllerRef.current?.setFontSize(fontSize);
+  }, [fontSize]);
 
   useEffect(() => {
     if (!active) {
