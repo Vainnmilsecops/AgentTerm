@@ -15,7 +15,8 @@ Updated: 2026-08-13
 - Temporary integration tests use real Git repositories, linked Worktrees, and SQLite databases, including collision, dirty-protection, and partial-persistence recovery cases.
 - Application now owns a PTY runtime port with structured launch input, sequenced runtime events, and an owned input/resize/terminate handle.
 - Infrastructure implements that port with Windows ConPTY through pinned `node-pty` 1.1.0 in one dedicated host process per terminal; real Windows and Electron 43 smoke tests cover input, output, resize, exit, cleanup, native loading, attached-child termination, and host/handle release.
-- Application now owns a provider-neutral coding-agent catalog. Each small `AgentAdapter` contributes an immutable stable identity, inspection result, capability identifiers, and structured launch command; Infrastructure keeps Codex policy in the first adapter under the compatibility ID `codex`.
+- Application now owns a provider-neutral coding-agent catalog. Each small `AgentAdapter` contributes an immutable stable identity, inspection result, capability identifiers, and structured launch command; Infrastructure provides built-in Codex, Claude, and Gemini adapters under stable IDs `codex`, `claude`, and `gemini`.
+- The built-in registry probes installed CLI versions with bounded no-shell commands, exposes `SESSION_RESUME` only when the CLI advertises it, and launches each provider interactively in the exact Task Worktree through the existing PTY port. Windows npm shims are never executed directly: official package metadata and entrypoints are verified first, with Node injection variables rejected for Node-backed CLIs.
 - Domain now models immutable `AgentSession` attempts with independent runtime status and append-only event history; Application coordinates start, explicit active status, stop, exit, and failure without changing `TaskPhase`.
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application startup reconciliation now finds persisted Agent Sessions whose history still implies possible runtime ownership, including a fatal runtime failure with no observed process exit, and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
@@ -87,6 +88,12 @@ Updated: 2026-08-13
   Provider flags stay in `CodexAdapter`; Task Worktree cwd is both the PTY cwd and the structured
   `--cd` argument. The adapter forwards only the caller-approved complete environment, never
   installs, logs in, reads credentials, or infers Task completion from runtime exit.
+- Claude discovery accepts a configured executable or the recognized `@anthropic-ai/claude-code`
+  native npm layout; Gemini accepts a configured executable or the recognized
+  `@google/gemini-cli` Node layout. Both use the PTY working directory as their project context and
+  add no permission-bypass or authentication flags. Gemini launch rejects `CI_` markers that its
+  documented runtime treats as non-interactive. Authentication setup, credential storage, upgrades,
+  and installation remain owned by each CLI.
 - Agent identity is registered once as a cloned, frozen catalog value; lookup, Presentation summaries,
   and persisted Session association all use that canonical stable ID. Capabilities are a small set of
   identifiers rather than one provider-shaped interface. The catalog exposes no executable path,
@@ -177,7 +184,7 @@ Worktree checkout can likewise execute configured clean/smudge/process filters e
 disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator owns PTY
 handles, and startup can now reconcile persisted sessions that no longer have ownership.
 Reattaching to an old process, provider-native resume, explicit agent switching between attempts,
-additional real agent adapters, automatic retry policy, and exclusive Worktree-cleanup
+automatic retry policy, and exclusive Worktree-cleanup
 coordination remain deferred; another writer could otherwise race the final dirty/ignored-file inspection.
 The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build

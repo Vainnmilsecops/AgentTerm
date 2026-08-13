@@ -1,4 +1,10 @@
+export {
+  createBuiltInAgentCatalog,
+  type BuiltInAgentCatalogOptions,
+} from './agent/built-in-agent-catalog';
+export { ClaudeAdapter } from './agent/claude-adapter';
 export { CodexAdapter } from './agent/codex-adapter';
+export { GeminiAdapter } from './agent/gemini-adapter';
 export { GitCliRepositoryInspector } from './git/git-cli-repository-inspector';
 export { GitCliTaskReviewCodeInspector } from './git/git-cli-task-review-code-inspector';
 export { GitCliTaskWorktreeLifecycle } from './git/git-cli-task-worktree-lifecycle';

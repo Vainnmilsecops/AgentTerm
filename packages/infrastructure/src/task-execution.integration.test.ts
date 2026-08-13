@@ -27,7 +27,12 @@ import {
 } from '@agentterm/application';
 import { AgentSessionStatus, TaskPhase, createProject } from '@agentterm/domain';
 
-import { CodexAdapter, GitCliTaskWorktreeLifecycle, openSqlitePersistence } from './index';
+import {
+  CodexAdapter,
+  createBuiltInAgentCatalog,
+  GitCliTaskWorktreeLifecycle,
+  openSqlitePersistence,
+} from './index';
 
 class CapturingPtyRuntime implements PtyRuntime {
   public readonly specs: PtyLaunchSpec[] = [];
@@ -175,6 +180,129 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
           { agentId: 'codex', id: 'session-execution-2', status: AgentSessionStatus.WORKING },
         ]);
         expect(countRegisteredWorktrees(canonicalRepositoryPath)).toBe(2);
+      } finally {
+        persistence.close();
+        rmSync(fixtureRoot, { force: true, recursive: true });
+      }
+    },
+    30_000,
+  );
+});
+
+describe('Task execution through the built-in agent catalog', () => {
+  it.runIf(process.platform === 'win32')(
+    'selects Claude and Gemini generically, launches in each Task Worktree, and keeps both Tasks RUNNING',
+    async () => {
+      const fixtureRoot = mkdtempSync(join(tmpdir(), 'agentterm-provider-execution-'));
+      const repositoryPath = join(fixtureRoot, 'Provider Repository');
+      const worktreesRoot = join(fixtureRoot, 'Task Worktrees');
+      const databasePath = join(fixtureRoot, 'agentterm.db');
+      const claudeExecutable = join(fixtureRoot, 'claude.exe');
+      const geminiExecutable = join(fixtureRoot, 'gemini.exe');
+      writeFileSync(claudeExecutable, 'fixture executable');
+      writeFileSync(geminiExecutable, 'fixture executable');
+      initializeRepository(repositoryPath);
+      writeFileSync(join(repositoryPath, 'tracked.txt'), 'initial\n');
+      commitAll(repositoryPath);
+      const canonicalRepositoryPath = realpathSync.native(repositoryPath);
+      const persistence = openSqlitePersistence(databasePath);
+
+      try {
+        await persistence.projects.recordOpen({
+          pathIdentity: `test:${canonicalRepositoryPath.toLocaleLowerCase('en-US')}`,
+          project: createProject({ id: 'project-providers', name: 'Provider fixture' }),
+          rootPath: canonicalRepositoryPath,
+        });
+        const agents = createBuiltInAgentCatalog({
+          claudeExecutable,
+          codexExecutable: join(fixtureRoot, 'missing-codex.exe'),
+          geminiExecutable,
+        });
+        const runtime = new CapturingPtyRuntime();
+        let now = 1_800_000_100_000;
+        const sessions = new AgentSessionCoordinator({
+          agents,
+          clock: () => now++,
+          runtime,
+          sessions: persistence.sessions,
+          tasks: persistence.tasks,
+        });
+        const dependencies = {
+          git: new GitCliTaskWorktreeLifecycle(worktreesRoot),
+          localProjects: persistence.projects,
+          sessionCoordinator: sessions,
+          tasks: persistence.tasks,
+          worktrees: persistence.worktrees,
+        };
+
+        for (const agentId of ['claude', 'gemini'] as const) {
+          const taskId = `task-${agentId}`;
+          await createTask(
+            { id: taskId, projectId: 'project-providers', title: `Launch ${agentId}` },
+            persistence.projects,
+            persistence.tasks,
+          );
+          await transitionTask({ taskId, to: TaskPhase.PLANNING }, persistence.tasks);
+
+          const result = await startTaskExecution(
+            {
+              agentId,
+              environment: { SystemRoot: 'C:\\Windows' },
+              initialSize: { columns: 100, rows: 30 },
+              sessionId: `session-${agentId}`,
+              taskId,
+            },
+            dependencies,
+          );
+
+          expect(result.session).toMatchObject({ agentId, status: AgentSessionStatus.WORKING });
+          expect(runtime.specs.at(-1)).toMatchObject({
+            arguments: [],
+            executablePath: realpathSync.native(join(fixtureRoot, `${agentId}.exe`)),
+            workingDirectory: result.worktree.worktree.worktreePath,
+          });
+          await expect(persistence.tasks.findById(taskId)).resolves.toMatchObject({
+            phase: TaskPhase.RUNNING,
+          });
+        }
+
+        rmSync(claudeExecutable);
+        await createTask(
+          {
+            id: 'task-claude-launch-failure',
+            projectId: 'project-providers',
+            title: 'Preserve a failed Claude launch',
+          },
+          persistence.projects,
+          persistence.tasks,
+        );
+        await transitionTask(
+          { taskId: 'task-claude-launch-failure', to: TaskPhase.PLANNING },
+          persistence.tasks,
+        );
+        const failure = await startTaskExecution(
+          {
+            agentId: 'claude',
+            environment: { SystemRoot: 'C:\\Windows' },
+            initialSize: { columns: 100, rows: 30 },
+            sessionId: 'session-claude-launch-failure',
+            taskId: 'task-claude-launch-failure',
+          },
+          dependencies,
+        ).catch((error: unknown) => error);
+
+        expect(failure).toMatchObject({
+          name: 'TaskExecutionStartError',
+          session: { agentId: 'claude', status: AgentSessionStatus.FAILED },
+          stage: 'SESSION_START',
+        });
+        expect(runtime.specs).toHaveLength(2);
+        await expect(
+          persistence.tasks.findById('task-claude-launch-failure'),
+        ).resolves.toMatchObject({ phase: TaskPhase.RUNNING });
+        await expect(
+          persistence.sessions.findById('session-claude-launch-failure'),
+        ).resolves.toMatchObject({ agentId: 'claude', status: AgentSessionStatus.FAILED });
       } finally {
         persistence.close();
         rmSync(fixtureRoot, { force: true, recursive: true });
