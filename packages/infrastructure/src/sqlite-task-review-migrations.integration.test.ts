@@ -70,9 +70,8 @@ describe('SQLite Task Review migration', () => {
         ]);
         expect(
           database
-            .prepare('SELECT version, name FROM _agentterm_migrations ORDER BY version')
-            .all()
-            .at(-1),
+            .prepare('SELECT version, name FROM _agentterm_migrations WHERE version = 7')
+            .get(),
         ).toEqual({ name: 'task-reviews', version: 7 });
         expect(
           database
@@ -240,9 +239,8 @@ describe('SQLite Task Review migration', () => {
         });
         expect(
           migrated
-            .prepare('SELECT version, name FROM _agentterm_migrations ORDER BY version')
-            .all()
-            .at(-1),
+            .prepare('SELECT version, name FROM _agentterm_migrations WHERE version = 7')
+            .get(),
         ).toEqual({ name: 'task-reviews', version: 7 });
       } finally {
         migrated.close();

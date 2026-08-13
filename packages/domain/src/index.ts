@@ -68,3 +68,11 @@ export {
   type CreateTaskInput,
   type Task,
 } from './task';
+export {
+  createTaskDependency,
+  InvalidTaskDependencyError,
+  validateTaskDependencyAddition,
+  type CreateTaskDependencyInput,
+  type InvalidTaskDependencyReason,
+  type TaskDependency,
+} from './task-dependency';

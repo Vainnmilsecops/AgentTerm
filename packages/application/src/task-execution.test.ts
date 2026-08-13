@@ -4,11 +4,13 @@ import {
   AgentSessionStatus,
   TaskPhase,
   createAgentSession,
+  createTaskDependency,
   createTask,
   recordAgentSessionEvent,
   transitionTask,
   type AgentSession,
   type Task,
+  type TaskDependency,
   type TaskPhase as TaskPhaseValue,
 } from '@agentterm/domain';
 
@@ -36,6 +38,7 @@ import {
   type PtyRuntimeEvent,
   type PtyRuntimeEventSink,
   type TaskRepository,
+  type TaskDependencyRepository,
   type TaskWorktree,
   type TaskWorktreeRecord,
   type TaskWorktreeRepository,
@@ -112,6 +115,32 @@ class MemoryTaskRepository implements TaskRepository {
 
   public replace(task: Task): void {
     this.stored.set(task.id, task);
+  }
+}
+
+class MemoryTaskDependencyRepository implements TaskDependencyRepository {
+  public dependencies: TaskDependency[] = [];
+
+  public async add(dependency: TaskDependency): Promise<void> {
+    this.dependencies.push(dependency);
+  }
+
+  public async remove(dependency: TaskDependency): Promise<boolean> {
+    const before = this.dependencies.length;
+    this.dependencies = this.dependencies.filter(
+      (candidate) =>
+        candidate.taskId !== dependency.taskId ||
+        candidate.dependencyTaskId !== dependency.dependencyTaskId,
+    );
+    return before !== this.dependencies.length;
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly TaskDependency[]> {
+    return this.dependencies.filter((dependency) => dependency.taskId === taskId);
+  }
+
+  public async listByProjectId(): Promise<readonly TaskDependency[]> {
+    return this.dependencies;
   }
 }
 
@@ -321,6 +350,7 @@ function taskAt(phase: TaskPhaseValue): Task {
 function createFixture(phase: TaskPhaseValue = TaskPhase.RUNNING) {
   const events: string[] = [];
   const tasks = new MemoryTaskRepository([taskAt(phase)], events);
+  const taskDependencies = new MemoryTaskDependencyRepository();
   const localProjects = new MemoryLocalProjectLocator(project);
   const worktrees = new MemoryTaskWorktreeRepository(events);
   const git = new MemoryGitWorktreeLifecycle(events);
@@ -337,7 +367,14 @@ function createFixture(phase: TaskPhaseValue = TaskPhase.RUNNING) {
     sessions: sessionRepository,
     tasks,
   });
-  const dependencies = { git, localProjects, sessionCoordinator, tasks, worktrees };
+  const dependencies = {
+    git,
+    localProjects,
+    sessionCoordinator,
+    taskDependencies,
+    tasks,
+    worktrees,
+  };
   return {
     adapter,
     agents,
@@ -348,12 +385,42 @@ function createFixture(phase: TaskPhaseValue = TaskPhase.RUNNING) {
     runtime,
     sessionCoordinator,
     sessionRepository,
+    taskDependencies,
     tasks,
     worktrees,
   };
 }
 
 describe('startTaskExecution', () => {
+  it.each([
+    ['execution', TaskPhase.RUNNING, startTaskExecution],
+    ['planning', TaskPhase.PLANNING, startTaskPlanning],
+  ] as const)(
+    'blocks %s before Worktree mutation while a dependency is incomplete',
+    async (_label, phase, start) => {
+      const fixture = createFixture(phase);
+      const required = createTask({
+        id: 'task-required',
+        projectId: project.id,
+        title: 'Required first',
+      });
+      fixture.tasks.replace(required);
+      fixture.taskDependencies.dependencies.push(
+        createTaskDependency({ dependencyTaskId: required.id, taskId: primaryWorktree.taskId }),
+      );
+
+      await expect(start(executionInput, fixture.dependencies)).rejects.toMatchObject({
+        blockingTaskIds: ['task-required'],
+        name: 'TaskDependencyBlockedError',
+        taskId: primaryWorktree.taskId,
+      });
+      expect(fixture.git.ensureCalls).toBe(0);
+      await expect(fixture.sessionRepository.listByTaskId(primaryWorktree.taskId)).resolves.toEqual(
+        [],
+      );
+    },
+  );
+
   it('rejects PLANNING because only the explicit planning workflow may run in that phase', async () => {
     const fixture = createFixture(TaskPhase.PLANNING);
 
@@ -778,6 +845,37 @@ describe('retryTaskExecution', () => {
 
     expect(fixture.events).toEqual([]);
     expect(fixture.git.ensureCalls).toBe(0);
+  });
+
+  it('blocks retry before reusing the Worktree when a newly required Task is incomplete', async () => {
+    const fixture = createFixture();
+    await startTaskExecution(executionInput, fixture.dependencies);
+    fixture.runtime.emit(0, { exitCode: 0, kind: 'exited', sequence: 2 });
+    await fixture.sessionCoordinator.findById(executionInput.sessionId);
+    const required = createTask({
+      id: 'task-required-before-retry',
+      projectId: project.id,
+      title: 'Required before retry',
+    });
+    fixture.tasks.replace(required);
+    fixture.taskDependencies.dependencies.push(
+      createTaskDependency({
+        dependencyTaskId: required.id,
+        taskId: primaryWorktree.taskId,
+      }),
+    );
+
+    await expect(
+      retryTaskExecution({ ...retryInput, sessionId: 'session-2' }, fixture.dependencies),
+    ).rejects.toMatchObject({
+      blockingTaskIds: [required.id],
+      name: 'TaskDependencyBlockedError',
+      taskId: primaryWorktree.taskId,
+    });
+    expect(fixture.git.ensureCalls).toBe(1);
+    await expect(fixture.sessionRepository.listByTaskId(primaryWorktree.taskId)).resolves.toEqual([
+      expect.objectContaining({ id: executionInput.sessionId, status: AgentSessionStatus.EXITED }),
+    ]);
   });
 
   it('reuses the primary Worktree and creates a new Session after the prior one exits', async () => {

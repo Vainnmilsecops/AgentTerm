@@ -20,6 +20,8 @@ export {
   TaskExecutionRetryError,
   TaskExecutionPhaseError,
   TaskChangeInspectionError,
+  TaskDependencyBlockedError,
+  TaskDependencyProjectMismatchError,
   type TaskChangeInspectionFailure,
   TaskPlanningFlowRequiredError,
   TaskPlanningPhaseError,
@@ -124,6 +126,7 @@ export type {
   TaskPlanningArtifactRepository,
   TaskPlanningSessionRevision,
   TaskCatalog,
+  TaskDependencyRepository,
   TaskWorktree,
   TaskWorktreeCleanupResult,
   TaskWorktreeEnsureResult,
@@ -133,6 +136,15 @@ export type {
   TaskWorktreeRepository,
   TaskWorktreeStatus,
 } from './ports';
+export {
+  addTaskDependency,
+  listTaskDependencies,
+  readTaskDependencyState,
+  removeTaskDependency,
+  type ListTaskDependenciesInput,
+  type TaskDependencyState,
+  type TaskDependencyStatus,
+} from './task-dependencies';
 export {
   getTaskFileDiff,
   listTaskChanges,
@@ -156,6 +168,7 @@ export {
   type TaskReviewFreshness,
   type TaskReviewQualityGateSummary,
   type TaskReviewSummary,
+  type TaskDependencySummary,
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,
 } from './workspace-overview';

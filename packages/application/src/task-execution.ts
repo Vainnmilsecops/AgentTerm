@@ -2,6 +2,7 @@ import { TaskPhase, type AgentSession, type Task } from '@agentterm/domain';
 
 import { AgentSessionCoordinator } from './agent-session-coordinator';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
+import { readTaskDependencyState } from './task-dependencies';
 import {
   AgentNotConfiguredError,
   EntityAlreadyExistsError,
@@ -9,6 +10,7 @@ import {
   TaskExecutionRetryError,
   TaskExecutionPhaseError,
   TaskExecutionStartError,
+  TaskDependencyBlockedError,
   TaskPlanningPhaseError,
 } from './errors';
 import type {
@@ -17,6 +19,7 @@ import type {
   PtyRuntimeEventSink,
   PtyTerminalSize,
   TaskRepository,
+  TaskDependencyRepository,
   TaskWorktreeEnsureResult,
   TaskWorktreeRepository,
 } from './ports';
@@ -45,6 +48,7 @@ export interface StartTaskExecutionDependencies {
   readonly git: GitTaskWorktreeLifecycle;
   readonly localProjects: LocalProjectLocator;
   readonly sessionCoordinator: AgentSessionCoordinator;
+  readonly taskDependencies: TaskDependencyRepository;
   readonly tasks: TaskRepository;
   readonly worktrees: TaskWorktreeRepository;
 }
@@ -81,6 +85,7 @@ export async function retryTaskExecution(
     assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
     const task = await requireExecutionTask(input.taskId, dependencies);
     validateExecutionPhase(task);
+    await assertTaskDependenciesComplete(task.id, dependencies);
     await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
     await assertNoOwnedRuntime(input, dependencies.sessionCoordinator);
     const history = await dependencies.sessionCoordinator.listByTaskId(input.taskId);
@@ -103,6 +108,7 @@ export async function startTaskPlanning(
     assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
     const task = await requireExecutionTask(input.taskId, dependencies);
     validatePlanningPhase(task);
+    await assertTaskDependenciesComplete(task.id, dependencies);
     await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
     await assertNoOwnedRuntime(input, dependencies.sessionCoordinator);
     const history = await dependencies.sessionCoordinator.listByTaskId(input.taskId);
@@ -121,6 +127,7 @@ async function startTaskExecutionExclusive(
   assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
   const initialTask = await requireExecutionTask(input.taskId, dependencies);
   validateExecutionPhase(initialTask);
+  await assertTaskDependenciesComplete(initialTask.id, dependencies);
   await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
   await assertNoOwnedRuntime(input, dependencies.sessionCoordinator);
   const history = await dependencies.sessionCoordinator.listByTaskId(input.taskId);
@@ -168,6 +175,7 @@ async function executeTaskAttempt(
     } else {
       validateExecutionPhase(storedTask);
     }
+    await assertTaskDependenciesComplete(storedTask.id, dependencies);
     currentTask = storedTask;
   } catch (error) {
     throw new TaskExecutionStartError('TASK_STATE', input.taskId, input.sessionId, worktree, {
@@ -211,6 +219,27 @@ async function requireExecutionTask(
     throw new EntityNotFoundError('Task', taskId);
   }
   return task;
+}
+
+async function assertTaskDependenciesComplete(
+  taskId: string,
+  dependencies: Pick<StartTaskExecutionDependencies, 'taskDependencies' | 'tasks'>,
+): Promise<void> {
+  const state = await readTaskDependencyState(
+    taskId,
+    dependencies.tasks,
+    dependencies.taskDependencies,
+  );
+  if (state.blocked) {
+    throw new TaskDependencyBlockedError(
+      taskId,
+      Object.freeze(
+        state.dependencies
+          .filter(({ satisfied }) => !satisfied)
+          .map(({ dependency }) => dependency.id),
+      ),
+    );
+  }
 }
 
 async function assertUnusedSessionId(

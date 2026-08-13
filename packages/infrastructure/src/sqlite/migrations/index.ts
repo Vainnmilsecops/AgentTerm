@@ -5,6 +5,7 @@ import { agentSessionsMigration } from './0004-agent-sessions';
 import { executionArtifactsMigration } from './0005-execution-artifacts';
 import { qualityGateRunsMigration } from './0006-quality-gate-runs';
 import { taskReviewsMigration } from './0007-task-reviews';
+import { taskDependenciesMigration } from './0008-task-dependencies';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -20,4 +21,5 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   executionArtifactsMigration,
   qualityGateRunsMigration,
   taskReviewsMigration,
+  taskDependenciesMigration,
 ];

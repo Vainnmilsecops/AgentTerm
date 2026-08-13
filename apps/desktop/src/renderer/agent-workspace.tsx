@@ -261,6 +261,13 @@ export function AgentWorkspaceView({
           <div className="state-strip" aria-label="Task and Agent Session states">
             <StateValue label="Task phase" value={selected.task.phase} tone="task" />
             <StateValue
+              label="Dependencies"
+              value={
+                selected.blocked ? 'BLOCKED' : selected.dependencies.length === 0 ? 'NONE' : 'READY'
+              }
+              tone="task"
+            />
+            <StateValue
               label="Active session"
               value={selected.activeSession?.status ?? 'NONE'}
               tone="session"
@@ -296,6 +303,7 @@ export function AgentWorkspaceView({
             ) : null}
           </div>
 
+          <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
           <PlanningSummary plan={selected.latestPlan} />
           <ChangeInspector
             inspection={snapshot.changeInspection}
@@ -636,6 +644,39 @@ function ArtifactHistory({
   );
 }
 
+function TaskDependencies({
+  blocked,
+  dependencies,
+}: {
+  readonly blocked: boolean;
+  readonly dependencies: WorkspaceTaskOverview['dependencies'];
+}) {
+  if (dependencies.length === 0) return null;
+  return (
+    <section className="task-dependencies" aria-labelledby="task-dependencies-heading">
+      <header>
+        <div>
+          <p className="eyebrow">Execution readiness</p>
+          <h3 id="task-dependencies-heading">Task dependencies</h3>
+        </div>
+        <span>{blocked ? 'Blocked' : 'Ready'}</span>
+      </header>
+      <ul>
+        {dependencies.map((dependency) => (
+          <li key={dependency.id}>
+            <strong>{dependency.title}</strong>
+            <span>
+              {dependency.phase}
+              {' \u00b7 '}
+              {dependency.satisfied ? 'Complete' : 'Required'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function formatDuration(durationMs: number | undefined): string {
   if (durationMs === undefined) {
     return 'Result pending';
@@ -773,6 +814,9 @@ function startAttemptTitle(
   task: WorkspaceTaskOverview,
   selectedAgentId: string | undefined,
 ): string {
+  if (task.blocked) {
+    return 'Complete all required Task dependencies before starting another Agent Session.';
+  }
   if (
     (task.canRetryExecution ||
       task.canStartExecution ||

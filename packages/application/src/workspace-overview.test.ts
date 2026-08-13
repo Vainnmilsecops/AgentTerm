@@ -19,6 +19,7 @@ import {
   type ExecutionArtifact,
   type QualityGateRun,
   type Task,
+  type TaskDependency,
   type TaskReview,
 } from '@agentterm/domain';
 
@@ -32,6 +33,7 @@ import {
   type ProjectCatalog,
   type QualityGateRunRepository,
   type TaskCatalog,
+  type TaskDependencyRepository,
   type TaskReviewRepository,
   type TaskReviewQualityGateEvidenceSource,
 } from './index';
@@ -91,6 +93,31 @@ class FakeTaskCatalog implements TaskCatalog {
 
   public async listByProjectId(projectId: string): Promise<readonly Task[]> {
     return this.tasks.filter((task) => task.projectId === projectId);
+  }
+}
+
+class FakeTaskDependencyRepository implements TaskDependencyRepository {
+  public constructor(private readonly dependencies: readonly TaskDependency[]) {}
+
+  public async add(): Promise<never> {
+    throw new Error('add is not used by the workspace overview');
+  }
+
+  public async remove(): Promise<never> {
+    throw new Error('remove is not used by the workspace overview');
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly TaskDependency[]> {
+    return this.dependencies.filter((dependency) => dependency.taskId === taskId);
+  }
+
+  public async listByProjectId(projectId: string): Promise<readonly TaskDependency[]> {
+    const taskIds = new Set(
+      this.dependencies.flatMap((dependency) => [dependency.taskId, dependency.dependencyTaskId]),
+    );
+    return projectId.length === 0
+      ? []
+      : this.dependencies.filter((dependency) => taskIds.has(dependency.taskId));
   }
 }
 
@@ -258,6 +285,48 @@ class FakeTaskReviewRepository implements TaskReviewRepository {
 }
 
 describe('loadAgentWorkspace', () => {
+  it('derives BLOCKED from incomplete same-Project dependencies without changing Task phase', async () => {
+    const project: LocalProject = {
+      id: 'project-dependencies',
+      name: 'Dependency project',
+      rootPath: 'D:\\Repositories\\Dependencies',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'task-dependent', projectId: project.id, title: 'Dependent' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const required = createTask({ id: 'task-required', projectId: project.id, title: 'Required' });
+    const dependency = { dependencyTaskId: required.id, taskId: running.id };
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([running, required]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+      defaultAgents,
+      new FakeTaskDependencyRepository([dependency]),
+    );
+
+    expect(workspace.projects[0]?.tasks[0]).toMatchObject({
+      blocked: true,
+      canStartExecution: false,
+      dependencies: [
+        {
+          id: 'task-required',
+          phase: 'BACKLOG',
+          satisfied: false,
+          title: 'Required',
+        },
+      ],
+      task: { id: 'task-dependent', phase: 'RUNNING' },
+    });
+  });
+
   it('groups Tasks under recent Projects and keeps Task phase separate from active/latest Session status', async () => {
     const project: LocalProject = {
       id: 'project-vietnamese',
@@ -326,6 +395,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([lintPassed, testsFailed]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     const projectSummary = { id: project.id, name: project.name };
@@ -349,11 +419,13 @@ describe('loadAgentWorkspace', () => {
             {
               activeSession: workingSummary,
               artifacts: [plan, summary],
+              blocked: false,
               canAcceptPlan: false,
               canRetryExecution: false,
               canRevisePlan: false,
               canStartExecution: false,
               canStartPlanning: false,
+              dependencies: [],
               canApproveReview: false,
               canRequestChanges: false,
               canRequestReview: false,
@@ -368,11 +440,13 @@ describe('loadAgentWorkspace', () => {
             {
               activeSession: olderActiveSummary,
               artifacts: [],
+              blocked: false,
               canAcceptPlan: false,
               canRetryExecution: false,
               canRevisePlan: false,
               canStartExecution: false,
               canStartPlanning: false,
+              dependencies: [],
               canApproveReview: false,
               canRequestChanges: false,
               canRequestReview: false,
@@ -445,6 +519,7 @@ describe('loadAgentWorkspace', () => {
       gateRepository,
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
     const summaries = workspace.projects[0]?.tasks[0]?.qualityGateRuns;
 
@@ -498,6 +573,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]?.artifacts).toHaveLength(20);
@@ -525,6 +601,7 @@ describe('loadAgentWorkspace', () => {
         new FakeQualityGateRunRepository([]),
         new FakeTaskReviewRepository([]),
         defaultAgents,
+        new FakeTaskDependencyRepository([]),
       ),
     ).resolves.toEqual({
       agents: [
@@ -560,6 +637,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
@@ -606,6 +684,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
@@ -643,6 +722,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
@@ -704,6 +784,7 @@ describe('loadAgentWorkspace', () => {
         new FakeQualityGateRunRepository([]),
         new FakeTaskReviewRepository([]),
         defaultAgents,
+        new FakeTaskDependencyRepository([]),
       );
 
       expect(workspace.projects[0]?.tasks[0]).toMatchObject({
@@ -738,6 +819,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([runningGate]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
@@ -806,6 +888,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([oldReview, pending]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
     const overview = workspace.projects[0]?.tasks[0];
 
@@ -900,6 +983,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       reviewRepository,
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
     const reviewHistory = workspace.projects[0]?.tasks[0]?.reviewHistory;
 
@@ -934,6 +1018,7 @@ describe('loadAgentWorkspace', () => {
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
       defaultAgents,
+      new FakeTaskDependencyRepository([]),
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({

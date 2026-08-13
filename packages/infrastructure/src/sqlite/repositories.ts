@@ -3,6 +3,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import {
   type AgentSessionRepository,
   AgentSessionActiveConflictError,
+  EntityNotFoundError,
   EntityAlreadyExistsError,
   type ExecutionArtifactRepository,
   type LocalProject,
@@ -13,6 +14,8 @@ import {
   type RecordProjectOpenInput,
   type TaskRepository,
   type TaskCatalog,
+  TaskDependencyProjectMismatchError,
+  type TaskDependencyRepository,
   type TaskPlanningRepository,
   type TaskPlanningSessionRevision,
   type TaskReviewRepository,
@@ -25,7 +28,9 @@ import {
 } from '@agentterm/application';
 import {
   createExecutionArtifact,
+  createTaskDependency,
   decideTaskReview,
+  InvalidTaskDependencyError,
   QualityGateRunStatus,
   startTaskReview,
   startQualityGateRun,
@@ -39,6 +44,7 @@ import {
   type Project,
   type QualityGateRun,
   type Task,
+  type TaskDependency,
   type TaskReview,
 } from '@agentterm/domain';
 
@@ -252,7 +258,10 @@ export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository
     try {
       this.insertStatement.run(task.id, task.projectId, task.title, task.phase);
     } catch (error) {
-      if (isSqliteErrorCode(error, primaryKeyConstraintCode)) {
+      if (
+        isSqliteErrorCode(error, primaryKeyConstraintCode) ||
+        isSqliteErrorCode(error, uniqueConstraintCode)
+      ) {
         throw new EntityAlreadyExistsError('Task', task.id);
       }
 
@@ -343,6 +352,106 @@ export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository
       if (error instanceof SqlitePersistenceError) throw error;
       throw new SqlitePersistenceError('Failed to accept Task Plan.', { cause: error });
     }
+  }
+}
+
+export class SqliteTaskDependencyRepository implements TaskDependencyRepository {
+  private readonly cycleStatement: StatementSync;
+  private readonly database: DatabaseSync;
+  private readonly deleteStatement: StatementSync;
+  private readonly findTaskStatement: StatementSync;
+  private readonly insertStatement: StatementSync;
+  private readonly listByProjectIdStatement: StatementSync;
+  private readonly listByTaskIdStatement: StatementSync;
+
+  public constructor(database: DatabaseSync) {
+    this.database = database;
+    this.findTaskStatement = database.prepare('SELECT id, project_id FROM tasks WHERE id = ?');
+    this.insertStatement = database.prepare(
+      `INSERT INTO task_dependencies (task_id, dependency_task_id, project_id)
+       VALUES (?, ?, ?)`,
+    );
+    this.deleteStatement = database.prepare(
+      'DELETE FROM task_dependencies WHERE task_id = ? AND dependency_task_id = ?',
+    );
+    this.listByTaskIdStatement = database.prepare(
+      `SELECT task_id, dependency_task_id FROM task_dependencies
+       WHERE task_id = ? ORDER BY dependency_task_id`,
+    );
+    this.listByProjectIdStatement = database.prepare(
+      `SELECT task_id, dependency_task_id FROM task_dependencies
+       WHERE project_id = ? ORDER BY task_id, dependency_task_id`,
+    );
+    this.cycleStatement = database.prepare(
+      `WITH RECURSIVE reachable(task_id) AS (
+         SELECT dependency_task_id FROM task_dependencies WHERE task_id = ?
+         UNION
+         SELECT dependency.dependency_task_id
+         FROM task_dependencies AS dependency
+         INNER JOIN reachable ON dependency.task_id = reachable.task_id
+       )
+       SELECT 1 AS found FROM reachable WHERE task_id = ? LIMIT 1`,
+    );
+  }
+
+  public async add(input: TaskDependency): Promise<void> {
+    const dependency = createTaskDependency(input);
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const task = this.findTaskStatement.get(dependency.taskId);
+      const requiredTask = this.findTaskStatement.get(dependency.dependencyTaskId);
+      if (task === undefined) throw new EntityNotFoundError('Task', dependency.taskId);
+      if (requiredTask === undefined) {
+        throw new EntityNotFoundError('Task', dependency.dependencyTaskId);
+      }
+      const projectId = task.project_id;
+      const requiredProjectId = requiredTask.project_id;
+      if (typeof projectId !== 'string' || typeof requiredProjectId !== 'string') {
+        throw new SqlitePersistenceError('Task dependency Project identity is invalid.');
+      }
+      if (projectId !== requiredProjectId) {
+        throw new TaskDependencyProjectMismatchError(
+          dependency.taskId,
+          dependency.dependencyTaskId,
+        );
+      }
+      if (
+        this.listByTaskIdStatement
+          .all(dependency.taskId)
+          .some((row) => row.dependency_task_id === dependency.dependencyTaskId)
+      ) {
+        throw new InvalidTaskDependencyError('DUPLICATE');
+      }
+      if (this.cycleStatement.get(dependency.dependencyTaskId, dependency.taskId) !== undefined) {
+        throw new InvalidTaskDependencyError('CYCLE');
+      }
+      this.insertStatement.run(dependency.taskId, dependency.dependencyTaskId, projectId);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (
+        error instanceof EntityNotFoundError ||
+        error instanceof InvalidTaskDependencyError ||
+        error instanceof TaskDependencyProjectMismatchError
+      ) {
+        throw error;
+      }
+      throw new SqlitePersistenceError('Failed to add Task dependency.', { cause: error });
+    }
+  }
+
+  public async remove(dependency: TaskDependency): Promise<boolean> {
+    const validated = createTaskDependency(dependency);
+    const result = this.deleteStatement.run(validated.taskId, validated.dependencyTaskId);
+    return result.changes !== 0 && result.changes !== 0n;
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly TaskDependency[]> {
+    return this.listByTaskIdStatement.all(taskId).map(mapTaskDependencyRow);
+  }
+
+  public async listByProjectId(projectId: string): Promise<readonly TaskDependency[]> {
+    return this.listByProjectIdStatement.all(projectId).map(mapTaskDependencyRow);
   }
 }
 
@@ -1163,6 +1272,7 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly appendSnapshotStatement: StatementSync;
   private readonly eventsBySessionIdStatement: StatementSync;
   private readonly findByIdStatement: StatementSync;
+  private readonly incompleteDependencyByTaskIdStatement: StatementSync;
   private readonly insertEventStatement: StatementSync;
   private readonly insertSessionStatement: StatementSync;
   private readonly activeByTaskIdStatement: StatementSync;
@@ -1190,6 +1300,14 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     this.activeByTaskIdStatement = database.prepare(
       `SELECT session.id FROM agent_sessions AS session
        WHERE session.task_id = ? AND ${unsettledAgentSessionWriterSql('session')}
+       LIMIT 1`,
+    );
+    this.incompleteDependencyByTaskIdStatement = database.prepare(
+      `SELECT dependency.dependency_task_id
+       FROM task_dependencies AS dependency
+       INNER JOIN tasks AS required_task ON required_task.id = dependency.dependency_task_id
+       WHERE dependency.task_id = ? AND required_task.phase <> 'DONE'
+       ORDER BY dependency.dependency_task_id
        LIMIT 1`,
     );
     this.eventsBySessionIdStatement = database.prepare(
@@ -1251,6 +1369,11 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
       if (taskRow?.phase !== expectedTaskPhase) {
         throw new SqlitePersistenceError(
           `A new Agent Session requires its Task to remain in ${expectedTaskPhase}.`,
+        );
+      }
+      if (this.incompleteDependencyByTaskIdStatement.get(session.taskId) !== undefined) {
+        throw new SqlitePersistenceError(
+          'A new Agent Session cannot start with incomplete Task dependencies.',
         );
       }
       if (this.activeByTaskIdStatement.get(session.taskId) !== undefined) {
@@ -1883,6 +2006,19 @@ function isSqliteErrorCode(error: unknown, code: number): boolean {
     typeof error.errcode === 'number' &&
     error.errcode === code
   );
+}
+
+function mapTaskDependencyRow(row: Record<string, unknown>): TaskDependency {
+  const taskId = row.task_id;
+  const dependencyTaskId = row.dependency_task_id;
+  if (typeof taskId !== 'string' || typeof dependencyTaskId !== 'string') {
+    throw new SqlitePersistenceError('Task dependency row is invalid.');
+  }
+  try {
+    return createTaskDependency({ dependencyTaskId, taskId });
+  } catch (error) {
+    throw new SqlitePersistenceError('Task dependency row is invalid.', { cause: error });
+  }
 }
 
 function isSqliteMetadataConflictError(error: unknown): boolean {
