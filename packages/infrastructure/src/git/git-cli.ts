@@ -237,7 +237,7 @@ function resolveNativeRealPath(path: string): Promise<string> {
   });
 }
 
-async function findTrustedExecutable(configuredExecutable: string): Promise<string> {
+export async function findTrustedExecutable(configuredExecutable: string): Promise<string> {
   if (isAbsolute(configuredExecutable)) {
     return inspectExecutable(configuredExecutable);
   }

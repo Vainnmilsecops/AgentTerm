@@ -11,6 +11,50 @@ import type { TaskPhase } from '@agentterm/domain';
 export type EntityKind =
   'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task' | 'TaskReview';
 
+export type TaskPullRequestFailure =
+  | 'BRANCH_NOT_PUSHED'
+  | 'BRANCH_NOT_READY'
+  | 'CREATE_FAILED'
+  | 'GITHUB_AUTH_UNAVAILABLE'
+  | 'GITHUB_CLI_UNAVAILABLE'
+  | 'INSPECTION_FAILED'
+  | 'METADATA_MISMATCH'
+  | 'METADATA_PERSISTENCE_FAILED'
+  | 'PUSH_FAILED'
+  | 'WORKTREE_NOT_READY';
+
+export class TaskPullRequestError extends Error {
+  public constructor(
+    public readonly reason: TaskPullRequestFailure,
+    public readonly taskId: string,
+    options?: ErrorOptions,
+  ) {
+    super(
+      reason === 'WORKTREE_NOT_READY'
+        ? 'The Task primary Worktree is not ready for Pull Request operations.'
+        : reason === 'BRANCH_NOT_READY'
+          ? 'The Task branch is not ready for a Pull Request operation.'
+          : reason === 'BRANCH_NOT_PUSHED'
+            ? 'The Task branch must be pushed before a Pull Request can be created.'
+            : reason === 'GITHUB_CLI_UNAVAILABLE'
+              ? 'GitHub CLI is not available for Pull Request operations.'
+              : reason === 'GITHUB_AUTH_UNAVAILABLE'
+                ? 'GitHub CLI is not authenticated for github.com.'
+                : reason === 'PUSH_FAILED'
+                  ? 'The Task branch could not be pushed.'
+                  : reason === 'CREATE_FAILED'
+                    ? 'The Pull Request could not be created or refreshed.'
+                    : reason === 'METADATA_PERSISTENCE_FAILED'
+                      ? 'The Pull Request exists, but its metadata could not be persisted.'
+                      : reason === 'METADATA_MISMATCH'
+                        ? 'The Pull Request metadata does not match the Task Worktree.'
+                        : 'The Task Pull Request state could not be inspected.',
+      options,
+    );
+    this.name = 'TaskPullRequestError';
+  }
+}
+
 export class TaskDependencyProjectMismatchError extends Error {
   public constructor(
     public readonly taskId: string,

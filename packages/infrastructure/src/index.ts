@@ -6,6 +6,7 @@ export { ClaudeAdapter } from './agent/claude-adapter';
 export { CodexAdapter } from './agent/codex-adapter';
 export { GeminiAdapter } from './agent/gemini-adapter';
 export { GitCliRepositoryInspector } from './git/git-cli-repository-inspector';
+export { GitHubPullRequestAdapter } from './git/github-pull-request-adapter';
 export { GitCliTaskReviewCodeInspector } from './git/git-cli-task-review-code-inspector';
 export { GitCliTaskWorktreeLifecycle } from './git/git-cli-task-worktree-lifecycle';
 export { LocalGitProjectDiscovery } from './git/local-git-project-discovery';

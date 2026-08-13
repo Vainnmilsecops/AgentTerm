@@ -465,6 +465,79 @@ export interface TaskChangeInspector {
   getFileDiff(worktree: TaskWorktreeRecord, request: TaskFileDiffRequest): Promise<TaskFileDiff>;
 }
 
+export type PullRequestStatus = 'CLOSED' | 'MERGED' | 'OPEN';
+
+export interface TaskPullRequest {
+  readonly baseBranch: string;
+  readonly createdAt: number;
+  readonly draft: boolean;
+  readonly headBranch: string;
+  readonly headCommitId: string;
+  readonly number: number;
+  readonly provider: 'github';
+  readonly repositoryName: string;
+  readonly repositoryOwner: string;
+  readonly status: PullRequestStatus;
+  readonly taskId: string;
+  readonly title: string;
+  readonly updatedAt: number;
+  readonly url: string;
+}
+
+export type PullRequestBranchReadinessFailure =
+  | 'BRANCH_MISMATCH'
+  | 'DETACHED_HEAD'
+  | 'GITHUB_REMOTE_NOT_FOUND'
+  | 'INSPECTION_FAILED'
+  | 'INVALID_BASE_BRANCH'
+  | 'NO_COMMITS_AHEAD'
+  | 'UNCOMMITTED_CHANGES'
+  | 'WORKTREE_NOT_READY';
+
+export type PullRequestBranchInspection =
+  | {
+      readonly kind: 'blocked';
+      readonly reason: PullRequestBranchReadinessFailure;
+    }
+  | {
+      readonly baseBranch: string;
+      readonly githubAuthenticationAvailable: boolean;
+      readonly githubCliAvailable: boolean;
+      readonly headBranch: string;
+      readonly headCommitId: string;
+      readonly kind: 'ready';
+      readonly provider: 'github';
+      readonly pullRequest: TaskPullRequest | undefined;
+      readonly remoteHeadCommitId: string | undefined;
+      readonly remoteName: string;
+      readonly repositoryName: string;
+      readonly repositoryOwner: string;
+    };
+
+export interface CreatePullRequestRequest {
+  readonly body: string;
+  readonly title: string;
+}
+
+export interface PullRequestIntegration {
+  /** Inspects only the exact persisted primary Worktree and performs no mutation. */
+  inspect(worktree: TaskWorktreeRecord): Promise<PullRequestBranchInspection>;
+  /** Performs a normal non-force push of the exact inspected Task branch. */
+  push(worktree: TaskWorktreeRecord): Promise<PullRequestBranchInspection>;
+  /** Returns, reopens, refreshes, or creates the one suitable PR without duplicating it. */
+  createOrRefresh(
+    worktree: TaskWorktreeRecord,
+    request: CreatePullRequestRequest,
+  ): Promise<TaskPullRequest>;
+}
+
+export interface PullRequestRepository {
+  /** Returns stored PR metadata for the Task from oldest to newest update time. */
+  listByTaskId(taskId: string): Promise<readonly TaskPullRequest[]>;
+  /** Inserts or refreshes metadata for the same Task/repository/base/head identity. */
+  record(pullRequest: TaskPullRequest): Promise<void>;
+}
+
 export interface TaskWorktreeRepository {
   findByTaskId(taskId: string): Promise<TaskWorktreeRecord | undefined>;
   insertReservation(worktree: TaskWorktree): Promise<TaskWorktreeRecord>;

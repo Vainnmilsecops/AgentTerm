@@ -4,6 +4,7 @@ import type {
   TaskChangeSet,
   TaskFileChange,
   TaskFileDiff,
+  TaskPullRequestState,
 } from '@agentterm/application';
 
 import type { TerminalSessionClient } from './terminal-controller';
@@ -12,14 +13,23 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   acceptTaskPlan(input: { readonly planId: string; readonly taskId: string }): Promise<void>;
   approveTaskReview(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
+  createTaskPullRequest(input: { readonly taskId: string }): Promise<void>;
+  inspectTaskPullRequest(input: { readonly taskId: string }): Promise<TaskPullRequestState>;
   listTaskChanges(input: { readonly taskId: string }): Promise<TaskChangeSet>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
+  pushTaskBranch(input: { readonly taskId: string }): Promise<void>;
   retryTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskPlanning(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
 }
+
+export type WorkspacePullRequestInspection =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading'; readonly taskId: string }
+  | { readonly kind: 'error'; readonly message: string; readonly taskId: string }
+  | { readonly kind: 'ready'; readonly result: TaskPullRequestState; readonly taskId: string };
 
 export type WorkspaceChangeInspection =
   | { readonly kind: 'idle' }
@@ -38,6 +48,8 @@ export type WorkspaceChangeInspection =
 export type WorkspaceActionKind =
   | 'accept-plan'
   | 'approve-review'
+  | 'create-pull-request'
+  | 'push-branch'
   | 'request-changes'
   | 'request-review'
   | 'retry-execution'
@@ -58,6 +70,7 @@ export type WorkspaceSnapshot =
       readonly changeInspection?: WorkspaceChangeInspection;
       readonly kind: 'ready';
       readonly overview: AgentWorkspaceOverview;
+      readonly pullRequestInspection?: WorkspacePullRequestInspection;
       readonly selectedAgentId: string | undefined;
       readonly selectedTaskId: string | undefined;
       readonly terminalSessionId: string | undefined;
@@ -66,6 +79,7 @@ export type WorkspaceSnapshot =
 export class WorkspaceController {
   private disposed = false;
   private changeGeneration = 0;
+  private pullRequestGeneration = 0;
   private loadGeneration = 0;
   private readonly client: AgentWorkspaceClient;
   private readonly sink: ((snapshot: WorkspaceSnapshot) => void) | undefined;
@@ -86,7 +100,7 @@ export class WorkspaceController {
         return;
       }
       this.publishReady(overview, undefined);
-      await this.loadSelectedTaskChanges();
+      await this.loadSelectedTaskEvidence();
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
         this.publish(
@@ -106,7 +120,7 @@ export class WorkspaceController {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : requestedTaskId;
         this.publishReady(overview, preferredTaskId);
-        await this.loadSelectedTaskChanges();
+        await this.loadSelectedTaskEvidence();
       }
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
@@ -136,6 +150,7 @@ export class WorkspaceController {
         ...this.snapshot,
         actionError: undefined,
         changeInspection: Object.freeze({ kind: 'idle' }),
+        pullRequestInspection: Object.freeze({ kind: 'idle' }),
         selectedTaskId: taskId,
         terminalSessionId: selectedTask?.activeSession?.id,
       }),
@@ -182,6 +197,14 @@ export class WorkspaceController {
 
   public requestSelectedTaskChanges(): Promise<void> {
     return this.executeSelectedAction('request-changes');
+  }
+
+  public pushSelectedTaskBranch(): Promise<void> {
+    return this.executeSelectedAction('push-branch');
+  }
+
+  public createSelectedTaskPullRequest(): Promise<void> {
+    return this.executeSelectedAction('create-pull-request');
   }
 
   public async selectTaskChange(change: TaskFileChange): Promise<void> {
@@ -266,7 +289,10 @@ export class WorkspaceController {
     const taskId = this.snapshot.selectedTaskId;
     const selectedAgentId = this.snapshot.selectedAgentId;
     const selected = findTask(this.snapshot.overview, taskId);
-    if (selected === undefined || !canRunAction(selected, kind)) {
+    if (
+      selected === undefined ||
+      !canRunAction(selected, kind, this.snapshot.pullRequestInspection)
+    ) {
       return Promise.resolve();
     }
 
@@ -305,6 +331,7 @@ export class WorkspaceController {
     this.disposed = true;
     this.loadGeneration += 1;
     this.changeGeneration += 1;
+    this.pullRequestGeneration += 1;
   }
 
   private async performAction(
@@ -332,7 +359,7 @@ export class WorkspaceController {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : action.taskId;
         this.publishReady(overview, preferredTaskId);
-        await this.loadSelectedTaskChanges();
+        await this.loadSelectedTaskEvidence();
       }
     } catch {
       if (!this.disposed) {
@@ -371,11 +398,16 @@ export class WorkspaceController {
         changeInspection: Object.freeze({ kind: 'idle' }),
         kind: 'ready',
         overview,
+        pullRequestInspection: Object.freeze({ kind: 'idle' }),
         selectedAgentId,
         selectedTaskId,
         terminalSessionId: selectedTask?.activeSession?.id ?? previousTerminalSessionId,
       }),
     );
+  }
+
+  private async loadSelectedTaskEvidence(): Promise<void> {
+    await Promise.all([this.loadSelectedTaskChanges(), this.loadSelectedTaskPullRequest()]);
   }
 
   private async loadSelectedTaskChanges(): Promise<void> {
@@ -446,6 +478,54 @@ export class WorkspaceController {
     );
   }
 
+  private async loadSelectedTaskPullRequest(): Promise<void> {
+    const current = this.snapshot;
+    if (current.kind !== 'ready' || current.selectedTaskId === undefined) return;
+    const taskId = current.selectedTaskId;
+    const generation = ++this.pullRequestGeneration;
+    this.publish(
+      Object.freeze({
+        ...current,
+        pullRequestInspection: Object.freeze({ kind: 'loading', taskId }),
+      }),
+    );
+    try {
+      const result = await this.client.inspectTaskPullRequest({ taskId });
+      if (!this.isCurrentPullRequest(generation, taskId)) return;
+      const latest = this.snapshot;
+      if (latest.kind !== 'ready') return;
+      this.publish(
+        Object.freeze({
+          ...latest,
+          pullRequestInspection: Object.freeze({ kind: 'ready', result, taskId }),
+        }),
+      );
+    } catch {
+      if (!this.isCurrentPullRequest(generation, taskId)) return;
+      const latest = this.snapshot;
+      if (latest.kind !== 'ready') return;
+      this.publish(
+        Object.freeze({
+          ...latest,
+          pullRequestInspection: Object.freeze({
+            kind: 'error',
+            message: 'Pull Request status could not be loaded.',
+            taskId,
+          }),
+        }),
+      );
+    }
+  }
+
+  private isCurrentPullRequest(generation: number, taskId: string): boolean {
+    return (
+      !this.disposed &&
+      generation === this.pullRequestGeneration &&
+      this.snapshot.kind === 'ready' &&
+      this.snapshot.selectedTaskId === taskId
+    );
+  }
+
   private publish(snapshot: WorkspaceSnapshot): void {
     if (this.disposed) {
       return;
@@ -488,6 +568,13 @@ async function runWorkspaceAction(
         reviewId: requireReviewId(evidenceId),
         taskId: action.taskId,
       });
+      return;
+    case 'push-branch':
+      await client.pushTaskBranch({ taskId: action.taskId });
+      return;
+    case 'create-pull-request':
+      await client.createTaskPullRequest({ taskId: action.taskId });
+      return;
   }
 }
 
@@ -501,6 +588,7 @@ function requireAgentId(agentId: string | undefined): string {
 function canRunAction(
   task: AgentWorkspaceOverview['projects'][number]['tasks'][number],
   kind: WorkspaceActionKind,
+  pullRequestInspection: WorkspacePullRequestInspection | undefined,
 ): boolean {
   switch (kind) {
     case 'start-planning':
@@ -517,6 +605,12 @@ function canRunAction(
       return task.canApproveReview && task.latestReview?.status === 'PENDING';
     case 'request-changes':
       return task.canRequestChanges && task.latestReview?.status === 'PENDING';
+    case 'push-branch':
+      return pullRequestInspection?.kind === 'ready' && pullRequestInspection.result.canPush;
+    case 'create-pull-request':
+      return (
+        pullRequestInspection?.kind === 'ready' && pullRequestInspection.result.canCreatePullRequest
+      );
   }
 }
 
@@ -550,6 +644,10 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task review could not be approved.';
     case 'request-changes':
       return 'Task changes could not be requested.';
+    case 'push-branch':
+      return 'Task branch could not be pushed.';
+    case 'create-pull-request':
+      return 'Pull Request could not be created or refreshed.';
   }
 }
 
@@ -568,6 +666,10 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task review approved, but workspace status could not be refreshed.';
     case 'request-changes':
       return 'Task changes requested, but workspace status could not be refreshed.';
+    case 'push-branch':
+      return 'Task branch pushed, but workspace status could not be refreshed.';
+    case 'create-pull-request':
+      return 'Pull Request updated, but workspace status could not be refreshed.';
   }
 }
 

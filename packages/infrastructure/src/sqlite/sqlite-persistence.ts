@@ -7,6 +7,7 @@ import type {
   LocalProjectLocator,
   ProjectCatalog,
   ProjectRepository,
+  PullRequestRepository,
   QualityGateRunRepository,
   TaskRepository,
   TaskPlanningRepository,
@@ -19,6 +20,7 @@ import type {
 import { migrateSqliteDatabase } from './migrate';
 import {
   SqliteProjectRepository,
+  SqlitePullRequestRepository,
   SqliteAgentSessionRepository,
   SqliteExecutionArtifactRepository,
   SqliteQualityGateRunRepository,
@@ -36,6 +38,7 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSq
 export interface SqlitePersistence {
   readonly artifacts: ExecutionArtifactRepository & TaskPlanningArtifactRepository;
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
+  readonly pullRequests: PullRequestRepository;
   readonly qualityGateRuns: QualityGateRunRepository;
   readonly sessions: AgentSessionRepository;
   readonly tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
@@ -57,6 +60,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   });
   let artifacts: ExecutionArtifactRepository & TaskPlanningArtifactRepository;
   let projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
+  let pullRequests: PullRequestRepository;
   let qualityGateRuns: QualityGateRunRepository;
   let sessions: AgentSessionRepository;
   let tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
@@ -74,6 +78,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     migrateSqliteDatabase(database);
     artifacts = new SqliteExecutionArtifactRepository(database);
     projects = new SqliteProjectRepository(database);
+    pullRequests = new SqlitePullRequestRepository(database);
     qualityGateRuns = new SqliteQualityGateRunRepository(database);
     sessions = new SqliteAgentSessionRepository(database);
     tasks = new SqliteTaskRepository(database);
@@ -90,6 +95,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   return Object.freeze({
     artifacts,
     projects,
+    pullRequests,
     qualityGateRuns,
     sessions,
     tasks,

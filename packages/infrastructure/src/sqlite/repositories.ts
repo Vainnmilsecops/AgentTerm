@@ -10,6 +10,7 @@ import {
   type LocalProjectLocator,
   type ProjectCatalog,
   type ProjectRepository,
+  type PullRequestRepository,
   type QualityGateRunRepository,
   type RecordProjectOpenInput,
   type TaskRepository,
@@ -20,6 +21,7 @@ import {
   type TaskPlanningSessionRevision,
   type TaskReviewRepository,
   type TaskReviewSessionRevision,
+  type TaskPullRequest,
   TaskWorktreeMetadataConflictError,
   type TaskWorktree,
   type TaskWorktreeLifecycleState,
@@ -452,6 +454,70 @@ export class SqliteTaskDependencyRepository implements TaskDependencyRepository 
 
   public async listByProjectId(projectId: string): Promise<readonly TaskDependency[]> {
     return this.listByProjectIdStatement.all(projectId).map(mapTaskDependencyRow);
+  }
+}
+
+export class SqlitePullRequestRepository implements PullRequestRepository {
+  private readonly listByTaskIdStatement: StatementSync;
+  private readonly recordStatement: StatementSync;
+
+  public constructor(database: DatabaseSync) {
+    this.listByTaskIdStatement = database.prepare(
+      `SELECT
+         task_id, provider, repository_owner, repository_name, base_branch, head_branch,
+         pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at
+       FROM task_pull_requests
+       WHERE task_id = ?
+       ORDER BY updated_at, pull_request_number`,
+    );
+    this.recordStatement = database.prepare(
+      `INSERT INTO task_pull_requests (
+         task_id, provider, repository_owner, repository_name, base_branch, head_branch,
+         pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (
+         task_id, provider, repository_owner, repository_name, base_branch, head_branch
+       ) DO UPDATE SET
+         pull_request_number = excluded.pull_request_number,
+         url = excluded.url,
+         title = excluded.title,
+         head_commit_id = excluded.head_commit_id,
+         status = excluded.status,
+         draft = excluded.draft,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at
+       WHERE excluded.updated_at >= task_pull_requests.updated_at`,
+    );
+  }
+
+  public async listByTaskId(taskId: string): Promise<readonly TaskPullRequest[]> {
+    return this.listByTaskIdStatement.all(taskId).map(mapTaskPullRequestRow);
+  }
+
+  public async record(pullRequest: TaskPullRequest): Promise<void> {
+    assertTaskPullRequestMetadata(pullRequest);
+    try {
+      this.recordStatement.run(
+        pullRequest.taskId,
+        pullRequest.provider,
+        pullRequest.repositoryOwner,
+        pullRequest.repositoryName,
+        pullRequest.baseBranch,
+        pullRequest.headBranch,
+        pullRequest.number,
+        pullRequest.url,
+        pullRequest.title,
+        pullRequest.headCommitId,
+        pullRequest.status,
+        Number(pullRequest.draft),
+        pullRequest.createdAt,
+        pullRequest.updatedAt,
+      );
+    } catch (error) {
+      throw new SqlitePersistenceError('Failed to persist Pull Request metadata.', {
+        cause: error,
+      });
+    }
   }
 }
 
@@ -2018,6 +2084,64 @@ function mapTaskDependencyRow(row: Record<string, unknown>): TaskDependency {
     return createTaskDependency({ dependencyTaskId, taskId });
   } catch (error) {
     throw new SqlitePersistenceError('Task dependency row is invalid.', { cause: error });
+  }
+}
+
+function mapTaskPullRequestRow(row: Record<string, unknown>): TaskPullRequest {
+  const draft = row.draft;
+  if (draft !== 0 && draft !== 0n && draft !== 1 && draft !== 1n) {
+    throw new SqlitePersistenceError('Pull Request metadata is invalid.');
+  }
+  const pullRequest = {
+    baseBranch: row.base_branch,
+    createdAt: row.created_at,
+    draft: draft === 1 || draft === 1n,
+    headBranch: row.head_branch,
+    headCommitId: row.head_commit_id,
+    number: row.pull_request_number,
+    provider: row.provider,
+    repositoryName: row.repository_name,
+    repositoryOwner: row.repository_owner,
+    status: row.status,
+    taskId: row.task_id,
+    title: row.title,
+    updatedAt: row.updated_at,
+    url: row.url,
+  } as TaskPullRequest;
+  assertTaskPullRequestMetadata(pullRequest);
+  return Object.freeze(pullRequest);
+}
+
+function assertTaskPullRequestMetadata(pullRequest: TaskPullRequest): void {
+  const repositoryPart = /^[A-Za-z0-9_.-]{1,255}$/u;
+  const validText = (value: unknown, maximum: number): value is string =>
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    value.length <= maximum &&
+    !value.includes('\0');
+  if (
+    pullRequest.provider !== 'github' ||
+    !validText(pullRequest.taskId, 32_768) ||
+    typeof pullRequest.repositoryOwner !== 'string' ||
+    !repositoryPart.test(pullRequest.repositoryOwner) ||
+    typeof pullRequest.repositoryName !== 'string' ||
+    !repositoryPart.test(pullRequest.repositoryName) ||
+    !validText(pullRequest.baseBranch, 1_024) ||
+    !validText(pullRequest.headBranch, 1_024) ||
+    !Number.isSafeInteger(pullRequest.number) ||
+    pullRequest.number <= 0 ||
+    pullRequest.url !==
+      `https://github.com/${pullRequest.repositoryOwner}/${pullRequest.repositoryName}/pull/${pullRequest.number}` ||
+    !validText(pullRequest.title, 1_024) ||
+    !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(pullRequest.headCommitId) ||
+    !['OPEN', 'CLOSED', 'MERGED'].includes(pullRequest.status) ||
+    typeof pullRequest.draft !== 'boolean' ||
+    !Number.isSafeInteger(pullRequest.createdAt) ||
+    pullRequest.createdAt < 0 ||
+    !Number.isSafeInteger(pullRequest.updatedAt) ||
+    pullRequest.updatedAt < pullRequest.createdAt
+  ) {
+    throw new SqlitePersistenceError('Pull Request metadata is invalid.');
   }
 }
 
