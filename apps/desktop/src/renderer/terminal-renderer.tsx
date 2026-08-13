@@ -17,6 +17,7 @@ export interface TerminalRendererProps {
 
 export function TerminalRenderer({ client, onRuntimeEvent, sessionId }: TerminalRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<TerminalController | undefined>(undefined);
   const runtimeEventRef = useRef(onRuntimeEvent);
   const [state, setState] = useState<TerminalConnectionState>('empty');
 
@@ -33,16 +34,33 @@ export function TerminalRenderer({ client, onRuntimeEvent, sessionId }: Terminal
     const controller = new TerminalController(new XtermTerminalSurface(), setState, (event) =>
       runtimeEventRef.current?.(event),
     );
+    controllerRef.current = controller;
     controller.mount(container);
     void controller.setSession(sessionId, client);
-    return () => controller.dispose();
+    return () => {
+      if (controllerRef.current === controller) {
+        controllerRef.current = undefined;
+      }
+      controller.dispose();
+    };
   }, [client, sessionId]);
 
   return (
-    <section className="terminal-panel" aria-label="Agent Session terminal">
+    <section
+      className="terminal-panel"
+      aria-label="Agent Session terminal"
+      id="workspace-terminal"
+      onFocus={(event) => {
+        if (event.currentTarget === event.target) {
+          controllerRef.current?.focus();
+        }
+      }}
+      tabIndex={-1}
+    >
       <header className="terminal-panel__header">
         <span className={`terminal-status terminal-status--${state}`} aria-hidden="true" />
         <span aria-live="polite">{statusLabel(state)}</span>
+        <kbd>Alt+3</kbd>
       </header>
       <div className="terminal-panel__viewport" ref={containerRef} />
     </section>

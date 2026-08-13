@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   AgentWorkspaceOverview,
+  QualityGateSummary,
   TaskChangeSet,
   TaskPullRequestState,
   WorkspaceTaskOverview,
@@ -24,6 +25,7 @@ type TestWorkspaceViewProps = Omit<
   | 'onAcceptPlan'
   | 'onCreatePullRequest'
   | 'onPushTaskBranch'
+  | 'onRunQualityGate'
   | 'onSelectTaskChange'
   | 'onStartPlanning'
 > &
@@ -33,6 +35,7 @@ type TestWorkspaceViewProps = Omit<
       | 'onAcceptPlan'
       | 'onCreatePullRequest'
       | 'onPushTaskBranch'
+      | 'onRunQualityGate'
       | 'onSelectTaskChange'
       | 'onStartPlanning'
     >
@@ -43,6 +46,7 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onAcceptPlan: () => undefined,
     onCreatePullRequest: () => undefined,
     onPushTaskBranch: () => undefined,
+    onRunQualityGate: () => undefined,
     onSelectTaskChange: () => undefined,
     onStartPlanning: () => undefined,
     ...props,
@@ -117,6 +121,7 @@ const emptyReviewState = Object.freeze({
   canRequestChanges: false,
   canRequestReview: false,
   canRevisePlan: false,
+  canRunQualityGate: false,
   canStartPlanning: false,
   dependencies: Object.freeze([]),
   latestPlan: undefined,
@@ -205,6 +210,7 @@ const runningStartOverview: AgentWorkspaceOverview = Object.freeze({
           activeSession: undefined,
           artifacts: [],
           canRetryExecution: false,
+          canRunQualityGate: true,
           canStartExecution: true,
           latestSession: undefined,
           previousSession: undefined,
@@ -393,6 +399,11 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly inspectTaskPullRequest = vi.fn(async () => this.pullRequestState);
   public readonly pushTaskBranch = vi.fn(async () => undefined);
   public readonly createTaskPullRequest = vi.fn(async () => undefined);
+  public readonly gateSummaries: readonly QualityGateSummary[] = Object.freeze([
+    Object.freeze({ id: 'lint', kind: 'LINT' as const }),
+  ]);
+  public readonly listQualityGates = vi.fn(async () => this.gateSummaries);
+  public readonly runQualityGate = vi.fn(async () => undefined);
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
     async () => undefined,
   );
@@ -442,6 +453,19 @@ describe('WorkspaceController', () => {
       selectedTaskId: 'task-1',
     });
     expect(selectedTask(controller.snapshot)?.task.title).toBe('Nối terminal tiếng Việt');
+  });
+
+  it('lists safe Quality Gates and runs one for the selected eligible Task', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [runningStartOverview, runningStartOverview];
+    const controller = new WorkspaceController(client);
+
+    await controller.load();
+    await controller.runSelectedQualityGate('lint');
+
+    expect(client.listQualityGates).toHaveBeenCalledTimes(2);
+    expect(controller.snapshot).toMatchObject({ qualityGates: [{ id: 'lint', kind: 'LINT' }] });
+    expect(client.runQualityGate).toHaveBeenCalledWith({ gateId: 'lint', taskId: runningTask.id });
   });
 
   it('pushes and creates a Pull Request only through explicit selected-Task actions', async () => {
@@ -1154,6 +1178,41 @@ describe('WorkspaceController', () => {
       activeSession: undefined,
       latestSession: { status: 'EXITED' },
     });
+  });
+});
+
+describe('command palette discoverability', () => {
+  it('renders the palette shortcut and keyboard-focus landmarks without hiding terminal controls', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          changeInspection: { kind: 'idle' },
+          kind: 'ready',
+          overview: runningStartOverview,
+          pullRequestInspection: { kind: 'idle' },
+          qualityGates: [{ id: 'lint', kind: 'LINT' }],
+          selectedAgentId: 'codex',
+          selectedTaskId: runningTask.id,
+          terminalSessionId: workingSession.id,
+        },
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Open command palette"');
+    expect(markup).toContain('Ctrl+Shift+P');
+    expect(markup).toContain('id="workspace-sidebar"');
+    expect(markup).toContain('id="workspace-main"');
+    expect(markup).toContain('id="workspace-terminal"');
   });
 });
 

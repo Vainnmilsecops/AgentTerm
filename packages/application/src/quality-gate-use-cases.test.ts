@@ -14,6 +14,7 @@ import {
 
 import {
   EntityNotFoundError,
+  listQualityGateSummaries,
   listQualityGateRuns,
   QualityGatePersistenceError,
   QualityGateProcessUnsettledError,
@@ -120,6 +121,10 @@ class FakeGateCatalog implements QualityGateCatalog {
   public constructor(private readonly value = gate) {}
   public async findById(id: string) {
     return id === this.value.id ? this.value : undefined;
+  }
+
+  public async list() {
+    return [this.value];
   }
 }
 
@@ -371,7 +376,7 @@ describe('runQualityGate', () => {
         { environment: {}, gateId: gate.id, runId: 'run-mismatch', taskId: task.id },
         {
           ...dependencies({ processRunner: runner, runs }),
-          gates: { findById: async () => mismatchedGate },
+          gates: { findById: async () => mismatchedGate, list: async () => [mismatchedGate] },
         },
       ),
     ).rejects.toMatchObject({ reason: 'GATE_NOT_FOUND' });
@@ -602,6 +607,18 @@ describe('listQualityGateRuns', () => {
     await expect(listQualityGateRuns('missing', new FakeTasks(null), runs)).rejects.toBeInstanceOf(
       EntityNotFoundError,
     );
+  });
+});
+
+describe('listQualityGateSummaries', () => {
+  it('lists only stable gate identity and kind for Presentation', async () => {
+    const summaries = await listQualityGateSummaries(new FakeGateCatalog());
+
+    expect(summaries).toEqual([{ id: 'lint', kind: 'LINT' }]);
+    expect(JSON.stringify(summaries)).not.toContain('executablePath');
+    expect(JSON.stringify(summaries)).not.toContain('pnpm.cjs');
+    expect(Object.isFrozen(summaries)).toBe(true);
+    expect(Object.isFrozen(summaries[0])).toBe(true);
   });
 });
 

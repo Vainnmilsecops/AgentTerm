@@ -76,6 +76,16 @@ class FakeTerminalSessionClient implements TerminalSessionClient {
 }
 
 describe('TerminalController', () => {
+  it('focuses the mounted terminal surface on explicit workspace navigation', () => {
+    const surface = new FakeTerminalSurface();
+    const controller = new TerminalController(surface);
+
+    controller.mount({} as HTMLElement);
+    controller.focus();
+
+    expect(surface.focus).toHaveBeenCalledOnce();
+  });
+
   it('renders exact Unicode output and forwards exact Unicode input to the attached session', async () => {
     const surface = new FakeTerminalSurface();
     const client = new FakeTerminalSessionClient();

@@ -2,6 +2,7 @@ import {
   TaskPhase,
   completeQualityGateRun,
   startQualityGateRun,
+  type QualityGate,
   type QualityGateRun,
 } from '@agentterm/domain';
 
@@ -43,6 +44,20 @@ export interface RunQualityGateDependencies {
   readonly runs: QualityGateRunRepository;
   readonly tasks: TaskRepository;
   readonly worktrees: TaskWorktreeRepository;
+}
+
+export interface QualityGateSummary {
+  readonly id: string;
+  readonly kind: QualityGate['kind'];
+}
+
+export async function listQualityGateSummaries(
+  gates: QualityGateCatalog,
+): Promise<readonly QualityGateSummary[]> {
+  const configured = await gates.list();
+  return Object.freeze(
+    configured.map(({ id, kind }) => Object.freeze({ id, kind } satisfies QualityGateSummary)),
+  );
 }
 
 export async function runQualityGate(

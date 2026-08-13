@@ -1,6 +1,7 @@
 import type {
   AgentWorkspaceOverview,
   GetTaskFileDiffInput,
+  QualityGateSummary,
   TaskChangeSet,
   TaskFileChange,
   TaskFileDiff,
@@ -16,11 +17,13 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   createTaskPullRequest(input: { readonly taskId: string }): Promise<void>;
   inspectTaskPullRequest(input: { readonly taskId: string }): Promise<TaskPullRequestState>;
   listTaskChanges(input: { readonly taskId: string }): Promise<TaskChangeSet>;
+  listQualityGates(): Promise<readonly QualityGateSummary[]>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
   pushTaskBranch(input: { readonly taskId: string }): Promise<void>;
   retryTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
+  runQualityGate(input: { readonly gateId: string; readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   startTaskPlanning(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
 }
@@ -53,13 +56,20 @@ export type WorkspaceActionKind =
   | 'request-changes'
   | 'request-review'
   | 'retry-execution'
+  | 'run-quality-gate'
   | 'start-execution'
   | 'start-planning';
 
-export interface WorkspaceAction {
-  readonly kind: WorkspaceActionKind;
-  readonly taskId: string;
-}
+export type WorkspaceAction =
+  | {
+      readonly gateId: string;
+      readonly kind: 'run-quality-gate';
+      readonly taskId: string;
+    }
+  | {
+      readonly kind: Exclude<WorkspaceActionKind, 'run-quality-gate'>;
+      readonly taskId: string;
+    };
 
 export type WorkspaceSnapshot =
   | { readonly kind: 'loading' }
@@ -70,6 +80,7 @@ export type WorkspaceSnapshot =
       readonly changeInspection?: WorkspaceChangeInspection;
       readonly kind: 'ready';
       readonly overview: AgentWorkspaceOverview;
+      readonly qualityGates?: readonly QualityGateSummary[];
       readonly pullRequestInspection?: WorkspacePullRequestInspection;
       readonly selectedAgentId: string | undefined;
       readonly selectedTaskId: string | undefined;
@@ -95,11 +106,14 @@ export class WorkspaceController {
     const generation = ++this.loadGeneration;
     this.publish(Object.freeze({ kind: 'loading' }));
     try {
-      const overview = await this.client.loadWorkspace();
+      const [overview, qualityGates] = await Promise.all([
+        this.client.loadWorkspace(),
+        this.client.listQualityGates(),
+      ]);
       if (this.disposed || generation !== this.loadGeneration) {
         return;
       }
-      this.publishReady(overview, undefined);
+      this.publishReady(overview, qualityGates, undefined);
       await this.loadSelectedTaskEvidence();
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
@@ -115,11 +129,14 @@ export class WorkspaceController {
     const requestedTaskId =
       this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : undefined;
     try {
-      const overview = await this.client.loadWorkspace();
+      const [overview, qualityGates] = await Promise.all([
+        this.client.loadWorkspace(),
+        this.client.listQualityGates(),
+      ]);
       if (!this.disposed && generation === this.loadGeneration) {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : requestedTaskId;
-        this.publishReady(overview, preferredTaskId);
+        this.publishReady(overview, qualityGates, preferredTaskId);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -207,6 +224,16 @@ export class WorkspaceController {
     return this.executeSelectedAction('create-pull-request');
   }
 
+  public runSelectedQualityGate(gateId: string): Promise<void> {
+    if (
+      this.snapshot.kind !== 'ready' ||
+      this.snapshot.qualityGates?.some((gate) => gate.id === gateId) !== true
+    ) {
+      return Promise.resolve();
+    }
+    return this.executeSelectedAction('run-quality-gate', gateId);
+  }
+
   public async selectTaskChange(change: TaskFileChange): Promise<void> {
     const current = this.snapshot;
     const inspection = current.kind === 'ready' ? current.changeInspection : undefined;
@@ -278,7 +305,7 @@ export class WorkspaceController {
     }
   }
 
-  private executeSelectedAction(kind: WorkspaceActionKind): Promise<void> {
+  private executeSelectedAction(kind: WorkspaceActionKind, gateId?: string): Promise<void> {
     if (this.actionAttempt !== undefined) {
       return this.actionAttempt;
     }
@@ -315,7 +342,11 @@ export class WorkspaceController {
       return Promise.resolve();
     }
 
-    const attempt = this.performAction({ kind, taskId }, evidenceId, selectedAgentId);
+    const action: WorkspaceAction =
+      kind === 'run-quality-gate'
+        ? { gateId: requireGateId(gateId), kind, taskId }
+        : { kind, taskId };
+    const attempt = this.performAction(action, evidenceId, selectedAgentId);
     this.actionAttempt = attempt;
     void attempt
       .finally(() => {
@@ -354,11 +385,14 @@ export class WorkspaceController {
     try {
       await runWorkspaceAction(this.client, action, evidenceId, agentId);
       sideEffectCompleted = true;
-      const overview = await this.client.loadWorkspace();
+      const [overview, qualityGates] = await Promise.all([
+        this.client.loadWorkspace(),
+        this.client.listQualityGates(),
+      ]);
       if (!this.disposed) {
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : action.taskId;
-        this.publishReady(overview, preferredTaskId);
+        this.publishReady(overview, qualityGates, preferredTaskId);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -380,6 +414,7 @@ export class WorkspaceController {
 
   private publishReady(
     overview: AgentWorkspaceOverview,
+    qualityGates: readonly QualityGateSummary[],
     preferredTaskId: string | undefined,
   ): void {
     const selectedTaskId = selectAvailableTaskId(overview, preferredTaskId);
@@ -399,6 +434,7 @@ export class WorkspaceController {
         kind: 'ready',
         overview,
         pullRequestInspection: Object.freeze({ kind: 'idle' }),
+        qualityGates: Object.freeze([...qualityGates]),
         selectedAgentId,
         selectedTaskId,
         terminalSessionId: selectedTask?.activeSession?.id ?? previousTerminalSessionId,
@@ -569,6 +605,9 @@ async function runWorkspaceAction(
         taskId: action.taskId,
       });
       return;
+    case 'run-quality-gate':
+      await client.runQualityGate({ gateId: action.gateId, taskId: action.taskId });
+      return;
     case 'push-branch':
       await client.pushTaskBranch({ taskId: action.taskId });
       return;
@@ -605,6 +644,8 @@ function canRunAction(
       return task.canApproveReview && task.latestReview?.status === 'PENDING';
     case 'request-changes':
       return task.canRequestChanges && task.latestReview?.status === 'PENDING';
+    case 'run-quality-gate':
+      return task.canRunQualityGate;
     case 'push-branch':
       return pullRequestInspection?.kind === 'ready' && pullRequestInspection.result.canPush;
     case 'create-pull-request':
@@ -628,6 +669,13 @@ function requireReviewId(reviewId: string | undefined): string {
   return reviewId;
 }
 
+function requireGateId(gateId: string | undefined): string {
+  if (gateId === undefined) {
+    throw new TypeError('A configured Quality Gate is required.');
+  }
+  return gateId;
+}
+
 function actionFailureMessage(kind: WorkspaceActionKind): string {
   switch (kind) {
     case 'start-planning':
@@ -644,6 +692,8 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task review could not be approved.';
     case 'request-changes':
       return 'Task changes could not be requested.';
+    case 'run-quality-gate':
+      return 'Quality Gate could not be run.';
     case 'push-branch':
       return 'Task branch could not be pushed.';
     case 'create-pull-request':
@@ -666,6 +716,8 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task review approved, but workspace status could not be refreshed.';
     case 'request-changes':
       return 'Task changes requested, but workspace status could not be refreshed.';
+    case 'run-quality-gate':
+      return 'Quality Gate completed, but workspace status could not be refreshed.';
     case 'push-branch':
       return 'Task branch pushed, but workspace status could not be refreshed.';
     case 'create-pull-request':
