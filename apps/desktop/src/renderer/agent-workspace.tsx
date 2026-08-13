@@ -128,15 +128,15 @@ export function AgentWorkspaceView({
             </div>
             <div className="task-actions" aria-busy={actionsBusy}>
               <label className="agent-selector">
-                <span>Agent for fresh start</span>
+                <span>Agent for next attempt</span>
                 <select
                   aria-label="Coding agent"
                   disabled={
                     actionsBusy ||
-                    !selected.canStartExecution ||
+                    (!selected.canStartExecution && !selected.canRetryExecution) ||
                     snapshot.overview.agents.every((agent) => agent.kind !== 'available')
                   }
-                  title="Used when starting a fresh Agent Session. Retry keeps the previous Session's agent."
+                  title="Used for the next Start or Retry attempt."
                   onChange={(event) => onSelectAgent?.(event.currentTarget.value)}
                   value={snapshot.selectedAgentId ?? ''}
                 >
@@ -145,8 +145,7 @@ export function AgentWorkspaceView({
                   ) : null}
                   {snapshot.overview.agents.map((agent) => (
                     <option disabled={agent.kind === 'unavailable'} key={agent.id} value={agent.id}>
-                      {agent.displayName} ({agent.id})
-                      {agent.kind === 'unavailable' ? ' — unavailable' : ''}
+                      {formatAgentOption(agent)}
                     </option>
                   ))}
                 </select>
@@ -580,7 +579,7 @@ function WorkspaceMessage({
 }
 
 function canExecute(task: WorkspaceTaskOverview, selectedAgentId: string | undefined): boolean {
-  return task.canRetryExecution || (task.canStartExecution && selectedAgentId !== undefined);
+  return (task.canRetryExecution || task.canStartExecution) && selectedAgentId !== undefined;
 }
 
 function isExecutionActionForTask(
@@ -605,17 +604,33 @@ function startActionTitle(
   task: WorkspaceTaskOverview,
   selectedAgentId: string | undefined,
 ): string {
+  if ((task.canRetryExecution || task.canStartExecution) && selectedAgentId === undefined) {
+    return 'No configured coding agent is currently available.';
+  }
   if (task.canRetryExecution) {
     return 'Reuse the primary Task Worktree and launch a new Agent Session attempt.';
-  }
-  if (task.canStartExecution && selectedAgentId === undefined) {
-    return 'No configured coding agent is currently available.';
   }
   return task.canStartExecution
     ? 'Provision or reuse the Task Worktree and launch a new Agent Session.'
     : task.activeSession === undefined
       ? 'The Task must be in PLANNING or RUNNING before execution can start.'
       : 'The Task already has an active Agent Session.';
+}
+
+function formatAgentOption(agent: AgentWorkspaceOverview['agents'][number]): string {
+  const identity = `${agent.displayName} (${agent.id})`;
+  if (agent.kind === 'unavailable') {
+    const reason =
+      agent.reason === 'EXECUTABLE_NOT_FOUND' ? 'Executable not found' : 'Inspection failed';
+    return `${identity} — Unavailable · ${reason}`;
+  }
+  const capabilities =
+    agent.capabilities.length === 0
+      ? 'No optional capabilities'
+      : agent.capabilities
+          .map((capability) => (capability === 'SESSION_RESUME' ? 'Session resume' : capability))
+          .join(', ');
+  return `${identity} — Available · ${capabilities}`;
 }
 
 function formatAgentIdentity(overview: AgentWorkspaceOverview, agentId: string): string {

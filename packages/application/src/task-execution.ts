@@ -32,6 +32,7 @@ export interface StartTaskExecutionInput {
 }
 
 export interface RetryTaskExecutionInput {
+  readonly agentId: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
   readonly initialSize: PtyTerminalSize;
@@ -72,6 +73,7 @@ export async function retryTaskExecution(
 ): Promise<TaskExecutionRetryResult> {
   return serializeTaskWorkflow(input.taskId, async () => {
     assertNewSessionId(input.sessionId);
+    assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
     const task = await requireExecutionTask(input.taskId, dependencies);
     validateExecutionPhase(task);
     await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
@@ -82,14 +84,7 @@ export async function retryTaskExecution(
     if (previousSession === undefined || !isTerminalSession(previousSession)) {
       throw new TaskExecutionRetryError('NO_RETRYABLE_SESSION', input.taskId, input.sessionId);
     }
-    if (!dependencies.sessionCoordinator.isAgentConfigured(previousSession.agentId)) {
-      throw new TaskExecutionRetryError('AGENT_NOT_CONFIGURED', input.taskId, input.sessionId);
-    }
-
-    const execution = await executeTaskAttempt(
-      { ...input, agentId: previousSession.agentId },
-      dependencies,
-    );
+    const execution = await executeTaskAttempt(input, dependencies);
     return Object.freeze({ ...execution, previousSession });
   });
 }

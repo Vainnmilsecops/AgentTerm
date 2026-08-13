@@ -21,9 +21,9 @@ Updated: 2026-08-13
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application startup reconciliation now finds persisted Agent Sessions whose history still implies possible runtime ownership, including a fatal runtime failure with no observed process exit, and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
 - Application now exposes `startTaskExecution` for a history-free `PLANNING` or already-`RUNNING` Task: it resolves a user-selected stable agent ID before Task or Git mutation, ensures or reuses its primary Worktree, persists `RUNNING`, records that exact identity in a fresh Agent Session, and launches the selected adapter there.
-- Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, resolves that Session's recorded agent, reuses the primary Worktree without cleaning dirty code, and creates a new Session for the same agent.
+- Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, resolves the user's selected stable agent ID, reuses the primary Worktree without cleaning dirty code, and creates a new Session while preserving every earlier attempt.
 - The desktop now has one xterm.js terminal surface for an active Agent Session. A narrow Application-owned attachment forwards live output, Unicode input, and fit-driven resize while session changes, exit, and unmount detach observers without terminating the process.
-- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes the safe agent catalog through an application-shaped client. Fresh starts use an accessible agent selector; retry stays bound to the previous Session's agent, and historical unknown IDs remain visible through a raw-ID fallback.
+- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds the active terminal, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector shows availability and basic capabilities and selects the agent for the next Start or Retry attempt; historical unknown IDs remain visible through a raw-ID fallback.
 - Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
 - Domain now models configured `LINT`, `TYPECHECK`, `TEST`, and `BUILD` Quality Gates plus immutable runs whose runtime status and evidence are independent from `TaskPhase`.
@@ -98,8 +98,8 @@ Updated: 2026-08-13
   and persisted Session association all use that canonical stable ID. Capabilities are a small set of
   identifiers rather than one provider-shaped interface. The catalog exposes no executable path,
   version string, command, or environment to Presentation. `codex` remains the stable built-in ID,
-  so migration-4 Sessions need no schema or data migration; unknown historical IDs stay readable but
-  cannot be retried until a matching adapter is configured and available.
+  so migration-4 Sessions need no schema or data migration. Unknown historical IDs stay readable,
+  and a later retry can explicitly select any currently available registered agent.
 - Agent Session status is independent from Task workflow: `STARTING`, `WORKING`, `IDLE`,
   `WAITING_INPUT`, `EXITED`, and `FAILED` are Domain states for one runtime attempt. The
   Application coordinator persists `STARTING` before launch, serializes PTY evidence, retains
@@ -115,10 +115,10 @@ Updated: 2026-08-13
   persist `RUNNING`, then create and launch a new Session. A later failure preserves the ready
   Worktree and durable Task/Session checkpoint for inspection; it never deletes Git state or
   pretends SQLite can roll back Git or a spawned process. Reusing an old Session id is rejected.
-- Retry serializes execution admission per Task and rejects missing history, an unconfigured recorded agent, any
+- Retry serializes execution admission per Task and rejects missing history, an unconfigured selected agent, any
   active Session, or a locally owned failed runtime still awaiting exit before Git mutation. An
   atomic SQLite admission check is the cross-process backstop. Earlier attempts remain immutable;
-  a failed retry is another truthful Session checkpoint
+  an agent switch is a new Session in the existing valid primary Worktree, and a failed retry is another truthful Session checkpoint
   and never completes the Task or triggers an automatic retry loop.
 - Terminal rendering uses `@xterm/xterm` with the fit addon and a renderer-local controller. The
   controller consumes only the Application session attachment contract; detach is observer cleanup,
@@ -131,9 +131,9 @@ Updated: 2026-08-13
   Project paths. React owns only loading, selection, action, and error presentation state;
   execution orchestration remains behind its client interface. Terminal lifecycle evidence triggers
   a read-model refresh rather than a Presentation-owned business transition.
-- The workspace read model exposes Start and Retry availability separately. The desktop retry action
-  is disabled while a Session is active and shows the previous attempt beside the newly active/latest
-  Session after recovery.
+- The workspace read model exposes Start and Retry lifecycle availability separately from the safe
+  agent catalog. The desktop disables either action without an available selected agent, keeps the
+  selector provider-neutral, and shows the previous attempt beside the newly active/latest Session.
 - Execution Artifacts are structured evidence, never Task transitions. Their identity is insert-only;
   repeated canonical outputs receive new identities and per-Task ordinals rather than overwriting
   history. SQLite stores validated text and fixed contract metadata directly, so this slice adds no
@@ -183,8 +183,7 @@ untrusted repositories is deferred; current inspection must follow an explicit u
 Worktree checkout can likewise execute configured clean/smudge/process filters even though hooks are
 disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator owns PTY
 handles, and startup can now reconcile persisted sessions that no longer have ownership.
-Reattaching to an old process, provider-native resume, explicit agent switching between attempts,
-automatic retry policy, and exclusive Worktree-cleanup
+Reattaching to an old process, provider-native resume, automatic retry policy, and exclusive Worktree-cleanup
 coordination remain deferred; another writer could otherwise race the final dirty/ignored-file inspection.
 The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
