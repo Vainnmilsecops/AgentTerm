@@ -18,6 +18,7 @@ import {
 } from './index';
 
 class RecordingAgentAdapter implements AgentAdapter {
+  public readonly identity = Object.freeze({ displayName: 'Codex', id: 'codex' });
   public inspectionCount = 0;
   public readonly launchRequests: AgentLaunchRequest[] = [];
 
@@ -79,12 +80,12 @@ const codexVersion: AgentVersion = Object.freeze({
   raw: 'codex-cli 0.147.0',
 });
 
-const availableCodex: AgentAvailability = Object.freeze({
-  capabilities: Object.freeze({ resume: true }),
+const availableCodex = Object.freeze({
+  capabilities: Object.freeze(['SESSION_RESUME'] as const),
   executablePath: 'C:\\Program Files\\OpenAI Codex\\codex.exe',
   kind: 'available',
   version: codexVersion,
-});
+} satisfies AgentAvailability);
 
 const workingDirectory = 'D:\\AgentTerm Worktrees\\T\u00e1c v\u1ee5 42';
 const terminalSize = Object.freeze({ columns: 132, rows: 41 });

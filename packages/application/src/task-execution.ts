@@ -3,6 +3,7 @@ import { TaskPhase, transitionTask, type AgentSession, type Task } from '@agentt
 import { AgentSessionCoordinator } from './agent-session-coordinator';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import {
+  AgentNotConfiguredError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
   TaskExecutionRetryError,
@@ -22,6 +23,15 @@ import { ensureTaskWorktree } from './task-worktree-use-cases';
 import { serializeTaskWorkflow } from './task-workflow-serialization';
 
 export interface StartTaskExecutionInput {
+  readonly agentId: string;
+  readonly environment: Readonly<Record<string, string>>;
+  readonly eventSink?: PtyRuntimeEventSink;
+  readonly initialSize: PtyTerminalSize;
+  readonly sessionId: string;
+  readonly taskId: string;
+}
+
+export interface RetryTaskExecutionInput {
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
   readonly initialSize: PtyTerminalSize;
@@ -57,7 +67,7 @@ export async function startTaskExecution(
 }
 
 export async function retryTaskExecution(
-  input: StartTaskExecutionInput,
+  input: RetryTaskExecutionInput,
   dependencies: StartTaskExecutionDependencies,
 ): Promise<TaskExecutionRetryResult> {
   return serializeTaskWorkflow(input.taskId, async () => {
@@ -72,11 +82,14 @@ export async function retryTaskExecution(
     if (previousSession === undefined || !isTerminalSession(previousSession)) {
       throw new TaskExecutionRetryError('NO_RETRYABLE_SESSION', input.taskId, input.sessionId);
     }
-    if (previousSession.agentId !== dependencies.sessionCoordinator.agentId) {
-      throw new TaskExecutionRetryError('AGENT_MISMATCH', input.taskId, input.sessionId);
+    if (!dependencies.sessionCoordinator.isAgentConfigured(previousSession.agentId)) {
+      throw new TaskExecutionRetryError('AGENT_NOT_CONFIGURED', input.taskId, input.sessionId);
     }
 
-    const execution = await executeTaskAttempt(input, dependencies);
+    const execution = await executeTaskAttempt(
+      { ...input, agentId: previousSession.agentId },
+      dependencies,
+    );
     return Object.freeze({ ...execution, previousSession });
   });
 }
@@ -86,6 +99,7 @@ async function startTaskExecutionExclusive(
   dependencies: StartTaskExecutionDependencies,
 ): Promise<TaskExecutionStartResult> {
   assertNewSessionId(input.sessionId);
+  assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
   const initialTask = await requireExecutionTask(input.taskId, dependencies);
   validateExecutionPhase(initialTask);
   await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
@@ -100,7 +114,7 @@ async function startTaskExecutionExclusive(
 }
 
 async function assertNoOwnedRuntime(
-  input: Pick<StartTaskExecutionInput, 'sessionId' | 'taskId'>,
+  input: Pick<RetryTaskExecutionInput, 'sessionId' | 'taskId'>,
   coordinator: AgentSessionCoordinator,
 ): Promise<void> {
   const owned = await coordinator.findOwnedRuntimeByTaskId(input.taskId);
@@ -142,6 +156,7 @@ async function executeTaskAttempt(
 
   try {
     const session = await dependencies.sessionCoordinator.start({
+      agentId: input.agentId,
       environment: input.environment,
       ...(input.eventSink === undefined ? {} : { eventSink: input.eventSink }),
       initialSize: input.initialSize,
@@ -156,6 +171,12 @@ async function executeTaskAttempt(
       cause: error,
       ...(session === undefined ? {} : { session }),
     });
+  }
+}
+
+function assertConfiguredAgent(agentId: string, coordinator: AgentSessionCoordinator): void {
+  if (!coordinator.isAgentConfigured(agentId)) {
+    throw new AgentNotConfiguredError(agentId);
   }
 }
 

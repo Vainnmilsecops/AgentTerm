@@ -9,6 +9,7 @@ import {
 
 import {
   AgentAdapterError,
+  AgentNotConfiguredError,
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
@@ -18,6 +19,7 @@ import {
 } from './errors';
 import type {
   AgentAdapter,
+  AgentCatalog,
   AgentSessionRepository,
   PtyHandle,
   PtyRuntime,
@@ -28,6 +30,7 @@ import type {
 } from './ports';
 
 export interface StartAgentSessionInput {
+  readonly agentId: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
   readonly initialSize: PtyTerminalSize;
@@ -58,8 +61,7 @@ export interface AgentSessionTerminalAttachment {
 }
 
 export interface AgentSessionCoordinatorDependencies {
-  readonly adapter: AgentAdapter;
-  readonly agentId: string;
+  readonly agents: AgentCatalog;
   readonly clock: () => number;
   readonly runtime: PtyRuntime;
   readonly sessions: AgentSessionRepository;
@@ -78,18 +80,19 @@ interface OwnedSessionRuntime {
 }
 
 export class AgentSessionCoordinator {
-  private readonly adapter: AgentAdapter;
-  public readonly agentId: string;
+  private readonly agents: AgentCatalog;
   private readonly clock: () => number;
   private readonly runtime: PtyRuntime;
   private readonly sessions: AgentSessionRepository;
   private readonly tasks: TaskRepository;
   private readonly ownedRuntimes = new Map<string, OwnedSessionRuntime>();
-  private readonly starts = new Map<string, Promise<AgentSession>>();
+  private readonly starts = new Map<
+    string,
+    Readonly<{ agentId: string; attempt: Promise<AgentSession>; taskId: string }>
+  >();
 
   public constructor(dependencies: AgentSessionCoordinatorDependencies) {
-    this.adapter = dependencies.adapter;
-    this.agentId = dependencies.agentId;
+    this.agents = dependencies.agents;
     this.clock = dependencies.clock;
     this.runtime = dependencies.runtime;
     this.sessions = dependencies.sessions;
@@ -97,16 +100,26 @@ export class AgentSessionCoordinator {
   }
 
   public start(input: StartAgentSessionInput): Promise<AgentSession> {
+    const adapter = this.agents.findById(input.agentId);
+    if (adapter === undefined || adapter.identity.id !== input.agentId) {
+      return Promise.reject(new AgentNotConfiguredError(input.agentId));
+    }
     const inFlight = this.starts.get(input.sessionId);
     if (inFlight !== undefined) {
-      return inFlight;
+      return inFlight.agentId === input.agentId && inFlight.taskId === input.taskId
+        ? inFlight.attempt
+        : Promise.reject(new EntityAlreadyExistsError('AgentSession', input.sessionId));
     }
 
-    const attempt = this.startOnce(input);
-    this.starts.set(input.sessionId, attempt);
+    const attempt = this.startOnce(input, adapter);
+    this.starts.set(input.sessionId, {
+      agentId: input.agentId,
+      attempt,
+      taskId: input.taskId,
+    });
     void attempt
       .finally(() => {
-        if (this.starts.get(input.sessionId) === attempt) {
+        if (this.starts.get(input.sessionId)?.attempt === attempt) {
           this.starts.delete(input.sessionId);
         }
       })
@@ -114,9 +127,13 @@ export class AgentSessionCoordinator {
     return attempt;
   }
 
+  public isAgentConfigured(agentId: string): boolean {
+    return this.agents.findById(agentId)?.identity.id === agentId;
+  }
+
   public async stop(input: StopAgentSessionInput): Promise<AgentSession> {
     let runtimeState = this.ownedRuntimes.get(input.sessionId);
-    const inFlightStart = this.starts.get(input.sessionId);
+    const inFlightStart = this.starts.get(input.sessionId)?.attempt;
     if (runtimeState === undefined && inFlightStart !== undefined) {
       await inFlightStart;
       runtimeState = this.ownedRuntimes.get(input.sessionId);
@@ -158,7 +175,7 @@ export class AgentSessionCoordinator {
     input: AttachAgentSessionTerminalInput,
   ): Promise<AgentSessionTerminalAttachment> {
     let runtimeState = this.ownedRuntimes.get(input.sessionId);
-    const inFlightStart = this.starts.get(input.sessionId);
+    const inFlightStart = this.starts.get(input.sessionId)?.attempt;
     if (runtimeState === undefined && inFlightStart !== undefined) {
       await inFlightStart;
       runtimeState = this.ownedRuntimes.get(input.sessionId);
@@ -239,14 +256,17 @@ export class AgentSessionCoordinator {
     return undefined;
   }
 
-  private async startOnce(input: StartAgentSessionInput): Promise<AgentSession> {
+  private async startOnce(
+    input: StartAgentSessionInput,
+    adapter: AgentAdapter,
+  ): Promise<AgentSession> {
     if ((await this.tasks.findById(input.taskId)) === undefined) {
       throw new EntityNotFoundError('Task', input.taskId);
     }
 
     const existing = await this.sessions.findById(input.sessionId);
     if (existing !== undefined) {
-      if (existing.taskId !== input.taskId || existing.agentId !== this.agentId) {
+      if (existing.taskId !== input.taskId || existing.agentId !== input.agentId) {
         throw new EntityAlreadyExistsError('AgentSession', input.sessionId);
       }
       if (this.ownedRuntimes.has(input.sessionId)) {
@@ -267,7 +287,7 @@ export class AgentSessionCoordinator {
     }
 
     const starting = createAgentSession({
-      agentId: this.agentId,
+      agentId: input.agentId,
       createdAt: this.clock(),
       id: input.sessionId,
       taskId: input.taskId,
@@ -276,7 +296,7 @@ export class AgentSessionCoordinator {
 
     let command;
     try {
-      command = await this.adapter.buildLaunchCommand({
+      command = await adapter.buildLaunchCommand({
         environment: input.environment,
         workingDirectory: input.workingDirectory,
       });

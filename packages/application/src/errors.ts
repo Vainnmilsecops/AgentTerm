@@ -156,7 +156,7 @@ export type TaskWorktreeLifecycleFailure =
 
 export type TaskExecutionStartStage = 'SESSION_START' | 'TASK_STATE';
 export type TaskExecutionRetryFailure =
-  'ACTIVE_SESSION_EXISTS' | 'AGENT_MISMATCH' | 'NO_RETRYABLE_SESSION' | 'RETRY_REQUIRED';
+  'ACTIVE_SESSION_EXISTS' | 'AGENT_NOT_CONFIGURED' | 'NO_RETRYABLE_SESSION' | 'RETRY_REQUIRED';
 
 export class AgentAdapterError extends Error {
   public readonly reason: AgentAdapterFailureReason;
@@ -165,6 +165,16 @@ export class AgentAdapterError extends Error {
     super(agentAdapterFailureMessage(reason));
     this.name = 'AgentAdapterError';
     this.reason = reason;
+  }
+}
+
+export class AgentNotConfiguredError extends Error {
+  public readonly agentId: string;
+
+  public constructor(agentId: string) {
+    super('The selected coding agent is not configured.');
+    this.name = 'AgentNotConfiguredError';
+    this.agentId = agentId;
   }
 }
 
@@ -495,8 +505,8 @@ function taskExecutionRetryFailureMessage(reason: TaskExecutionRetryFailure): st
   switch (reason) {
     case 'ACTIVE_SESSION_EXISTS':
       return 'The Task already has an active Agent Session.';
-    case 'AGENT_MISMATCH':
-      return 'The previous Agent Session belongs to a different agent.';
+    case 'AGENT_NOT_CONFIGURED':
+      return 'The previous Agent Session belongs to an agent that is not configured.';
     case 'NO_RETRYABLE_SESSION':
       return 'The Task does not have a failed or exited Agent Session to retry.';
     case 'RETRY_REQUIRED':

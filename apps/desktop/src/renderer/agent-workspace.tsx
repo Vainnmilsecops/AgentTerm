@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 
-import type { WorkspaceProjectOverview, WorkspaceTaskOverview } from '@agentterm/application';
+import type {
+  AgentWorkspaceOverview,
+  WorkspaceProjectOverview,
+  WorkspaceTaskOverview,
+} from '@agentterm/application';
 
 import { TerminalRenderer } from './terminal-renderer';
 import {
@@ -21,6 +25,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onRequestReview: () => void;
   readonly onRetry: () => void;
   readonly onRetryTask: () => void;
+  readonly onSelectAgent?: (agentId: string) => void;
   readonly onSelectTask: (taskId: string) => void;
   readonly onStartTask: () => void;
   readonly snapshot: WorkspaceSnapshot;
@@ -55,6 +60,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onRequestReview={() => void controller?.requestSelectedTaskReview()}
       onRetry={() => void controller?.load()}
       onRetryTask={() => void controller?.retrySelectedTask()}
+      onSelectAgent={(agentId) => controller?.selectAgent(agentId)}
       onSelectTask={(taskId) => controller?.selectTask(taskId)}
       onStartTask={() => void controller?.startSelectedTask()}
       snapshot={snapshot}
@@ -70,6 +76,7 @@ export function AgentWorkspaceView({
   onRequestReview,
   onRetry,
   onRetryTask,
+  onSelectAgent,
   onSelectTask,
   onStartTask,
   snapshot,
@@ -120,14 +127,38 @@ export function AgentWorkspaceView({
               <p className="task-id">{selected.task.id}</p>
             </div>
             <div className="task-actions" aria-busy={actionsBusy}>
+              <label className="agent-selector">
+                <span>Agent for fresh start</span>
+                <select
+                  aria-label="Coding agent"
+                  disabled={
+                    actionsBusy ||
+                    !selected.canStartExecution ||
+                    snapshot.overview.agents.every((agent) => agent.kind !== 'available')
+                  }
+                  title="Used when starting a fresh Agent Session. Retry keeps the previous Session's agent."
+                  onChange={(event) => onSelectAgent?.(event.currentTarget.value)}
+                  value={snapshot.selectedAgentId ?? ''}
+                >
+                  {snapshot.selectedAgentId === undefined ? (
+                    <option value="">No available agent</option>
+                  ) : null}
+                  {snapshot.overview.agents.map((agent) => (
+                    <option disabled={agent.kind === 'unavailable'} key={agent.id} value={agent.id}>
+                      {agent.displayName} ({agent.id})
+                      {agent.kind === 'unavailable' ? ' — unavailable' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button className="secondary-action" onClick={onRefresh} type="button">
                 Refresh
               </button>
               <button
                 className="primary-action"
-                disabled={!canExecute(selected) || actionsBusy}
+                disabled={!canExecute(selected, snapshot.selectedAgentId) || actionsBusy}
                 onClick={selected.canRetryExecution ? onRetryTask : onStartTask}
-                title={startActionTitle(selected)}
+                title={startActionTitle(selected, snapshot.selectedAgentId)}
                 type="button"
               >
                 {isExecutionActionForTask(snapshot, selected.task.id)
@@ -200,14 +231,16 @@ export function AgentWorkspaceView({
               <strong>
                 {selected.latestSession === undefined
                   ? 'No session history'
-                  : `${selected.latestSession.agentId} · ${selected.latestSession.id}`}
+                  : `${formatAgentIdentity(snapshot.overview, selected.latestSession.agentId)} · ${selected.latestSession.id}`}
               </strong>
             </div>
             {selected.previousSession === undefined ? null : (
               <div className="previous-session">
                 <span>Previous session</span>
                 <strong>
-                  {selected.previousSession.status} · {selected.previousSession.id}
+                  {selected.previousSession.status} ·{' '}
+                  {formatAgentIdentity(snapshot.overview, selected.previousSession.agentId)} ·{' '}
+                  {selected.previousSession.id}
                 </strong>
               </div>
             )}
@@ -546,8 +579,8 @@ function WorkspaceMessage({
   );
 }
 
-function canExecute(task: WorkspaceTaskOverview): boolean {
-  return task.canStartExecution || task.canRetryExecution;
+function canExecute(task: WorkspaceTaskOverview, selectedAgentId: string | undefined): boolean {
+  return task.canRetryExecution || (task.canStartExecution && selectedAgentId !== undefined);
 }
 
 function isExecutionActionForTask(
@@ -568,15 +601,26 @@ function isSelectedAction(
   return snapshot.activeAction?.taskId === taskId && snapshot.activeAction.kind === kind;
 }
 
-function startActionTitle(task: WorkspaceTaskOverview): string {
+function startActionTitle(
+  task: WorkspaceTaskOverview,
+  selectedAgentId: string | undefined,
+): string {
   if (task.canRetryExecution) {
     return 'Reuse the primary Task Worktree and launch a new Agent Session attempt.';
+  }
+  if (task.canStartExecution && selectedAgentId === undefined) {
+    return 'No configured coding agent is currently available.';
   }
   return task.canStartExecution
     ? 'Provision or reuse the Task Worktree and launch a new Agent Session.'
     : task.activeSession === undefined
       ? 'The Task must be in PLANNING or RUNNING before execution can start.'
       : 'The Task already has an active Agent Session.';
+}
+
+function formatAgentIdentity(overview: AgentWorkspaceOverview, agentId: string): string {
+  const configured = overview.agents.find((agent) => agent.id === agentId);
+  return configured === undefined ? agentId : `${configured.displayName} (${configured.id})`;
 }
 
 function findTask(

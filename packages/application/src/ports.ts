@@ -18,13 +18,16 @@ export interface AgentVersion {
   readonly raw: string;
 }
 
-export interface AgentCapabilities {
-  readonly resume: boolean;
+export interface AgentIdentity {
+  readonly displayName: string;
+  readonly id: string;
 }
+
+export type AgentCapability = 'SESSION_RESUME';
 
 export type AgentAvailability =
   | {
-      readonly capabilities: AgentCapabilities;
+      readonly capabilities: readonly AgentCapability[];
       readonly executablePath: string;
       readonly kind: 'available';
       readonly version?: AgentVersion;
@@ -46,8 +49,14 @@ export interface AgentLaunchCommand extends AgentLaunchRequest {
 }
 
 export interface AgentAdapter {
+  readonly identity: AgentIdentity;
   inspect(): Promise<AgentAvailability>;
   buildLaunchCommand(request: AgentLaunchRequest): Promise<AgentLaunchCommand>;
+}
+
+export interface AgentCatalog {
+  findById(id: string): AgentAdapter | undefined;
+  list(): readonly AgentAdapter[];
 }
 
 export interface AgentSessionRepository {

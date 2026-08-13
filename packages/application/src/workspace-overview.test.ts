@@ -24,6 +24,8 @@ import {
 
 import {
   loadAgentWorkspace,
+  type AgentAdapter,
+  type AgentCatalog,
   type AgentSessionRepository,
   type ExecutionArtifactRepository,
   type LocalProject,
@@ -33,6 +35,44 @@ import {
   type TaskReviewRepository,
   type TaskReviewQualityGateEvidenceSource,
 } from './index';
+
+class FakeAgentCatalog implements AgentCatalog {
+  public constructor(private readonly adapters: readonly AgentAdapter[]) {}
+
+  public findById(id: string): AgentAdapter | undefined {
+    return this.adapters.find((adapter) => adapter.identity.id === id);
+  }
+
+  public list(): readonly AgentAdapter[] {
+    return this.adapters;
+  }
+}
+
+const defaultAgents = new FakeAgentCatalog([
+  fakeAgent('codex', 'Codex', {
+    capabilities: ['SESSION_RESUME'],
+    executablePath: 'D:\\private\\codex.exe',
+    kind: 'available',
+  }),
+  fakeAgent('offline-agent', 'Offline Agent', {
+    kind: 'unavailable',
+    reason: 'EXECUTABLE_NOT_FOUND',
+  }),
+]);
+
+function fakeAgent(
+  id: string,
+  displayName: string,
+  availability: Awaited<ReturnType<AgentAdapter['inspect']>>,
+): AgentAdapter {
+  return {
+    identity: Object.freeze({ displayName, id }),
+    inspect: async () => availability,
+    buildLaunchCommand: async () => {
+      throw new Error('buildLaunchCommand is not used by the workspace overview');
+    },
+  };
+}
 
 class FakeProjectCatalog implements ProjectCatalog {
   public constructor(private readonly projects: readonly LocalProject[]) {}
@@ -276,6 +316,7 @@ describe('loadAgentWorkspace', () => {
       new FakeArtifactRepository([plan, summary]),
       new FakeQualityGateRunRepository([lintPassed, testsFailed]),
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
 
     const projectSummary = { id: project.id, name: project.name };
@@ -283,6 +324,15 @@ describe('loadAgentWorkspace', () => {
     const olderActiveSummary = summarize(olderActive);
     const latestFailedSummary = summarize(latestFailed);
     expect(workspace).toEqual({
+      agents: [
+        { capabilities: ['SESSION_RESUME'], displayName: 'Codex', id: 'codex', kind: 'available' },
+        {
+          displayName: 'Offline Agent',
+          id: 'offline-agent',
+          kind: 'unavailable',
+          reason: 'EXECUTABLE_NOT_FOUND',
+        },
+      ],
       projects: [
         {
           project: projectSummary,
@@ -322,6 +372,8 @@ describe('loadAgentWorkspace', () => {
       ],
     });
     expect(workspace.projects[0]?.project).not.toHaveProperty('rootPath');
+    expect(JSON.stringify(workspace.agents)).not.toContain('executablePath');
+    expect(JSON.stringify(workspace.agents)).not.toContain('D:\\private');
     expect(workspace.projects[0]?.tasks[0]?.latestSession).not.toHaveProperty('history');
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
       activeSession: { status: 'WORKING' },
@@ -375,6 +427,7 @@ describe('loadAgentWorkspace', () => {
       artifactRepository,
       gateRepository,
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
     const summaries = workspace.projects[0]?.tasks[0]?.qualityGateRuns;
 
@@ -424,6 +477,7 @@ describe('loadAgentWorkspace', () => {
       artifactRepository,
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
 
     expect(workspace.projects[0]?.tasks[0]?.artifacts).toHaveLength(20);
@@ -449,8 +503,18 @@ describe('loadAgentWorkspace', () => {
         new FakeArtifactRepository([]),
         new FakeQualityGateRunRepository([]),
         new FakeTaskReviewRepository([]),
+        defaultAgents,
       ),
     ).resolves.toEqual({
+      agents: [
+        { capabilities: ['SESSION_RESUME'], displayName: 'Codex', id: 'codex', kind: 'available' },
+        {
+          displayName: 'Offline Agent',
+          id: 'offline-agent',
+          kind: 'unavailable',
+          reason: 'EXECUTABLE_NOT_FOUND',
+        },
+      ],
       projects: [{ project: { id: emptyProject.id, name: emptyProject.name }, tasks: [] }],
     });
   });
@@ -474,6 +538,7 @@ describe('loadAgentWorkspace', () => {
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
@@ -495,31 +560,85 @@ describe('loadAgentWorkspace', () => {
       ),
       TaskPhase.RUNNING,
     );
-    const failed = failSession(startSession('session-failed', running.id, 100), 101);
+    const exited = exitSession(startSession('session-exited', running.id, 100), 0, 101);
 
     const workspace = await loadAgentWorkspace(
       new FakeProjectCatalog([project]),
       new FakeTaskCatalog([running]),
-      new FakeSessionRepository([failed]),
+      new FakeSessionRepository([exited]),
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
       activeSession: undefined,
       artifacts: [],
-      canRetryExecution: false,
+      canRetryExecution: true,
       canStartExecution: false,
       canApproveReview: false,
       canRequestChanges: false,
-      canRequestReview: false,
-      latestSession: { id: failed.id, status: 'FAILED' },
+      canRequestReview: true,
+      latestSession: { id: exited.id, status: 'EXITED' },
       latestReview: undefined,
       previousSession: undefined,
       reviewHistory: [],
       task: { phase: 'RUNNING' },
     });
+  });
+
+  it('does not offer retry when the persisted session agent is no longer configured or available', async () => {
+    const project: LocalProject = {
+      id: 'project-agent-retry',
+      name: 'Agent retry',
+      rootPath: 'D:\\Repositories\\Agent retry',
+    };
+    const running = transitionTask(
+      transitionTask(
+        createTask({ id: 'agent-retry', projectId: project.id, title: 'Retry exact agent' }),
+        TaskPhase.PLANNING,
+      ),
+      TaskPhase.RUNNING,
+    );
+    const missing = exitSession(
+      createAgentSession({
+        agentId: 'historical-agent',
+        createdAt: 100,
+        id: 'session-missing',
+        taskId: running.id,
+      }),
+      0,
+      101,
+    );
+    const unavailable = exitSession(
+      createAgentSession({
+        agentId: 'offline-agent',
+        createdAt: 102,
+        id: 'session-offline',
+        taskId: running.id,
+      }),
+      0,
+      103,
+    );
+
+    for (const session of [missing, unavailable]) {
+      const workspace = await loadAgentWorkspace(
+        new FakeProjectCatalog([project]),
+        new FakeTaskCatalog([running]),
+        new FakeSessionRepository([session]),
+        new FakeArtifactRepository([]),
+        new FakeQualityGateRunRepository([]),
+        new FakeTaskReviewRepository([]),
+        defaultAgents,
+      );
+
+      expect(workspace.projects[0]?.tasks[0]).toMatchObject({
+        canRetryExecution: false,
+        latestSession: { agentId: session.agentId },
+        task: { phase: TaskPhase.RUNNING },
+      });
+    }
   });
 
   it('does not advertise Review readiness while a gate or failed runtime writer is unsettled', async () => {
@@ -545,6 +664,7 @@ describe('loadAgentWorkspace', () => {
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([runningGate]),
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({
@@ -612,6 +732,7 @@ describe('loadAgentWorkspace', () => {
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([oldReview, pending]),
+      defaultAgents,
     );
     const overview = workspace.projects[0]?.tasks[0];
 
@@ -705,6 +826,7 @@ describe('loadAgentWorkspace', () => {
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
       reviewRepository,
+      defaultAgents,
     );
     const reviewHistory = workspace.projects[0]?.tasks[0]?.reviewHistory;
 
@@ -738,6 +860,7 @@ describe('loadAgentWorkspace', () => {
       new FakeArtifactRepository([]),
       new FakeQualityGateRunRepository([]),
       new FakeTaskReviewRepository([]),
+      defaultAgents,
     );
 
     expect(workspace.projects[0]?.tasks[0]).toMatchObject({

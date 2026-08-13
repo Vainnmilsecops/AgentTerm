@@ -79,7 +79,22 @@ const emptyReviewState = Object.freeze({
   latestReview: undefined,
   reviewHistory: Object.freeze([]),
 });
+const availableAgents = Object.freeze([
+  Object.freeze({
+    capabilities: Object.freeze(['SESSION_RESUME'] as const),
+    displayName: 'Codex',
+    id: 'codex',
+    kind: 'available' as const,
+  }),
+  Object.freeze({
+    displayName: 'Future Agent',
+    id: 'future-agent',
+    kind: 'unavailable' as const,
+    reason: 'EXECUTABLE_NOT_FOUND' as const,
+  }),
+]);
 const planningOverview: AgentWorkspaceOverview = Object.freeze({
+  agents: availableAgents,
   projects: [
     {
       project,
@@ -100,6 +115,7 @@ const planningOverview: AgentWorkspaceOverview = Object.freeze({
   ],
 });
 const failedOverview: AgentWorkspaceOverview = Object.freeze({
+  agents: availableAgents,
   projects: [
     {
       project,
@@ -184,6 +200,7 @@ const pendingReviewSummary = Object.freeze({
   taskId: runningTask.id,
 });
 const eligibleReviewOverview = Object.freeze({
+  agents: availableAgents,
   projects: [
     {
       project,
@@ -201,6 +218,7 @@ const eligibleReviewOverview = Object.freeze({
   ],
 }) as AgentWorkspaceOverview;
 const pendingReviewOverview = Object.freeze({
+  agents: availableAgents,
   projects: [
     {
       project,
@@ -284,6 +302,7 @@ describe('WorkspaceController', () => {
     expect(observed[0]).toEqual({ kind: 'loading' });
     expect(controller.snapshot).toMatchObject({
       kind: 'ready',
+      selectedAgentId: 'codex',
       selectedTaskId: 'task-1',
     });
     expect(selectedTask(controller.snapshot)?.task.title).toBe('Nối terminal tiếng Việt');
@@ -299,6 +318,7 @@ describe('WorkspaceController', () => {
     const client = new FakeWorkspaceClient();
     client.loadResults = [
       {
+        agents: availableAgents,
         projects: [
           {
             project,
@@ -339,6 +359,48 @@ describe('WorkspaceController', () => {
     expect(client.startTaskExecution).not.toHaveBeenCalled();
   });
 
+  it('preserves an explicitly selected available agent across workspace refreshes', async () => {
+    const alternateAgent = Object.freeze({
+      capabilities: Object.freeze([]),
+      displayName: 'Local Agent',
+      id: 'local-agent',
+      kind: 'available' as const,
+    });
+    const overview = Object.freeze({
+      ...planningOverview,
+      agents: Object.freeze([...availableAgents, alternateAgent]),
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [overview, overview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    controller.selectAgent('local-agent');
+    await controller.refresh();
+    controller.selectAgent('future-agent');
+
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      selectedAgentId: 'local-agent',
+    });
+  });
+
+  it('does not start a fresh session when no configured agent is available', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [{ ...planningOverview, agents: [availableAgents[1]!] }];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await controller.startSelectedTask();
+
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      selectedAgentId: undefined,
+      selectedTaskId: planningTask.id,
+    });
+    expect(client.startTaskExecution).not.toHaveBeenCalled();
+  });
+
   it('starts the selected Task once, reloads the overview, and preserves selection', async () => {
     const client = new FakeWorkspaceClient();
     client.loadResults = [planningOverview, failedOverview];
@@ -348,7 +410,7 @@ describe('WorkspaceController', () => {
     await Promise.all([controller.startSelectedTask(), controller.startSelectedTask()]);
 
     expect(client.startTaskExecution).toHaveBeenCalledOnce();
-    expect(client.startTaskExecution).toHaveBeenCalledWith({ taskId: 'task-1' });
+    expect(client.startTaskExecution).toHaveBeenCalledWith({ agentId: 'codex', taskId: 'task-1' });
     expect(controller.snapshot).toMatchObject({
       actionError: undefined,
       kind: 'ready',
@@ -363,6 +425,7 @@ describe('WorkspaceController', () => {
 
   it('retries a terminal attempt once and selects the newly active Session', async () => {
     const recoveredOverview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -438,6 +501,7 @@ describe('WorkspaceController', () => {
 
   it('approves the exact pending Review once and reloads DONE state', async () => {
     const approvedOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -481,6 +545,7 @@ describe('WorkspaceController', () => {
 
   it('requests changes for the exact pending Review and reloads RUNNING state', async () => {
     const changesOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -651,6 +716,7 @@ describe('WorkspaceController', () => {
       title: 'Task thứ hai',
     };
     const overview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -701,6 +767,7 @@ describe('WorkspaceController', () => {
 
   it('keeps the displayed terminal session after exit refresh so its buffer is preserved', async () => {
     const activeOverview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -721,6 +788,7 @@ describe('WorkspaceController', () => {
       ],
     };
     const exitedOverview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -761,6 +829,98 @@ describe('WorkspaceController', () => {
 });
 
 describe('AgentWorkspaceView', () => {
+  it('renders an accessible agent selector and labels registered and historical session identities', () => {
+    const historicalSession = Object.freeze({ ...failedSession, agentId: 'legacy-agent' });
+    const overview: AgentWorkspaceOverview = {
+      agents: availableAgents,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...emptyReviewState,
+              activeSession: workingSession,
+              artifacts: [],
+              canRetryExecution: false,
+              canStartExecution: false,
+              latestSession: workingSession,
+              previousSession: historicalSession,
+              qualityGateRuns: [],
+              task: runningTask,
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectAgent: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview,
+          selectedAgentId: 'codex',
+          selectedTaskId: runningTask.id,
+          terminalSessionId: workingSession.id,
+        },
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Coding agent"');
+    expect(markup).toContain('Agent for fresh start');
+    expect(markup).toContain('Retry keeps the previous Session&#x27;s agent.');
+    expect(markup).toMatch(
+      /<select[^>]*disabled=""[^>]*aria-label="Coding agent"|<select[^>]*aria-label="Coding agent"[^>]*disabled=""/u,
+    );
+    expect(markup).toContain('Codex (codex)');
+    expect(markup).toContain('Future Agent (future-agent)');
+    expect(markup).toContain('Codex (codex) · session-working');
+    expect(markup).toContain('legacy-agent · session-failed');
+  });
+
+  it('disables fresh execution when the catalog has no available agent', () => {
+    const overview: AgentWorkspaceOverview = {
+      ...planningOverview,
+      agents: [availableAgents[1]!],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          overview,
+          selectedAgentId: undefined,
+          selectedTaskId: planningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('No available agent');
+    expect(markup).toContain('No configured coding agent is currently available.');
+    expect(markup).toMatch(/<button class="primary-action" disabled=""/u);
+  });
+
   it('offers an explicit Start review action only when Application marks RUNNING ready', () => {
     const markup = renderToStaticMarkup(
       createElement(AgentWorkspaceView, {
@@ -778,6 +938,7 @@ describe('AgentWorkspaceView', () => {
           activeAction: undefined,
           kind: 'ready',
           overview: eligibleReviewOverview,
+          selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
           terminalSessionId: undefined,
         },
@@ -806,6 +967,7 @@ describe('AgentWorkspaceView', () => {
           activeAction: undefined,
           kind: 'ready',
           overview: pendingReviewOverview,
+          selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
           terminalSessionId: undefined,
         },
@@ -835,6 +997,7 @@ describe('AgentWorkspaceView', () => {
 
   it('renders validated artifact history as escaped Unicode text without changing Task state', () => {
     const overview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -884,6 +1047,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           kind: 'ready',
           overview,
+          selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
           activeAction: undefined,
           terminalSessionId: workingSession.id,
@@ -906,6 +1070,7 @@ describe('AgentWorkspaceView', () => {
       actionError: undefined,
       kind: 'ready',
       overview: failedOverview,
+      selectedAgentId: 'codex',
       selectedTaskId: 'task-1',
       activeAction: undefined,
       terminalSessionId: undefined,
@@ -939,6 +1104,7 @@ describe('AgentWorkspaceView', () => {
 
   it('shows the prior failed attempt separately from the newly active Session', () => {
     const overview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -973,6 +1139,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           kind: 'ready',
           overview,
+          selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
           activeAction: undefined,
           terminalSessionId: workingSession.id,
@@ -981,13 +1148,14 @@ describe('AgentWorkspaceView', () => {
     );
 
     expect(markup).toContain('Previous session');
-    expect(markup).toContain('FAILED · session-failed');
-    expect(markup).toContain('codex · session-working');
+    expect(markup).toContain('FAILED · Codex (codex) · session-failed');
+    expect(markup).toContain('Codex (codex) · session-working');
   });
 
   it('renders immutable Quality Gate history newest-first without treating it as Task completion', () => {
     const failedTask = failedOverview.projects[0]!.tasks[0]!;
     const overview: AgentWorkspaceOverview = {
+      agents: availableAgents,
       projects: [
         {
           project,
@@ -1010,6 +1178,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           kind: 'ready',
           overview,
+          selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
           activeAction: undefined,
           terminalSessionId: undefined,
@@ -1051,6 +1220,7 @@ describe('AgentWorkspaceView', () => {
           actionError: undefined,
           kind: 'ready',
           overview: planningOverview,
+          selectedAgentId: 'codex',
           selectedTaskId: planningTask.id,
           activeAction: undefined,
           terminalSessionId: undefined,
@@ -1084,7 +1254,8 @@ describe('AgentWorkspaceView', () => {
         snapshot: {
           actionError: undefined,
           kind: 'ready',
-          overview: { projects: [] },
+          overview: { agents: availableAgents, projects: [] },
+          selectedAgentId: 'codex',
           selectedTaskId: undefined,
           activeAction: undefined,
           terminalSessionId: undefined,

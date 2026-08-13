@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AgentSessionCoordinator,
+  ConfiguredAgentCatalog,
   createTask,
   retryTaskExecution,
   startTaskExecution,
@@ -93,8 +94,7 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         const runtime = new CapturingPtyRuntime();
         let now = 1_800_000_000_000;
         const sessions = new AgentSessionCoordinator({
-          adapter,
-          agentId: 'codex',
+          agents: new ConfiguredAgentCatalog([adapter]),
           clock: () => now++,
           runtime,
           sessions: persistence.sessions,
@@ -109,6 +109,7 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         };
         const systemRoot = getEnvironmentVariable('SYSTEMROOT') ?? 'C:\\Windows';
         const input = {
+          agentId: 'codex',
           environment: { SystemRoot: systemRoot, WINDIR: systemRoot },
           initialSize: { columns: 120, rows: 36 },
           sessionId: 'session-execution-1',
@@ -125,15 +126,19 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         persistence.close();
         persistence = openSqlitePersistence(databasePath);
         const recoveredSessions = new AgentSessionCoordinator({
-          adapter,
-          agentId: 'codex',
+          agents: new ConfiguredAgentCatalog([adapter]),
           clock: () => now++,
           runtime,
           sessions: persistence.sessions,
           tasks: persistence.tasks,
         });
         const second = await retryTaskExecution(
-          { ...input, sessionId: 'session-execution-2' },
+          {
+            environment: input.environment,
+            initialSize: input.initialSize,
+            sessionId: 'session-execution-2',
+            taskId: input.taskId,
+          },
           {
             git: new GitCliTaskWorktreeLifecycle(worktreesRoot),
             localProjects: persistence.projects,
@@ -166,8 +171,8 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
           phase: TaskPhase.RUNNING,
         });
         await expect(persistence.sessions.listByTaskId(input.taskId)).resolves.toMatchObject([
-          { id: input.sessionId, status: AgentSessionStatus.EXITED },
-          { id: 'session-execution-2', status: AgentSessionStatus.WORKING },
+          { agentId: 'codex', id: input.sessionId, status: AgentSessionStatus.EXITED },
+          { agentId: 'codex', id: 'session-execution-2', status: AgentSessionStatus.WORKING },
         ]);
         expect(countRegisteredWorktrees(canonicalRepositoryPath)).toBe(2);
       } finally {
