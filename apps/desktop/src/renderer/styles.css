@@ -88,13 +88,15 @@ kbd {
 .workspace-shell {
   display: grid;
   height: 100vh;
-  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 17.5rem) 0.625rem minmax(0, 1fr);
   background: radial-gradient(circle at 85% -20%, rgb(49 72 88 / 22%), transparent 36rem), #090b0e;
 }
 
 .workspace-sidebar {
+  width: var(--sidebar-width, 17.5rem);
   min-width: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border-right: 1px solid #242a31;
   background: rgb(13 16 20 / 94%);
 }
@@ -216,6 +218,7 @@ kbd {
 
 .settings-form input,
 .settings-form select {
+  width: 100%;
   min-width: 0;
   border: 1px solid #394653;
   border-radius: 0.35rem;
@@ -233,6 +236,7 @@ kbd {
 }
 
 .settings-form fieldset {
+  min-width: 0;
   display: grid;
   gap: 0.75rem;
   margin: 0;
@@ -249,9 +253,46 @@ kbd {
 
 .executable-setting small,
 .settings-note {
+  min-width: 0;
   color: #7f8d99;
   font-size: 0.68rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settings-form > button {
+  width: 100%;
+}
+
+.sidebar-resize-handle {
+  position: relative;
+  z-index: 20;
+  display: grid;
+  width: 0.625rem;
+  cursor: ew-resize;
+  touch-action: none;
+  place-items: center;
+}
+
+.sidebar-resize-handle::before {
+  width: 2px;
+  height: min(5rem, 18vh);
+  border-radius: 999px;
+  background: var(--border-strong);
+  content: '';
+  transition:
+    width 120ms ease,
+    background-color 120ms ease;
+}
+
+.sidebar-resize-handle:hover::before,
+.sidebar-resize-handle:focus-visible::before {
+  width: 4px;
+  background: var(--accent-secondary);
+}
+
+.sidebar-resize-handle:focus-visible {
+  outline-offset: -2px;
 }
 
 .settings-note {
@@ -1855,7 +1896,7 @@ kbd {
 
 /* AgentTerm desktop visual system — generated from the UI/UX Pro Max direction. */
 .workspace-shell {
-  grid-template-columns: minmax(15.5rem, 17.5rem) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 17.5rem) 0.625rem minmax(0, 1fr);
   background:
     radial-gradient(circle at 72% -18%, rgb(34 197 94 / 8%), transparent 28rem),
     radial-gradient(circle at 100% 42%, rgb(56 189 248 / 5%), transparent 34rem),
@@ -2304,7 +2345,7 @@ kbd {
 
 @media (max-width: 980px) {
   .workspace-shell {
-    grid-template-columns: minmax(13.5rem, 15rem) minmax(0, 1fr);
+    grid-template-columns: var(--sidebar-width, 15rem) 0.625rem minmax(0, 1fr);
   }
 
   .task-header {
@@ -2319,6 +2360,10 @@ kbd {
 @media (max-width: 760px) {
   .workspace-shell {
     grid-template-columns: 1fr;
+  }
+
+  .sidebar-resize-handle {
+    display: none;
   }
 
   .task-header {
