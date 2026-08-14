@@ -91,11 +91,7 @@ export function ContextCard({
             </dl>
           )}
           {primaryAction === undefined ? null : (
-            <button
-              className="context-card__action"
-              onClick={primaryAction.onClick}
-              type="button"
-            >
+            <button className="context-card__action" onClick={primaryAction.onClick} type="button">
               {primaryAction.label}
             </button>
           )}

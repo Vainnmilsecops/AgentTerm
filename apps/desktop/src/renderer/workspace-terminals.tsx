@@ -172,7 +172,9 @@ function taskPhaseFor(overview: AgentWorkspaceOverview, taskId: string): string 
 }
 
 function taskAgentFor(overview: AgentWorkspaceOverview, taskId: string): string | undefined {
-  const task = overview.projects.flatMap((project) => project.tasks).find((task) => task.task.id === taskId);
+  const task = overview.projects
+    .flatMap((project) => project.tasks)
+    .find((task) => task.task.id === taskId);
   if (task === undefined) {
     return undefined;
   }

@@ -19,10 +19,7 @@ import { EmptyState } from './empty-state';
 import { ContextCard } from './context-card';
 import { ToastStack } from './toast-stack';
 import { createToastRegistry, toastForAction, type Toast } from './toast';
-import {
-  readPersistedLayout,
-  writePersistedLayout,
-} from './workspace-layout-persistence';
+import { readPersistedLayout, writePersistedLayout } from './workspace-layout-persistence';
 import {
   DEFAULT_TERMINAL_HEIGHT,
   MAX_TERMINAL_VIEWPORT_OFFSET,
@@ -174,13 +171,32 @@ export function AgentWorkspaceView({
   const [commandRecents, setCommandRecents] = useState<readonly string[]>([]);
   const [layout, setLayout] = useState(() => readPersistedLayout());
   const toastRegistryRef = useRef(createToastRegistry());
-  const [toasts, setToasts] = useState<readonly Toast[]>(() => toastRegistryRef.current.getToasts());
+  const [toasts, setToasts] = useState<readonly Toast[]>(() =>
+    toastRegistryRef.current.getToasts(),
+  );
+  const sidebarDrag = useRef<{ pointerId: number; pointerX: number; width: number } | undefined>(
+    undefined,
+  );
+  const sidebarResizeFrame = useRef<number | undefined>(undefined);
   const paletteReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(
+    () => () => {
+      if (sidebarResizeFrame.current !== undefined) {
+        window.cancelAnimationFrame(sidebarResizeFrame.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const interval = setInterval(() => {
       const next = toastRegistryRef.current.getToasts();
-      setToasts((current) => (current.length === next.length && current.every((t, i) => t.id === next[i]?.id) ? current : next));
+      setToasts((current) =>
+        current.length === next.length && current.every((t, i) => t.id === next[i]?.id)
+          ? current
+          : next,
+      );
     }, 200);
     return () => clearInterval(interval);
   }, []);
@@ -391,6 +407,60 @@ export function AgentWorkspaceView({
         selectedTaskId={snapshot.selectedTaskId}
         onSelectTask={onSelectTask}
       />
+      <div
+        aria-label="Resize Settings and Task sidebar"
+        aria-orientation="vertical"
+        aria-valuemax={520}
+        aria-valuemin={240}
+        aria-valuenow={layout.sidebarWidth}
+        className="sidebar-resize-handle"
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+          setLayout((current) => ({
+            ...current,
+            sidebarWidth: Math.min(
+              520,
+              Math.max(240, current.sidebarWidth + (event.key === 'ArrowRight' ? 24 : -24)),
+            ),
+          }));
+        }}
+        onLostPointerCapture={() => {
+          sidebarDrag.current = undefined;
+        }}
+        onPointerDown={(event) => {
+          sidebarDrag.current = {
+            pointerId: event.pointerId,
+            pointerX: event.clientX,
+            width: layout.sidebarWidth,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const active = sidebarDrag.current;
+          if (active === undefined || active.pointerId !== event.pointerId) return;
+          const nextWidth = Math.min(
+            520,
+            Math.max(240, active.width + event.clientX - active.pointerX),
+          );
+          if (sidebarResizeFrame.current !== undefined) {
+            window.cancelAnimationFrame(sidebarResizeFrame.current);
+          }
+          sidebarResizeFrame.current = window.requestAnimationFrame(() => {
+            setLayout((current) => ({ ...current, sidebarWidth: nextWidth }));
+            sidebarResizeFrame.current = undefined;
+          });
+        }}
+        onPointerUp={(event) => {
+          if (sidebarDrag.current?.pointerId !== event.pointerId) return;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          sidebarDrag.current = undefined;
+        }}
+        role="separator"
+        tabIndex={0}
+      >
+        <span aria-hidden="true" />
+      </div>
       {selected === undefined || selectedProject === undefined ? (
         <WorkspaceMessage
           eyebrow={snapshot.overview.projects.length === 0 ? 'Empty workspace' : 'No Task selected'}
@@ -460,9 +530,7 @@ export function AgentWorkspaceView({
                       ]),
                 ]}
                 title={selected.task.title}
-                trigger={
-                  <h2 className="task-header__title-trigger">{selected.task.title}</h2>
-                }
+                trigger={<h2 className="task-header__title-trigger">{selected.task.title}</h2>}
               >
                 <span className="context-card__hint">Hover for metadata</span>
               </ContextCard>
@@ -482,7 +550,9 @@ export function AgentWorkspaceView({
                       ? 'Entering planning…'
                       : 'Begin planning'}
                   </span>
-                  <kbd className="button-hint" aria-hidden="true">Alt+P</kbd>
+                  <kbd className="button-hint" aria-hidden="true">
+                    Alt+P
+                  </kbd>
                 </button>
               ) : null}
               <button
@@ -526,7 +596,13 @@ export function AgentWorkspaceView({
               </button>
               <button
                 className="primary-action button-with-hint"
-                data-action-hint={planningAttempt ? 'start-planning' : selected.canRetryExecution ? 'retry-task' : 'start-task'}
+                data-action-hint={
+                  planningAttempt
+                    ? 'start-planning'
+                    : selected.canRetryExecution
+                      ? 'retry-task'
+                      : 'start-task'
+                }
                 disabled={!canStartAttempt(selected, snapshot.selectedAgentId) || actionsBusy}
                 onClick={
                   planningAttempt
@@ -539,23 +615,23 @@ export function AgentWorkspaceView({
                 type="button"
               >
                 <span>
-                {isAttemptActionForTask(snapshot, selected.task.id)
-                  ? planningAttempt
-                    ? 'Planning…'
-                    : selected.canRetryExecution
-                      ? firstExecutionAfterPlan
-                        ? 'Starting…'
-                        : 'Retrying…'
-                      : 'Starting…'
-                  : planningAttempt
-                    ? selected.latestPlan === undefined
-                      ? 'Start planning'
-                      : 'Revise plan'
-                    : selected.canRetryExecution
-                      ? firstExecutionAfterPlan
-                        ? 'Start execution'
-                        : 'Retry execution'
-                      : 'Start execution'}
+                  {isAttemptActionForTask(snapshot, selected.task.id)
+                    ? planningAttempt
+                      ? 'Planning…'
+                      : selected.canRetryExecution
+                        ? firstExecutionAfterPlan
+                          ? 'Starting…'
+                          : 'Retrying…'
+                        : 'Starting…'
+                    : planningAttempt
+                      ? selected.latestPlan === undefined
+                        ? 'Start planning'
+                        : 'Revise plan'
+                      : selected.canRetryExecution
+                        ? firstExecutionAfterPlan
+                          ? 'Start execution'
+                          : 'Retry execution'
+                        : 'Start execution'}
                 </span>
                 <kbd className="button-hint" aria-hidden="true">
                   {planningAttempt ? 'Alt+P' : selected.canRetryExecution ? 'Alt+R' : 'Alt+S'}
@@ -574,7 +650,9 @@ export function AgentWorkspaceView({
                       ? 'Accepting Plan…'
                       : 'Accept Plan and enter RUNNING'}
                   </span>
-                  <kbd className="button-hint" aria-hidden="true">Alt+A</kbd>
+                  <kbd className="button-hint" aria-hidden="true">
+                    Alt+A
+                  </kbd>
                 </button>
               ) : null}
               {selected.canRequestReview ? (
@@ -590,7 +668,9 @@ export function AgentWorkspaceView({
                       ? 'Starting review...'
                       : 'Start review'}
                   </span>
-                  <kbd className="button-hint" aria-hidden="true">Alt+Shift+R</kbd>
+                  <kbd className="button-hint" aria-hidden="true">
+                    Alt+Shift+R
+                  </kbd>
                 </button>
               ) : null}
               {selected.canRequestChanges ? (
@@ -606,7 +686,9 @@ export function AgentWorkspaceView({
                       ? 'Requesting changes...'
                       : 'Request changes'}
                   </span>
-                  <kbd className="button-hint" aria-hidden="true">Alt+Shift+C</kbd>
+                  <kbd className="button-hint" aria-hidden="true">
+                    Alt+Shift+C
+                  </kbd>
                 </button>
               ) : null}
               {selected.canApproveReview ? (
@@ -616,7 +698,9 @@ export function AgentWorkspaceView({
                   disabled={actionsBusy}
                   onClick={() => {
                     onApproveReview();
-                    toastRegistryRef.current.push(toastForAction('Approve and mark done', 'success'));
+                    toastRegistryRef.current.push(
+                      toastForAction('Approve and mark done', 'success'),
+                    );
                   }}
                   type="button"
                 >
@@ -625,7 +709,9 @@ export function AgentWorkspaceView({
                       ? 'Approving...'
                       : 'Approve and mark done'}
                   </span>
-                  <kbd className="button-hint" aria-hidden="true">Alt+D</kbd>
+                  <kbd className="button-hint" aria-hidden="true">
+                    Alt+D
+                  </kbd>
                 </button>
               ) : null}
               <WorkspaceSettingsGear layout={layout} onLayoutChange={setLayout} />
@@ -718,7 +804,9 @@ export function AgentWorkspaceView({
           <QualityGateHistory runs={selected.qualityGateRuns} />
           <ResizableTerminalWorkspace
             initialHeight={layout.terminalHeight}
-            onHeightChange={(height) => setLayout((current) => ({ ...current, terminalHeight: height }))}
+            onHeightChange={(height) =>
+              setLayout((current) => ({ ...current, terminalHeight: height }))
+            }
           >
             <WorkspaceTerminals
               {...(client === undefined ? {} : { client })}
@@ -742,7 +830,9 @@ export function AgentWorkspaceView({
                 : formatAgentIdentity(snapshot.overview, selected.activeSession.agentId)
             }
             gitBranch={undefined}
-            oscillator={selected.activeSession !== undefined && selected.activeSession.status === 'WORKING'}
+            oscillator={
+              selected.activeSession !== undefined && selected.activeSession.status === 'WORKING'
+            }
             pullRequestNumber={undefined}
             shortcutHints={[
               { key: 'Ctrl+Shift+P', label: 'Commands' },

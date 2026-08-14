@@ -80,12 +80,7 @@ export function layoutStorageKey(): string {
   return STORAGE_KEY;
 }
 
-function clampNumber(
-  value: unknown,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return fallback;
   }

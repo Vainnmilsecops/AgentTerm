@@ -120,7 +120,9 @@ export function TerminalRenderer({
       {state === 'empty' ? (
         <div className="terminal-panel__empty" data-terminal-empty role="status">
           <div className="terminal-panel__empty-card">
-            <span className="terminal-panel__empty-icon" aria-hidden="true">›_</span>
+            <span className="terminal-panel__empty-icon" aria-hidden="true">
+              ›_
+            </span>
             <strong>No Agent Session attached</strong>
             <p>Start a task or accept a plan to open its terminal in this pane.</p>
             <div className="terminal-panel__empty-skeleton" aria-hidden="true">

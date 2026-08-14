@@ -85,105 +85,109 @@ export function WorkspaceCommandPalette({
           className="command-palette"
           role="dialog"
         >
-        <header className="command-palette__header">
-          <div>
-            <p className="eyebrow">Keyboard command</p>
-            <h2>Go anywhere</h2>
+          <header className="command-palette__header">
+            <div>
+              <p className="eyebrow">Keyboard command</p>
+              <h2>Go anywhere</h2>
+            </div>
+            <kbd>Ctrl+Shift+P</kbd>
+          </header>
+          <input
+            aria-activedescendant={active === undefined ? undefined : commandElementId(active.id)}
+            aria-autocomplete="list"
+            aria-controls={commandListId}
+            aria-expanded="true"
+            aria-label="Search commands"
+            autoFocus
+            className="command-palette__search"
+            onChange={(event) => {
+              const query = event.currentTarget.value;
+              const next = rankByFuzzyScore(commands, query);
+              onAction({ kind: 'SEARCH', query }, next.length);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="Search Tasks, views, actions, quality gates…"
+            role="combobox"
+            type="text"
+            value={state.query}
+          />
+          <div className="command-palette__shimmer" data-command-shimmer aria-hidden="true">
+            <span />
           </div>
-          <kbd>Ctrl+Shift+P</kbd>
-        </header>
-        <input
-          aria-activedescendant={active === undefined ? undefined : commandElementId(active.id)}
-          aria-autocomplete="list"
-          aria-controls={commandListId}
-          aria-expanded="true"
-          aria-label="Search commands"
-          autoFocus
-          className="command-palette__search"
-          onChange={(event) => {
-            const query = event.currentTarget.value;
-            const next = rankByFuzzyScore(commands, query);
-            onAction({ kind: 'SEARCH', query }, next.length);
-          }}
-          onKeyDown={handleKeyDown}
-          placeholder="Search Tasks, views, actions, quality gates…"
-          role="combobox"
-          type="text"
-          value={state.query}
-        />
-        <div className="command-palette__shimmer" data-command-shimmer aria-hidden="true">
-          <span />
-        </div>
-        <div className="command-palette__results">
-          {flat.length === 0 ? (
-            <p className="command-palette__empty" role="status">
-              No commands match <strong>{state.query || 'this query'}</strong>. Try <em>open</em>,{' '}
-              <em>focus</em>, or <em>run</em>.
-            </p>
-          ) : (
-            <ul id={commandListId} role="listbox">
-              {allGroups.map((group, groupIndex) => (
-                <li className="command-palette__group" key={group.category}>
-                  <header className="command-palette__group-header">
-                    <span>{group.category}</span>
-                    <small>{group.commands.length}</small>
-                  </header>
-                  <ul>
-                    {group.commands.map((candidate) => {
-                      const flatIndex = flatIndexLookup.get(candidate.id);
-                      const isActive = flatIndex === state.activeIndex;
-                      return (
-                        <li
-                          aria-selected={isActive}
-                          id={commandElementId(candidate.id)}
-                          key={`${groupIndex}:${candidate.id}`}
-                          role="option"
-                        >
-                          <button
-                            className="command-palette__option"
-                            onClick={() => {
-                              const original = commandsById.get(candidate.id);
-                              if (original !== undefined) {
-                                onRun(original);
-                              }
-                            }}
-                            onMouseEnter={() => {
-                              if (flatIndex !== undefined) {
-                                onAction({ kind: 'SEARCH', query: state.query }, flatIndex);
-                              }
-                            }}
-                            tabIndex={-1}
-                            type="button"
+          <div className="command-palette__results">
+            {flat.length === 0 ? (
+              <p className="command-palette__empty" role="status">
+                No commands match <strong>{state.query || 'this query'}</strong>. Try <em>open</em>,{' '}
+                <em>focus</em>, or <em>run</em>.
+              </p>
+            ) : (
+              <ul id={commandListId} role="listbox">
+                {allGroups.map((group, groupIndex) => (
+                  <li className="command-palette__group" key={group.category}>
+                    <header className="command-palette__group-header">
+                      <span>{group.category}</span>
+                      <small>{group.commands.length}</small>
+                    </header>
+                    <ul>
+                      {group.commands.map((candidate) => {
+                        const flatIndex = flatIndexLookup.get(candidate.id);
+                        const isActive = flatIndex === state.activeIndex;
+                        return (
+                          <li
+                            aria-selected={isActive}
+                            id={commandElementId(candidate.id)}
+                            key={`${groupIndex}:${candidate.id}`}
+                            role="option"
                           >
-                            <span className="command-palette__option-label">
-                              <strong>{candidate.label}</strong>
-                              <em className="command-palette__option-category">{candidate.category}</em>
-                            </span>
-                            {candidate.shortcut === undefined ? null : (
-                              <kbd className="command-palette__option-shortcut">{candidate.shortcut}</kbd>
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <footer className="command-palette__footer">
-          <span>
-            <kbd>↑</kbd>
-            <kbd>↓</kbd> Navigate
-          </span>
-          <span>
-            <kbd>↵</kbd> Run
-          </span>
-          <span>
-            <kbd>Esc</kbd> Close
-          </span>
-        </footer>
+                            <button
+                              className="command-palette__option"
+                              onClick={() => {
+                                const original = commandsById.get(candidate.id);
+                                if (original !== undefined) {
+                                  onRun(original);
+                                }
+                              }}
+                              onMouseEnter={() => {
+                                if (flatIndex !== undefined) {
+                                  onAction({ kind: 'SEARCH', query: state.query }, flatIndex);
+                                }
+                              }}
+                              tabIndex={-1}
+                              type="button"
+                            >
+                              <span className="command-palette__option-label">
+                                <strong>{candidate.label}</strong>
+                                <em className="command-palette__option-category">
+                                  {candidate.category}
+                                </em>
+                              </span>
+                              {candidate.shortcut === undefined ? null : (
+                                <kbd className="command-palette__option-shortcut">
+                                  {candidate.shortcut}
+                                </kbd>
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <footer className="command-palette__footer">
+            <span>
+              <kbd>↑</kbd>
+              <kbd>↓</kbd> Navigate
+            </span>
+            <span>
+              <kbd>↵</kbd> Run
+            </span>
+            <span>
+              <kbd>Esc</kbd> Close
+            </span>
+          </footer>
         </section>
       </div>
     </div>

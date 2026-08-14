@@ -14,7 +14,11 @@ export function WorkspaceSettings({ layout, onLayoutChange }: WorkspaceSettingsP
     <div className="workspace-settings" data-workspace-settings>
       <div className="workspace-settings__row">
         <span className="workspace-settings__label">Sidebar position</span>
-        <div className="workspace-settings__segment" role="radiogroup" aria-label="Sidebar position">
+        <div
+          className="workspace-settings__segment"
+          role="radiogroup"
+          aria-label="Sidebar position"
+        >
           {(['left', 'right'] as const).map((value) => (
             <button
               aria-checked={sidebarPosition === value}
@@ -35,9 +39,7 @@ export function WorkspaceSettings({ layout, onLayoutChange }: WorkspaceSettingsP
         <button
           className="workspace-settings__toggle"
           data-settings-action="toggle-theme"
-          onClick={() =>
-            onLayoutChange({ ...layout, theme: theme === 'dark' ? 'light' : 'dark' })
-          }
+          onClick={() => onLayoutChange({ ...layout, theme: theme === 'dark' ? 'light' : 'dark' })}
           type="button"
         >
           {theme === 'dark' ? '☾ Dark' : '☀ Light'}

@@ -54,7 +54,11 @@ export function WorkspaceSettingsGear({
         <span aria-hidden="true">⚙</span>
       </button>
       {open ? (
-        <div className="workspace-settings-gear__popover" role="dialog" aria-label="Workspace settings">
+        <div
+          className="workspace-settings-gear__popover"
+          role="dialog"
+          aria-label="Workspace settings"
+        >
           <WorkspaceSettings layout={layout} onLayoutChange={onLayoutChange} />
         </div>
       ) : null}

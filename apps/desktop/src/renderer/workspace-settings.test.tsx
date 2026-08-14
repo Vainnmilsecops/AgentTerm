@@ -17,20 +17,26 @@ describe('workspace settings integration', () => {
     expect(tree).toBeDefined();
     const button = findButton(tree, 'toggle-theme');
     button.props.onClick();
-    expect(onLayoutChange).toHaveBeenCalledWith(
-      expect.objectContaining({ theme: 'light' }),
-    );
+    expect(onLayoutChange).toHaveBeenCalledWith(expect.objectContaining({ theme: 'light' }));
   });
 });
 
 function findButton(tree: unknown, action: string): { props: { onClick: () => void } } {
   const queue: unknown[] = [tree];
   while (queue.length > 0) {
-    const node = queue.shift() as { props?: { children?: unknown; 'data-settings-action'?: string }; children?: unknown } | string | number | null | undefined;
+    const node = queue.shift() as
+      | { props?: { children?: unknown; 'data-settings-action'?: string }; children?: unknown }
+      | string
+      | number
+      | null
+      | undefined;
     if (node === null || node === undefined || typeof node !== 'object') {
       continue;
     }
-    const candidate = node as { props?: { children?: unknown; 'data-settings-action'?: string }; children?: unknown };
+    const candidate = node as {
+      props?: { children?: unknown; 'data-settings-action'?: string };
+      children?: unknown;
+    };
     if (candidate.props?.['data-settings-action'] === action) {
       return candidate as { props: { onClick: () => void } };
     }

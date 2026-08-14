@@ -20,8 +20,13 @@ export function WorkspaceFooterStatus({
   return (
     <footer className="workspace-footer" data-workspace-footer>
       <div className="workspace-footer__group">
-        <span className={`workspace-footer__dot workspace-footer__dot--${terminalState}`} aria-hidden="true" />
-        <span className="workspace-footer__label workspace-footer__label--strong">{terminalLabel(terminalState)}</span>
+        <span
+          className={`workspace-footer__dot workspace-footer__dot--${terminalState}`}
+          aria-hidden="true"
+        />
+        <span className="workspace-footer__label workspace-footer__label--strong">
+          {terminalLabel(terminalState)}
+        </span>
       </div>
       <div className="workspace-footer__group">
         <span className="workspace-footer__label">Agent</span>

@@ -157,7 +157,7 @@ describe('desktop workspace visual contract', () => {
 
   it('exposes a Geist-style context card with delay and metadata rows', () => {
     expect(workspaceSource).toContain('ContextCard');
-    expect(workspaceSource).toContain('focusWorkspaceTarget(\'terminal\')');
+    expect(workspaceSource).toContain("focusWorkspaceTarget('terminal')");
     expect(styles).toContain('.context-card');
     expect(styles).toContain('.context-card__panel');
     expect(styles).toContain('.context-card__meta');
@@ -177,5 +177,13 @@ describe('desktop workspace visual contract', () => {
     expect(styles).toContain('.toast--success');
     expect(styles).toContain('.toast--danger');
     expect(styles).toContain('@keyframes toast-in');
+  });
+
+  it('keeps Settings controls aligned and exposes a wide sidebar resize target', () => {
+    expect(workspaceSource).toContain('className="sidebar-resize-handle"');
+    expect(workspaceSource).toContain('aria-orientation="vertical"');
+    expect(styles).toContain('width: var(--sidebar-width, 17.5rem)');
+    expect(styles).toMatch(/\.settings-form input,[\s\S]*width:\s*100%/);
+    expect(styles).toMatch(/\.executable-setting small[\s\S]*overflow-wrap:\s*anywhere/);
   });
 });
