@@ -14,6 +14,12 @@ export interface TaskPullRequestInput {
   readonly taskId: string;
 }
 
+export interface RefreshTaskPullRequestInput extends TaskPullRequestInput {
+  readonly pullRequestNumber: number;
+  readonly repositoryName: string;
+  readonly repositoryOwner: string;
+}
+
 export interface TaskPullRequestDependencies {
   readonly integration: PullRequestIntegration;
   readonly pullRequests: PullRequestRepository;
@@ -107,6 +113,46 @@ export async function createTaskPullRequest(
   });
 }
 
+export async function refreshTaskPullRequest(
+  input: RefreshTaskPullRequestInput,
+  dependencies: TaskPullRequestDependencies,
+): Promise<TaskPullRequest> {
+  return serializeTaskWorkflow(input.taskId, async () => {
+    if ((await dependencies.tasks.findById(input.taskId)) === undefined) {
+      throw new EntityNotFoundError('Task', input.taskId);
+    }
+    const persisted = (await dependencies.pullRequests.listByTaskId(input.taskId)).find(
+      (pullRequest) =>
+        pullRequest.number === input.pullRequestNumber &&
+        pullRequest.repositoryOwner === input.repositoryOwner &&
+        pullRequest.repositoryName === input.repositoryName,
+    );
+    if (persisted === undefined) {
+      throw new TaskPullRequestError('PULL_REQUEST_NOT_FOUND', input.taskId);
+    }
+
+    let refreshed: TaskPullRequest | undefined;
+    try {
+      refreshed = await dependencies.integration.refresh(persisted);
+    } catch (error) {
+      if (error instanceof TaskPullRequestError) throw error;
+      throw new TaskPullRequestError('REFRESH_FAILED', input.taskId, { cause: error });
+    }
+    if (refreshed === undefined) {
+      throw new TaskPullRequestError('PULL_REQUEST_NOT_FOUND', input.taskId);
+    }
+    assertMatchingPersistedIdentity(refreshed, persisted, input.taskId);
+    try {
+      await dependencies.pullRequests.record(refreshed);
+    } catch (error) {
+      throw new TaskPullRequestError('METADATA_PERSISTENCE_FAILED', input.taskId, {
+        cause: error,
+      });
+    }
+    return refreshed;
+  });
+}
+
 async function requireContext(
   taskId: string,
   dependencies: Pick<TaskPullRequestDependencies, 'tasks' | 'worktrees'>,
@@ -132,20 +178,22 @@ function createState(
   branch: PullRequestBranchInspection,
   history: readonly TaskPullRequest[],
 ): TaskPullRequestState {
-  const persisted =
+  const repositoryHistory =
     branch.kind === 'ready'
       ? history
           .slice()
           .reverse()
-          .find(
+          .filter(
             (pullRequest) =>
               pullRequest.provider === branch.provider &&
               pullRequest.repositoryOwner === branch.repositoryOwner &&
-              pullRequest.repositoryName === branch.repositoryName &&
-              pullRequest.baseBranch === branch.baseBranch &&
-              pullRequest.headBranch === branch.headBranch &&
-              pullRequest.headCommitId === branch.headCommitId,
+              pullRequest.repositoryName === branch.repositoryName,
           )
+      : [];
+  const persisted =
+    branch.kind === 'ready'
+      ? (repositoryHistory.find((pullRequest) => pullRequest.headBranch === branch.headBranch) ??
+        repositoryHistory[0])
       : history.at(-1);
   const pullRequest = branch.kind === 'ready' ? (branch.pullRequest ?? persisted) : persisted;
   return Object.freeze({
@@ -154,7 +202,8 @@ function createState(
       branch.kind === 'ready' &&
       branch.githubCliAvailable &&
       branch.githubAuthenticationAvailable &&
-      branch.remoteHeadCommitId === branch.headCommitId,
+      branch.remoteHeadCommitId === branch.headCommitId &&
+      pullRequest === undefined,
     canPush: branch.kind === 'ready' && branch.remoteHeadCommitId !== branch.headCommitId,
     pullRequest,
   });
@@ -183,6 +232,23 @@ function assertMatchingMetadata(
     pullRequest.baseBranch !== branch.baseBranch ||
     pullRequest.headBranch !== branch.headBranch ||
     pullRequest.headCommitId !== branch.headCommitId
+  ) {
+    throw new TaskPullRequestError('METADATA_MISMATCH', taskId);
+  }
+}
+
+function assertMatchingPersistedIdentity(
+  pullRequest: TaskPullRequest,
+  persisted: TaskPullRequest,
+  taskId: string,
+): void {
+  if (
+    pullRequest.taskId !== taskId ||
+    pullRequest.provider !== persisted.provider ||
+    pullRequest.repositoryOwner !== persisted.repositoryOwner ||
+    pullRequest.repositoryName !== persisted.repositoryName ||
+    pullRequest.number !== persisted.number ||
+    pullRequest.url !== persisted.url
   ) {
     throw new TaskPullRequestError('METADATA_MISMATCH', taskId);
   }

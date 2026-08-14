@@ -48,7 +48,7 @@ export class GitHubCli {
   }
 
   public async requestJson(
-    method: 'GET' | 'PATCH' | 'POST',
+    method: 'GET' | 'POST',
     path: string,
     input?: Readonly<Record<string, unknown>>,
   ): Promise<unknown> {
@@ -79,6 +79,18 @@ export class GitHubCli {
     } catch {
       throw new Error('The GitHub API response is invalid.');
     }
+  }
+
+  public async requestOptionalJson(path: string): Promise<unknown | undefined> {
+    if (!path.startsWith('/') || path.includes('\0') || path.length > 4096) {
+      throw new Error('The GitHub API path is invalid.');
+    }
+    const result = await this.run(
+      ['api', '--hostname', 'github.com', '--method', 'GET', '--include', path],
+      30_000,
+      1024 * 1024,
+    );
+    return parseIncludedGithubResponse(result.exitCode, result.stdout);
   }
 
   private async executable(): Promise<string> {
@@ -125,6 +137,29 @@ export class GitHubCli {
         reject(new Error('GitHub CLI execution failed.'));
       }
     });
+  }
+}
+
+function parseIncludedGithubResponse(exitCode: number, output: string): unknown | undefined {
+  if (output.includes('\0')) throw new Error('The GitHub API response is invalid.');
+  const lineEnding = output.indexOf('\n');
+  if (lineEnding < 0) throw new Error('The GitHub API response is invalid.');
+  const statusLine = output.slice(0, lineEnding).replace(/\r$/u, '');
+  const match = /^HTTP\/\S+ ([0-9]{3})(?: .*)?$/u.exec(statusLine);
+  const status = Number(match?.[1]);
+  if (!Number.isInteger(status)) throw new Error('The GitHub API response is invalid.');
+  const windowsHeaderEnd = output.indexOf('\r\n\r\n');
+  const portableHeaderEnd = output.indexOf('\n\n');
+  const headerEnd = windowsHeaderEnd >= 0 ? windowsHeaderEnd + 4 : portableHeaderEnd + 2;
+  if (headerEnd < 2) throw new Error('The GitHub API response is invalid.');
+  if (status === 404) return undefined;
+  if (exitCode !== 0 || status < 200 || status >= 300) {
+    throw new Error('The GitHub API request failed.');
+  }
+  try {
+    return JSON.parse(output.slice(headerEnd)) as unknown;
+  } catch {
+    throw new Error('The GitHub API response is invalid.');
   }
 }
 

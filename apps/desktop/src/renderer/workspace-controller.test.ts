@@ -35,6 +35,7 @@ type TestWorkspaceViewProps = Omit<
   | 'onCycleWorkspacePane'
   | 'onCycleWorkspaceTab'
   | 'onPushTaskBranch'
+  | 'onRefreshPullRequest'
   | 'onRunQualityGate'
   | 'onSelectWorkspacePane'
   | 'onSelectWorkspaceTab'
@@ -52,6 +53,7 @@ type TestWorkspaceViewProps = Omit<
       | 'onCycleWorkspacePane'
       | 'onCycleWorkspaceTab'
       | 'onPushTaskBranch'
+      | 'onRefreshPullRequest'
       | 'onRunQualityGate'
       | 'onSelectWorkspacePane'
       | 'onSelectWorkspaceTab'
@@ -70,6 +72,7 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onCycleWorkspacePane: () => undefined,
     onCycleWorkspaceTab: () => undefined,
     onPushTaskBranch: () => undefined,
+    onRefreshPullRequest: () => undefined,
     onRunQualityGate: () => undefined,
     onSelectWorkspacePane: () => undefined,
     onSelectWorkspaceTab: () => undefined,
@@ -231,14 +234,23 @@ const pullRequestReady: TaskPullRequestState = Object.freeze({
 });
 const openPullRequest = Object.freeze({
   baseBranch: 'main',
+  checks: Object.freeze({
+    failureCount: 0,
+    pendingCount: 0,
+    state: 'SUCCESS' as const,
+    successCount: 3,
+    totalCount: 3,
+  }),
   createdAt: 1_800_000_000_000,
   draft: false,
   headBranch: 'agentterm/task/github-pr',
   headCommitId: 'b'.repeat(40),
+  lastSyncedAt: 1_800_000_000_200,
   number: 42,
   provider: 'github' as const,
   repositoryName: 'AgentTerm',
   repositoryOwner: 'agentterm',
+  reviewState: 'APPROVED' as const,
   status: 'OPEN' as const,
   taskId: runningTask.id,
   title: 'Explicit PR',
@@ -467,6 +479,7 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly inspectTaskPullRequest = vi.fn(async () => this.pullRequestState);
   public readonly pushTaskBranch = vi.fn(async () => undefined);
   public readonly createTaskPullRequest = vi.fn(async () => undefined);
+  public readonly refreshTaskPullRequest = vi.fn(async () => undefined);
   public readonly gateSummaries: readonly QualityGateSummary[] = Object.freeze([
     Object.freeze({ id: 'lint', kind: 'LINT' as const }),
   ]);
@@ -756,7 +769,7 @@ describe('WorkspaceController', () => {
     expect(client.runQualityGate).toHaveBeenCalledWith({ gateId: 'lint', taskId: runningTask.id });
   });
 
-  it('pushes and creates a Pull Request only through explicit selected-Task actions', async () => {
+  it('pushes, creates, and refreshes a Pull Request only through explicit selected-Task actions', async () => {
     const client = new FakeWorkspaceClient();
     client.loadResults = [runningStartOverview, runningStartOverview, runningStartOverview];
     const controller = new WorkspaceController(client);
@@ -779,6 +792,13 @@ describe('WorkspaceController', () => {
     await controller.createSelectedTaskPullRequest();
 
     expect(client.createTaskPullRequest).toHaveBeenCalledWith({ taskId: runningTask.id });
+    await controller.refreshSelectedTaskPullRequest();
+    expect(client.refreshTaskPullRequest).toHaveBeenCalledWith({
+      pullRequestNumber: openPullRequest.number,
+      repositoryName: openPullRequest.repositoryName,
+      repositoryOwner: openPullRequest.repositoryOwner,
+      taskId: runningTask.id,
+    });
     expect(controller.snapshot).toMatchObject({
       kind: 'ready',
       pullRequestInspection: {
@@ -810,6 +830,21 @@ describe('WorkspaceController', () => {
     expect(pushController.snapshot).toMatchObject({
       actionError: 'Task branch could not be pushed.',
       kind: 'ready',
+    });
+
+    const refreshClient = new FakeWorkspaceClient();
+    refreshClient.pullRequestState = Object.freeze({
+      ...pullRequestReady,
+      pullRequest: openPullRequest,
+    });
+    refreshClient.refreshTaskPullRequest.mockRejectedValueOnce(new Error('GH_TOKEN=secret'));
+    const refreshController = new WorkspaceController(refreshClient);
+    await refreshController.load();
+    await refreshController.refreshSelectedTaskPullRequest();
+    expect(refreshController.snapshot).toMatchObject({
+      actionError: 'Pull Request status could not be refreshed from GitHub.',
+      kind: 'ready',
+      pullRequestInspection: { kind: 'ready', result: { pullRequest: openPullRequest } },
     });
   });
 
@@ -2019,7 +2054,11 @@ describe('AgentWorkspaceView', () => {
     expect(needsPush).toContain('Push Task branch');
     expect(existing).toContain('#42 · OPEN');
     expect(existing).toContain('https://github.com/agentterm/AgentTerm/pull/42');
-    expect(existing).toContain('Refresh / reopen Pull Request');
+    expect(existing).toContain('Refresh GitHub status');
+    expect(existing).toContain('APPROVED');
+    expect(existing).toContain('SUCCESS');
+    expect(existing).toContain('3/3 passing');
+    expect(existing).not.toContain('reopen');
   });
 
   it('offers an explicit Start review action only when Application marks RUNNING ready', () => {

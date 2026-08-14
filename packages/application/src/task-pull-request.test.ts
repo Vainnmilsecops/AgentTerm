@@ -6,6 +6,7 @@ import {
   createTaskPullRequest,
   inspectTaskPullRequest,
   pushTaskBranch,
+  refreshTaskPullRequest,
   type PullRequestBranchInspection,
   type PullRequestIntegration,
   type PullRequestRepository,
@@ -54,14 +55,23 @@ const readyBranch: Extract<PullRequestBranchInspection, { readonly kind: 'ready'
 
 const pullRequest: TaskPullRequest = Object.freeze({
   baseBranch: 'main',
+  checks: Object.freeze({
+    failureCount: 0,
+    pendingCount: 0,
+    state: 'UNKNOWN',
+    successCount: 0,
+    totalCount: 0,
+  }),
   createdAt: 1_800_000_000_000,
   draft: false,
   headBranch: worktree.branchName,
   headCommitId: readyBranch.headCommitId,
+  lastSyncedAt: 1_800_000_000_200,
   number: 42,
   provider: 'github',
   repositoryName: 'AgentTerm',
   repositoryOwner: 'agentterm',
+  reviewState: 'UNKNOWN',
   status: 'OPEN',
   taskId: task.id,
   title: task.title,
@@ -129,6 +139,119 @@ describe('Task Pull Request use cases', () => {
     expect(await fixture.tasks.findById(task.id)).toEqual(task);
   });
 
+  it.each(['OPEN', 'CLOSED', 'MERGED'] as const)(
+    'refreshes a persisted Pull Request to remote %s without changing Task state',
+    async (status) => {
+      const refreshed = Object.freeze({
+        ...pullRequest,
+        checks: Object.freeze({
+          failureCount: status === 'OPEN' ? 0 : 1,
+          pendingCount: 0,
+          state: status === 'OPEN' ? ('SUCCESS' as const) : ('FAILURE' as const),
+          successCount: status === 'OPEN' ? 2 : 1,
+          totalCount: 2,
+        }),
+        lastSyncedAt: (pullRequest.lastSyncedAt ?? 0) + 100,
+        reviewState: status === 'OPEN' ? ('APPROVED' as const) : ('CHANGES_REQUESTED' as const),
+        status,
+        updatedAt: pullRequest.updatedAt + 50,
+      });
+      const fixture = createFixture({ persisted: [pullRequest], refreshResult: refreshed });
+
+      await expect(
+        refreshTaskPullRequest(
+          {
+            pullRequestNumber: pullRequest.number,
+            repositoryName: pullRequest.repositoryName,
+            repositoryOwner: pullRequest.repositoryOwner,
+            taskId: task.id,
+          },
+          fixture.dependencies,
+        ),
+      ).resolves.toEqual(refreshed);
+
+      expect(fixture.integration.refresh).toHaveBeenCalledWith(pullRequest);
+      expect(fixture.pullRequests.values).toEqual([refreshed]);
+      expect(await fixture.tasks.findById(task.id)).toEqual(task);
+    },
+  );
+
+  it('accepts GitHub-owned base/head metadata changes for the same persisted PR identity', async () => {
+    const refreshed = Object.freeze({
+      ...pullRequest,
+      baseBranch: 'release',
+      headCommitId: 'c'.repeat(40),
+      lastSyncedAt: (pullRequest.lastSyncedAt ?? 0) + 1,
+    });
+    const fixture = createFixture({ persisted: [pullRequest], refreshResult: refreshed });
+
+    await expect(
+      refreshTaskPullRequest(
+        {
+          pullRequestNumber: pullRequest.number,
+          repositoryName: pullRequest.repositoryName,
+          repositoryOwner: pullRequest.repositoryOwner,
+          taskId: task.id,
+        },
+        fixture.dependencies,
+      ),
+    ).resolves.toEqual(refreshed);
+  });
+
+  it('preserves last-known-good metadata when remote refresh fails or the PR is missing', async () => {
+    const failed = createFixture({
+      persisted: [pullRequest],
+      refreshError: new Error('network failed GH_TOKEN=secret'),
+    });
+    await expect(
+      refreshTaskPullRequest(
+        {
+          pullRequestNumber: pullRequest.number,
+          repositoryName: pullRequest.repositoryName,
+          repositoryOwner: pullRequest.repositoryOwner,
+          taskId: task.id,
+        },
+        failed.dependencies,
+      ),
+    ).rejects.toMatchObject({
+      message: 'The Pull Request status could not be refreshed from GitHub.',
+      reason: 'REFRESH_FAILED',
+    });
+    expect(failed.pullRequests.values).toEqual([pullRequest]);
+
+    const missing = createFixture({ persisted: [pullRequest], refreshResult: undefined });
+    await expect(
+      refreshTaskPullRequest(
+        {
+          pullRequestNumber: pullRequest.number,
+          repositoryName: pullRequest.repositoryName,
+          repositoryOwner: pullRequest.repositoryOwner,
+          taskId: task.id,
+        },
+        missing.dependencies,
+      ),
+    ).rejects.toMatchObject({ reason: 'PULL_REQUEST_NOT_FOUND' });
+    expect(missing.pullRequests.values).toEqual([pullRequest]);
+  });
+
+  it('rejects refresh when no persisted Pull Request exists before calling GitHub', async () => {
+    const fixture = createFixture();
+
+    await expect(
+      refreshTaskPullRequest(
+        {
+          pullRequestNumber: pullRequest.number,
+          repositoryName: pullRequest.repositoryName,
+          repositoryOwner: pullRequest.repositoryOwner,
+          taskId: task.id,
+        },
+        fixture.dependencies,
+      ),
+    ).rejects.toMatchObject({ reason: 'PULL_REQUEST_NOT_FOUND' });
+
+    expect(fixture.integration.refresh).not.toHaveBeenCalled();
+  });
+
   it('preserves persistence when push or create fails', async () => {
     const pushFailure = createFixture({ pushError: new Error('credential TOKEN=secret') });
     await expect(
@@ -146,14 +269,14 @@ describe('Task Pull Request use cases', () => {
     expect(createFailure.pullRequests.values).toEqual([]);
   });
 
-  it('does not associate persisted metadata from an older head commit with current readiness', async () => {
+  it('keeps branch-associated stale metadata visible for explicit remote refresh', async () => {
     const fixture = createFixture({
       persisted: [Object.freeze({ ...pullRequest, headCommitId: 'c'.repeat(40) })],
     });
 
     await expect(
       inspectTaskPullRequest({ taskId: task.id }, fixture.dependencies),
-    ).resolves.toMatchObject({ pullRequest: undefined });
+    ).resolves.toMatchObject({ pullRequest: { number: pullRequest.number } });
   });
 
   it('does not advertise create when gh authentication is unavailable', async () => {
@@ -198,6 +321,8 @@ function createFixture(
     readonly persisted?: readonly TaskPullRequest[];
     readonly pushError?: Error;
     readonly pushResult?: PullRequestBranchInspection;
+    readonly refreshError?: Error;
+    readonly refreshResult?: TaskPullRequest | undefined;
     readonly worktree?: TaskWorktreeRecord | undefined;
   } = {},
 ) {
@@ -213,6 +338,10 @@ function createFixture(
     push: vi.fn(async () => {
       if (options.pushError !== undefined) throw options.pushError;
       return options.pushResult ?? inspectResult;
+    }),
+    refresh: vi.fn(async () => {
+      if (options.refreshError !== undefined) throw options.refreshError;
+      return 'refreshResult' in options ? options.refreshResult : pullRequest;
     }),
   } satisfies PullRequestIntegration;
   const dependencies: TaskPullRequestDependencies = {

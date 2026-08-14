@@ -42,6 +42,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onCycleWorkspacePane: (delta: -1 | 1) => void;
   readonly onCycleWorkspaceTab: (delta: -1 | 1) => void;
   readonly onPushTaskBranch: () => void;
+  readonly onRefreshPullRequest: () => void;
   readonly onRefresh: () => void;
   readonly onRequestChanges: () => void;
   readonly onRequestReview: () => void;
@@ -92,6 +93,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onCycleWorkspaceTab={(delta) => controller?.cycleWorkspaceTab(delta)}
       onRefresh={() => void controller?.refresh()}
       onPushTaskBranch={() => void controller?.pushSelectedTaskBranch()}
+      onRefreshPullRequest={() => void controller?.refreshSelectedTaskPullRequest()}
       onRequestChanges={() => void controller?.requestSelectedTaskChanges()}
       onRequestReview={() => void controller?.requestSelectedTaskReview()}
       onRetry={() => void controller?.load()}
@@ -122,6 +124,7 @@ export function AgentWorkspaceView({
   onCycleWorkspaceTab,
   onRefresh,
   onPushTaskBranch,
+  onRefreshPullRequest,
   onRequestChanges,
   onRequestReview,
   onRetry,
@@ -479,6 +482,7 @@ export function AgentWorkspaceView({
             inspection={snapshot.pullRequestInspection}
             onCreate={onCreatePullRequest}
             onPush={onPushTaskBranch}
+            onRefresh={onRefreshPullRequest}
             taskId={selected.task.id}
             activeAction={snapshot.activeAction}
           />
@@ -525,6 +529,7 @@ function PullRequestPanel({
   inspection,
   onCreate,
   onPush,
+  onRefresh,
   taskId,
 }: {
   readonly actionsBusy: boolean;
@@ -535,6 +540,7 @@ function PullRequestPanel({
   >['pullRequestInspection'];
   readonly onCreate: () => void;
   readonly onPush: () => void;
+  readonly onRefresh: () => void;
   readonly taskId: string;
 }) {
   return (
@@ -559,10 +565,22 @@ function PullRequestPanel({
             Not ready: {formatPullRequestBlock(inspection.result.branch.reason)}
           </p>
           {inspection.result.pullRequest === undefined ? null : (
-            <p className="pull-request-panel__message">
-              Last recorded PR #{inspection.result.pullRequest.number} ·{' '}
-              {inspection.result.pullRequest.status} · {inspection.result.pullRequest.url}
-            </p>
+            <>
+              <p className="pull-request-panel__message">
+                Last recorded PR #{inspection.result.pullRequest.number} ·{' '}
+                {inspection.result.pullRequest.status} · {inspection.result.pullRequest.url}
+              </p>
+              <button
+                className="secondary-action"
+                disabled={actionsBusy}
+                onClick={onRefresh}
+                type="button"
+              >
+                {activeAction?.kind === 'refresh-pull-request' && activeAction.taskId === taskId
+                  ? 'Refreshing GitHub status...'
+                  : 'Refresh GitHub status'}
+              </button>
+            </>
           )}
         </div>
       ) : (
@@ -597,6 +615,26 @@ function PullRequestPanel({
                   : `#${String(inspection.result.pullRequest.number)} · ${inspection.result.pullRequest.status}`}
               </dd>
             </div>
+            {inspection.result.pullRequest === undefined ? null : (
+              <>
+                <div>
+                  <dt>Review state</dt>
+                  <dd>{inspection.result.pullRequest.reviewState}</dd>
+                </div>
+                <div>
+                  <dt>Checks</dt>
+                  <dd>
+                    {inspection.result.pullRequest.checks.state} ·{' '}
+                    {inspection.result.pullRequest.checks.successCount}/
+                    {inspection.result.pullRequest.checks.totalCount} passing
+                  </dd>
+                </div>
+                <div>
+                  <dt>Last synced</dt>
+                  <dd>{formatPullRequestSyncTime(inspection.result.pullRequest.lastSyncedAt)}</dd>
+                </div>
+              </>
+            )}
           </dl>
           {inspection.result.pullRequest === undefined ? null : (
             <p className="pull-request-panel__url">{inspection.result.pullRequest.url}</p>
@@ -631,15 +669,29 @@ function PullRequestPanel({
             >
               {activeAction?.kind === 'create-pull-request' && activeAction.taskId === taskId
                 ? 'Updating Pull Request...'
-                : inspection.result.pullRequest === undefined
-                  ? 'Create Pull Request'
-                  : 'Refresh / reopen Pull Request'}
+                : 'Create Pull Request'}
+            </button>
+            <button
+              className="secondary-action"
+              disabled={inspection.result.pullRequest === undefined || actionsBusy}
+              onClick={onRefresh}
+              type="button"
+            >
+              {activeAction?.kind === 'refresh-pull-request' && activeAction.taskId === taskId
+                ? 'Refreshing GitHub status...'
+                : 'Refresh GitHub status'}
             </button>
           </div>
         </div>
       )}
     </section>
   );
+}
+
+function formatPullRequestSyncTime(value: number | undefined): string {
+  if (value === undefined) return 'NOT YET SYNCED';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'UNKNOWN' : date.toISOString();
 }
 
 function formatPullRequestBlock(reason: PullRequestBranchReadinessFailure): string {
