@@ -12,7 +12,17 @@ import type {
 
 import { WorkspaceCommandPalette } from './command-palette';
 import { WorkspaceTerminals } from './workspace-terminals';
+import { WorkspaceFooterStatus } from './workspace-footer-status';
+import { WorkspaceSettingsGear } from './workspace-settings-gear';
 import { SettingsPanel } from './settings-panel';
+import { EmptyState } from './empty-state';
+import { ContextCard } from './context-card';
+import { ToastStack } from './toast-stack';
+import { createToastRegistry, toastForAction, type Toast } from './toast';
+import {
+  readPersistedLayout,
+  writePersistedLayout,
+} from './workspace-layout-persistence';
 import {
   DEFAULT_TERMINAL_HEIGHT,
   MAX_TERMINAL_VIEWPORT_OFFSET,
@@ -161,7 +171,27 @@ export function AgentWorkspaceView({
   snapshot,
 }: AgentWorkspaceViewProps) {
   const [paletteState, setPaletteState] = useState(initialCommandPaletteState);
+  const [commandRecents, setCommandRecents] = useState<readonly string[]>([]);
+  const [layout, setLayout] = useState(() => readPersistedLayout());
+  const toastRegistryRef = useRef(createToastRegistry());
+  const [toasts, setToasts] = useState<readonly Toast[]>(() => toastRegistryRef.current.getToasts());
   const paletteReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const next = toastRegistryRef.current.getToasts();
+      setToasts((current) => (current.length === next.length && current.every((t, i) => t.id === next[i]?.id) ? current : next));
+    }, 200);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    writePersistedLayout(layout);
+  }, [layout]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', layout.theme);
+  }, [layout.theme]);
 
   useEffect(() => {
     if (snapshot.kind !== 'ready') {
@@ -193,8 +223,51 @@ export function AgentWorkspaceView({
       setPaletteState(initialCommandPaletteState);
       focusWorkspaceTarget(shortcut.replace('focus-', '') as WorkspaceFocusTarget);
     };
+    const handleMnemonicKeyDown = (event: KeyboardEvent): void => {
+      if (event.altKey === false || event.ctrlKey || event.metaKey) {
+        return;
+      }
+      if (event.key === 'p' || event.key === 'P') {
+        event.preventDefault();
+        onBeginPlanning();
+        return;
+      }
+      if (event.key === 's' || event.key === 'S') {
+        event.preventDefault();
+        onStartTask();
+        return;
+      }
+      if (event.key === 'r' || event.key === 'R') {
+        event.preventDefault();
+        if (event.shiftKey) {
+          onRequestReview();
+        } else {
+          onRetryTask();
+        }
+        return;
+      }
+      if (event.key === 'a' || event.key === 'A') {
+        event.preventDefault();
+        onAcceptPlan();
+        return;
+      }
+      if (event.key === 'c' || event.key === 'C') {
+        event.preventDefault();
+        onRequestChanges();
+        return;
+      }
+      if (event.key === 'd' || event.key === 'D') {
+        event.preventDefault();
+        onApproveReview();
+        return;
+      }
+    };
     document.addEventListener('keydown', handleGlobalKeyDown, true);
-    return () => document.removeEventListener('keydown', handleGlobalKeyDown, true);
+    document.addEventListener('keydown', handleMnemonicKeyDown, true);
+    return () => {
+      document.removeEventListener('keydown', handleGlobalKeyDown, true);
+      document.removeEventListener('keydown', handleMnemonicKeyDown, true);
+    };
   }, [snapshot.kind]);
 
   if (snapshot.kind === 'loading') {
@@ -272,6 +345,10 @@ export function AgentWorkspaceView({
   };
 
   const runPaletteCommand = (command: WorkspaceCommand): void => {
+    setCommandRecents((current) => {
+      const filtered = current.filter((id) => id !== command.id);
+      return [command.id, ...filtered].slice(0, 5);
+    });
     const restoreFocus = command.category !== 'Navigate' && !command.id.startsWith('task:');
     closePalette(restoreFocus);
     void Promise.resolve(command.run()).catch(() => undefined);
@@ -284,7 +361,10 @@ export function AgentWorkspaceView({
   };
 
   return (
-    <main className="workspace-shell">
+    <main
+      className={`workspace-shell${layout.sidebarCollapsed ? ' workspace-shell--sidebar-collapsed' : ''}`}
+      style={{ '--sidebar-width': `${String(layout.sidebarWidth)}px` } as React.CSSProperties}
+    >
       <a className="skip-link" href="#workspace-main">
         Skip to Task workspace
       </a>
@@ -293,6 +373,10 @@ export function AgentWorkspaceView({
         error={snapshot.actionError}
         onCreateTask={onCreateTask}
         onOpenProject={onOpenProject}
+        onToggleCollapsed={() =>
+          setLayout((current) => ({ ...current, sidebarCollapsed: !current.sidebarCollapsed }))
+        }
+        sidebarCollapsed={layout.sidebarCollapsed}
         settingsPanel={
           snapshot.settings === undefined || onSaveSettings === undefined ? undefined : (
             <SettingsPanel
@@ -337,20 +421,68 @@ export function AgentWorkspaceView({
           <header className="task-header">
             <div className="task-header__identity">
               <p className="breadcrumb">{selectedProject.project.name}</p>
-              <h2>{selected.task.title}</h2>
+              <ContextCard
+                description={
+                  selected.activeSession === undefined
+                    ? 'No active Agent Session is attached to this task.'
+                    : `${selected.activeSession.status} on ${formatAgentIdentity(snapshot.overview, selected.activeSession.agentId)}`
+                }
+                {...(selected.activeSession === undefined
+                  ? {}
+                  : {
+                      primaryAction: {
+                        label: 'Focus terminal',
+                        onClick: () => focusWorkspaceTarget('terminal'),
+                      },
+                    })}
+                metadata={[
+                  { label: 'Task', value: selected.task.id },
+                  { label: 'Phase', value: selected.task.phase },
+                  ...(selected.activeSession === undefined
+                    ? []
+                    : [
+                        {
+                          label: 'Session',
+                          value: selected.activeSession.id,
+                        },
+                        {
+                          label: 'Attempts',
+                          value: String(selected.reviewHistory.length),
+                        },
+                      ]),
+                  ...(selected.latestReview?.codeState.branchName === undefined
+                    ? []
+                    : [
+                        {
+                          label: 'Branch',
+                          value: selected.latestReview.codeState.branchName,
+                        },
+                      ]),
+                ]}
+                title={selected.task.title}
+                trigger={
+                  <h2 className="task-header__title-trigger">{selected.task.title}</h2>
+                }
+              >
+                <span className="context-card__hint">Hover for metadata</span>
+              </ContextCard>
               <p className="task-id">{selected.task.id}</p>
             </div>
             <div className="task-actions" aria-busy={actionsBusy}>
               {selected.canBeginPlanning ? (
                 <button
-                  className="primary-action"
+                  className="primary-action button-with-hint"
+                  data-action-hint="begin-planning"
                   disabled={actionsBusy}
                   onClick={onBeginPlanning}
                   type="button"
                 >
-                  {isSelectedAction(snapshot, selected.task.id, 'begin-planning')
-                    ? 'Entering planning…'
-                    : 'Begin planning'}
+                  <span>
+                    {isSelectedAction(snapshot, selected.task.id, 'begin-planning')
+                      ? 'Entering planning…'
+                      : 'Begin planning'}
+                  </span>
+                  <kbd className="button-hint" aria-hidden="true">Alt+P</kbd>
                 </button>
               ) : null}
               <button
@@ -393,7 +525,8 @@ export function AgentWorkspaceView({
                 Refresh
               </button>
               <button
-                className="primary-action"
+                className="primary-action button-with-hint"
+                data-action-hint={planningAttempt ? 'start-planning' : selected.canRetryExecution ? 'retry-task' : 'start-task'}
                 disabled={!canStartAttempt(selected, snapshot.selectedAgentId) || actionsBusy}
                 onClick={
                   planningAttempt
@@ -405,6 +538,7 @@ export function AgentWorkspaceView({
                 title={startAttemptTitle(selected, snapshot.selectedAgentId)}
                 type="button"
               >
+                <span>
                 {isAttemptActionForTask(snapshot, selected.task.id)
                   ? planningAttempt
                     ? 'Planning…'
@@ -422,55 +556,79 @@ export function AgentWorkspaceView({
                         ? 'Start execution'
                         : 'Retry execution'
                       : 'Start execution'}
+                </span>
+                <kbd className="button-hint" aria-hidden="true">
+                  {planningAttempt ? 'Alt+P' : selected.canRetryExecution ? 'Alt+R' : 'Alt+S'}
+                </kbd>
               </button>
               {selected.canAcceptPlan && selected.latestPlan !== undefined ? (
                 <button
-                  className="primary-action"
+                  className="primary-action button-with-hint"
+                  data-action-hint="accept-plan"
                   disabled={actionsBusy}
                   onClick={onAcceptPlan}
                   type="button"
                 >
-                  {isSelectedAction(snapshot, selected.task.id, 'accept-plan')
-                    ? 'Accepting Plan…'
-                    : 'Accept Plan and enter RUNNING'}
+                  <span>
+                    {isSelectedAction(snapshot, selected.task.id, 'accept-plan')
+                      ? 'Accepting Plan…'
+                      : 'Accept Plan and enter RUNNING'}
+                  </span>
+                  <kbd className="button-hint" aria-hidden="true">Alt+A</kbd>
                 </button>
               ) : null}
               {selected.canRequestReview ? (
                 <button
-                  className="secondary-action"
+                  className="secondary-action button-with-hint"
+                  data-action-hint="request-review"
                   disabled={actionsBusy}
                   onClick={onRequestReview}
                   type="button"
                 >
-                  {isSelectedAction(snapshot, selected.task.id, 'request-review')
-                    ? 'Starting review...'
-                    : 'Start review'}
+                  <span>
+                    {isSelectedAction(snapshot, selected.task.id, 'request-review')
+                      ? 'Starting review...'
+                      : 'Start review'}
+                  </span>
+                  <kbd className="button-hint" aria-hidden="true">Alt+Shift+R</kbd>
                 </button>
               ) : null}
               {selected.canRequestChanges ? (
                 <button
-                  className="secondary-action"
+                  className="secondary-action button-with-hint"
+                  data-action-hint="request-changes"
                   disabled={actionsBusy}
                   onClick={onRequestChanges}
                   type="button"
                 >
-                  {isSelectedAction(snapshot, selected.task.id, 'request-changes')
-                    ? 'Requesting changes...'
-                    : 'Request changes'}
+                  <span>
+                    {isSelectedAction(snapshot, selected.task.id, 'request-changes')
+                      ? 'Requesting changes...'
+                      : 'Request changes'}
+                  </span>
+                  <kbd className="button-hint" aria-hidden="true">Alt+Shift+C</kbd>
                 </button>
               ) : null}
               {selected.canApproveReview ? (
                 <button
-                  className="primary-action"
+                  className="primary-action button-with-hint"
+                  data-action-hint="approve-review"
                   disabled={actionsBusy}
-                  onClick={onApproveReview}
+                  onClick={() => {
+                    onApproveReview();
+                    toastRegistryRef.current.push(toastForAction('Approve and mark done', 'success'));
+                  }}
                   type="button"
                 >
-                  {isSelectedAction(snapshot, selected.task.id, 'approve-review')
-                    ? 'Approving...'
-                    : 'Approve and mark done'}
+                  <span>
+                    {isSelectedAction(snapshot, selected.task.id, 'approve-review')
+                      ? 'Approving...'
+                      : 'Approve and mark done'}
+                  </span>
+                  <kbd className="button-hint" aria-hidden="true">Alt+D</kbd>
                 </button>
               ) : null}
+              <WorkspaceSettingsGear layout={layout} onLayoutChange={setLayout} />
             </div>
           </header>
 
@@ -481,9 +639,15 @@ export function AgentWorkspaceView({
           )}
 
           <div className="state-strip" aria-label="Task and Agent Session states">
-            <StateValue label="Task phase" value={selected.task.phase} tone="task" />
+            <StateValue
+              label="Task phase"
+              phase={selected.task.phase as TaskPhaseToken}
+              value={selected.task.phase}
+              tone="task"
+            />
             <StateValue
               label="Dependencies"
+              {...(selected.blocked ? { phase: 'BLOCKED' as TaskPhaseToken } : {})}
               value={
                 selected.blocked ? 'BLOCKED' : selected.dependencies.length === 0 ? 'NONE' : 'READY'
               }
@@ -491,11 +655,17 @@ export function AgentWorkspaceView({
             />
             <StateValue
               label="Active session"
+              {...(selected.activeSession?.status === undefined
+                ? {}
+                : { phase: selected.activeSession.status as TaskPhaseToken })}
               value={selected.activeSession?.status ?? 'NONE'}
               tone="session"
             />
             <StateValue
               label="Latest session"
+              {...(selected.latestSession?.status === undefined
+                ? {}
+                : { phase: selected.latestSession.status as TaskPhaseToken })}
               value={selected.latestSession?.status ?? 'NONE'}
               tone="session"
             />
@@ -546,7 +716,10 @@ export function AgentWorkspaceView({
           <ReviewHistory reviews={selected.reviewHistory} />
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
-          <ResizableTerminalWorkspace>
+          <ResizableTerminalWorkspace
+            initialHeight={layout.terminalHeight}
+            onHeightChange={(height) => setLayout((current) => ({ ...current, terminalHeight: height }))}
+          >
             <WorkspaceTerminals
               {...(client === undefined ? {} : { client })}
               layout={snapshot.layout}
@@ -562,14 +735,40 @@ export function AgentWorkspaceView({
               overview={snapshot.overview}
             />
           </ResizableTerminalWorkspace>
+          <WorkspaceFooterStatus
+            agentName={
+              selected.activeSession === undefined
+                ? undefined
+                : formatAgentIdentity(snapshot.overview, selected.activeSession.agentId)
+            }
+            gitBranch={undefined}
+            oscillator={selected.activeSession !== undefined && selected.activeSession.status === 'WORKING'}
+            pullRequestNumber={undefined}
+            shortcutHints={[
+              { key: 'Ctrl+Shift+P', label: 'Commands' },
+              { key: 'Alt+1', label: 'Sidebar' },
+              { key: 'Alt+3', label: 'Terminal' },
+              { key: 'Alt+P', label: 'Plan' },
+              { key: 'Alt+R', label: 'Retry' },
+            ]}
+            terminalState={terminalStateFor(selected.activeSession?.status)}
+          />
           <WorkspaceCommandPalette
             commands={commands}
             onAction={handlePaletteAction}
             onRun={runPaletteCommand}
+            recents={commandRecents}
             state={paletteState}
           />
         </section>
       )}
+      <ToastStack
+        onDismiss={(id) => {
+          toastRegistryRef.current.dismiss(id);
+          setToasts(toastRegistryRef.current.getToasts());
+        }}
+        toasts={toasts}
+      />
     </main>
   );
 }
@@ -579,8 +778,16 @@ interface TerminalResizeDrag {
   readonly pointerId: number;
   readonly pointerY: number;
 }
-function ResizableTerminalWorkspace({ children }: { readonly children: React.ReactNode }) {
-  const [height, setHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
+function ResizableTerminalWorkspace({
+  children,
+  initialHeight,
+  onHeightChange,
+}: {
+  readonly children: React.ReactNode;
+  readonly initialHeight?: number;
+  readonly onHeightChange?: (height: number) => void;
+}) {
+  const [height, setHeight] = useState(initialHeight ?? DEFAULT_TERMINAL_HEIGHT);
   const [resizing, setResizing] = useState(false);
   const drag = useRef<TerminalResizeDrag | undefined>(undefined);
   const animationFrame = useRef<number | undefined>(undefined);
@@ -594,8 +801,18 @@ function ResizableTerminalWorkspace({ children }: { readonly children: React.Rea
     },
     [],
   );
+  useEffect(() => {
+    if (initialHeight !== undefined && initialHeight !== height) {
+      setHeight(initialHeight);
+    }
+    // We intentionally react only when the persisted layout changes the initial height.
+  }, [initialHeight]);
   const resizeBy = (delta: number) =>
-    setHeight((current) => resizeTerminalHeight(current + delta, 0, 0, window.innerHeight));
+    setHeight((current) => {
+      const next = resizeTerminalHeight(current + delta, 0, 0, window.innerHeight);
+      onHeightChange?.(next);
+      return next;
+    });
   return (
     <section
       className={`resizable-terminal${resizing ? ' resizable-terminal--resizing' : ''}`}
@@ -1225,7 +1442,9 @@ function WorkspaceSidebar({
   onCreateTask,
   onOpenProject,
   onSelectTask,
+  onToggleCollapsed,
   projects,
+  sidebarCollapsed,
   selectedTaskId,
   settingsPanel,
 }: {
@@ -1238,6 +1457,8 @@ function WorkspaceSidebar({
   }) => boolean | Promise<boolean>;
   readonly onOpenProject: () => void;
   readonly onSelectTask: (taskId: string) => void;
+  readonly onToggleCollapsed?: () => void;
+  readonly sidebarCollapsed: boolean;
   readonly projects: readonly WorkspaceProjectOverview[];
   readonly selectedTaskId: string | undefined;
   readonly settingsPanel?: React.ReactNode;
@@ -1262,6 +1483,16 @@ function WorkspaceSidebar({
           <h1>AgentTerm</h1>
         </div>
         <kbd>Alt+1</kbd>
+        {onToggleCollapsed === undefined ? null : (
+          <button
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="sidebar-toggle"
+            onClick={onToggleCollapsed}
+            type="button"
+          >
+            {sidebarCollapsed ? '›' : '�'}
+          </button>
+        )}
       </header>
       <section className="workspace-onboarding" aria-label="Project and Task setup">
         <button className="secondary-action" disabled={busy} onClick={onOpenProject} type="button">
@@ -1341,10 +1572,14 @@ function WorkspaceSidebar({
               <span>{project.tasks.length}</span>
             </header>
             {project.tasks.length === 0 ? (
-              <p className="project-empty">No Tasks</p>
+              <EmptyState
+                description="Create the first Task for this Project to start coordinating a coding Agent."
+                icon="inbox"
+                title="No Tasks yet"
+              />
             ) : (
               <ul className="task-list">
-                {project.tasks.map((task) => (
+                {project.tasks.map((task, index) => (
                   <li key={task.task.id}>
                     <button
                       aria-pressed={task.task.id === selectedTaskId}
@@ -1357,6 +1592,9 @@ function WorkspaceSidebar({
                         <span>{task.task.phase}</span>
                         <span>{task.latestSession?.status ?? 'NO SESSION'}</span>
                       </span>
+                      <kbd className="task-option__hint" aria-hidden="true">
+                        {index + 1}
+                      </kbd>
                     </button>
                   </li>
                 ))}
@@ -1374,19 +1612,62 @@ function WorkspaceSidebar({
 
 function StateValue({
   label,
+  phase,
   tone,
   value,
 }: {
   readonly label: string;
+  readonly phase?: TaskPhaseToken;
   readonly tone: 'session' | 'task';
   readonly value: string;
 }) {
+  const phaseClassName = phase === undefined ? undefined : phaseTokenClass(phase);
   return (
     <div className={`state-value state-value--${tone}`}>
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong className="state-value__inner">
+        {phaseClassName === undefined ? null : (
+          <span
+            aria-hidden="true"
+            className={`phase-dot ${phaseClassName}${
+              phase === 'RUNNING' ? ' phase-running--active' : ''
+            }`}
+          />
+        )}
+        <span>{value}</span>
+      </strong>
     </div>
   );
+}
+
+type TaskPhaseToken = 'BACKLOG' | 'BLOCKED' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING';
+
+function phaseTokenClass(phase: string): string | undefined {
+  const normalized = phase.trim().toUpperCase().replace(/\s+/gu, '_');
+  switch (normalized) {
+    case 'BACKLOG':
+      return 'phase-dot--backlog';
+    case 'PLANNING':
+      return 'phase-dot--planning';
+    case 'RUNNING':
+    case 'IN_PROGRESS':
+    case 'EXECUTING':
+      return 'phase-dot--running';
+    case 'REVIEW':
+    case 'IN_REVIEW':
+    case 'AWAITING_REVIEW':
+      return 'phase-dot--review';
+    case 'DONE':
+    case 'COMPLETED':
+    case 'MERGED':
+      return 'phase-dot--done';
+    case 'BLOCKED':
+    case 'FAILED':
+    case 'CANCELLED':
+      return 'phase-dot--blocked';
+    default:
+      return undefined;
+  }
 }
 
 function WorkspaceMessage({
@@ -1518,6 +1799,30 @@ function formatAgentOption(agent: AgentWorkspaceOverview['agents'][number]): str
 function formatAgentIdentity(overview: AgentWorkspaceOverview, agentId: string): string {
   const configured = overview.agents.find((agent) => agent.id === agentId);
   return configured === undefined ? agentId : `${configured.displayName} (${configured.id})`;
+}
+
+function terminalStateFor(
+  status: string | undefined,
+): 'attaching' | 'connected' | 'empty' | 'exited' | 'failed' {
+  if (status === undefined) {
+    return 'empty';
+  }
+  switch (status) {
+    case 'WORKING':
+      return 'connected';
+    case 'IDLE':
+      return 'connected';
+    case 'WAITING_INPUT':
+      return 'connected';
+    case 'ATTACHING':
+      return 'attaching';
+    case 'EXITED':
+      return 'exited';
+    case 'FAILED':
+      return 'failed';
+    default:
+      return 'empty';
+  }
 }
 
 function findTask(

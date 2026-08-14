@@ -30,6 +30,7 @@ describe('WorkspaceCommandPalette', () => {
         commands,
         onAction: vi.fn(),
         onRun: vi.fn(),
+        recents: [],
         state: { activeIndex: 0, open: true, query: 'kiểm' },
       }),
     );
@@ -47,6 +48,7 @@ describe('WorkspaceCommandPalette', () => {
         commands,
         onAction: vi.fn(),
         onRun: vi.fn(),
+        recents: [],
         state: { activeIndex: 0, open: false, query: '' },
       }),
     );

@@ -48,6 +48,8 @@ export function WorkspaceTerminals({
           {layout.tabs.map((tab, index) => {
             const title = taskTitle(overview, tab.taskId);
             const selected = tab.id === layout.activeTabId;
+            const taskPhase = taskPhaseFor(overview, tab.taskId);
+            const agentId = taskAgentFor(overview, tab.taskId);
             return (
               <div className="workspace-tab" key={tab.id}>
                 <button
@@ -60,10 +62,19 @@ export function WorkspaceTerminals({
                   tabIndex={selected ? 0 : -1}
                   type="button"
                 >
-                  <span>{title}</span>
+                  <span
+                    aria-hidden="true"
+                    className={`workspace-tab__dot workspace-tab__dot--${taskPhase.toLowerCase()}`}
+                  />
+                  <span className="workspace-tab__title">{title}</span>
                   <small>
                     {tab.panes.length} pane{tab.panes.length === 1 ? '' : 's'}
                   </small>
+                  {agentId === undefined ? null : (
+                    <span className="workspace-tab__agent-badge" data-tab-agent>
+                      {agentId}
+                    </span>
+                  )}
                 </button>
                 <button
                   aria-label={`Close workspace tab: ${title}`}
@@ -86,7 +97,7 @@ export function WorkspaceTerminals({
             Panes <kbd>Alt+Shift+[</kbd> <kbd>Alt+Shift+]</kbd>
           </span>
           <button
-            className="secondary-action"
+            className="terminal-split-affordance"
             disabled={!canSplit}
             onClick={() => {
               if (splitCandidate?.activeSession !== undefined) {
@@ -96,7 +107,7 @@ export function WorkspaceTerminals({
             title={splitActionTitle(activeTab, splitCandidate)}
             type="button"
           >
-            Split terminal
+            + Split
           </button>
         </div>
       </header>
@@ -151,6 +162,26 @@ function taskTitle(overview: AgentWorkspaceOverview, taskId: string): string {
     overview.projects.flatMap((project) => project.tasks).find((task) => task.task.id === taskId)
       ?.task.title ?? taskId
   );
+}
+
+function taskPhaseFor(overview: AgentWorkspaceOverview, taskId: string): string {
+  return (
+    overview.projects.flatMap((project) => project.tasks).find((task) => task.task.id === taskId)
+      ?.task.phase ?? 'NONE'
+  );
+}
+
+function taskAgentFor(overview: AgentWorkspaceOverview, taskId: string): string | undefined {
+  const task = overview.projects.flatMap((project) => project.tasks).find((task) => task.task.id === taskId);
+  if (task === undefined) {
+    return undefined;
+  }
+  const session = task.activeSession ?? task.latestSession;
+  if (session === undefined) {
+    return undefined;
+  }
+  const configured = overview.agents.find((agent) => agent.id === session.agentId);
+  return configured?.id ?? session.agentId;
 }
 
 function splitActionTitle(

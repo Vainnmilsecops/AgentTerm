@@ -1770,8 +1770,9 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('1. Inspect.');
     expect(markup).toContain('Revise plan');
     expect(markup).toContain('Accept Plan and enter RUNNING');
-    expect(markup).toContain('Task phase</span><strong>PLANNING');
-    expect(markup).not.toContain('Task phase</span><strong>RUNNING');
+    expect(markup).toContain(
+      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--planning',
+    );
   });
 
   it('labels the first post-acceptance attempt as Start execution even though Session history is preserved', () => {
@@ -1828,7 +1829,7 @@ describe('AgentWorkspaceView', () => {
       }),
     );
 
-    expect(markup).toContain('>Start execution</button>');
+    expect(markup).toContain('>Start execution</span>');
     expect(markup).not.toContain('>Retry execution</button>');
   });
 
@@ -1888,7 +1889,9 @@ describe('AgentWorkspaceView', () => {
       }),
     );
 
-    expect(markup).toContain('Dependencies</span><strong>BLOCKED');
+    expect(markup).toContain(
+      'Dependencies</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--blocked',
+    );
     expect(markup).toContain('Task dependencies');
     expect(markup).toContain('Prepare shared API');
     expect(markup).toContain('RUNNING · Required');
@@ -2233,8 +2236,9 @@ describe('AgentWorkspaceView', () => {
     expect(markup).not.toContain('worktreePathIdentity');
     expect(markup).not.toContain('D:\\private');
     expect(markup.indexOf('Request changes')).toBeLessThan(markup.indexOf('Approve and mark done'));
-    expect(markup).toContain('Task phase</span><strong>REVIEW');
-    expect(markup).not.toContain('Task phase</span><strong>DONE');
+    expect(markup).toContain(
+      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--review',
+    );
   });
 
   it('renders validated artifact history as escaped Unicode text without changing Task state', () => {
@@ -2304,7 +2308,9 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('Đã lưu an toàn');
     expect(markup).toContain('&lt;script&gt;window.pwned = true&lt;/script&gt;');
     expect(markup).not.toContain('<script>window.pwned');
-    expect(markup).toContain('Task phase</span><strong>RUNNING');
+    expect(markup).toContain(
+      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--running phase-running--active',
+    );
   });
 
   it('renders TaskPhase and AgentSessionStatus as separate states when a Session failed', () => {
@@ -2342,7 +2348,6 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('interrupted when AgentTerm restarted');
     expect(markup).toContain('Task phase remains RUNNING');
     expect(markup).toContain('Retry execution');
-    expect(markup).not.toContain('Task phase</span><strong>DONE');
     expect(markup).toContain('Nối terminal tiếng Việt');
   });
 
@@ -2444,8 +2449,9 @@ describe('AgentWorkspaceView', () => {
       'Ki\u1ec3m th\u1eed th\u1ea5t b\u1ea1i: &lt;script&gt;secret()&lt;/script&gt;',
     );
     expect(markup).not.toContain('<script>secret()</script>');
-    expect(markup).toContain('Task phase</span><strong>RUNNING');
-    expect(markup).not.toContain('Task phase</span><strong>DONE');
+    expect(markup).toContain(
+      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--running phase-running--active',
+    );
     expect(markup).not.toContain('output-test');
     expect(markup).not.toContain('D:\\worktrees');
   });
