@@ -33,4 +33,12 @@ describe('desktop workspace visual contract', () => {
     expect(styles).toContain('.resizable-terminal');
     expect(styles).toContain('height: var(--terminal-height)');
   });
+
+  it('keeps Settings controls aligned and exposes a wide sidebar resize target', () => {
+    expect(workspaceSource).toContain('className="sidebar-resize-handle"');
+    expect(workspaceSource).toContain('aria-orientation="vertical"');
+    expect(styles).toContain('width: var(--sidebar-width, 17.5rem)');
+    expect(styles).toMatch(/\.settings-form input,[\s\S]*width:\s*100%/);
+    expect(styles).toMatch(/\.executable-setting small[\s\S]*overflow-wrap:\s*anywhere/);
+  });
 });

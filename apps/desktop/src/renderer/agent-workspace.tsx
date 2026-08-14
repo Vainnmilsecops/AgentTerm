@@ -161,7 +161,21 @@ export function AgentWorkspaceView({
   snapshot,
 }: AgentWorkspaceViewProps) {
   const [paletteState, setPaletteState] = useState(initialCommandPaletteState);
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const sidebarDrag = useRef<{ pointerId: number; pointerX: number; width: number } | undefined>(
+    undefined,
+  );
+  const sidebarResizeFrame = useRef<number | undefined>(undefined);
   const paletteReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(
+    () => () => {
+      if (sidebarResizeFrame.current !== undefined) {
+        window.cancelAnimationFrame(sidebarResizeFrame.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (snapshot.kind !== 'ready') {
@@ -284,7 +298,10 @@ export function AgentWorkspaceView({
   };
 
   return (
-    <main className="workspace-shell">
+    <main
+      className="workspace-shell"
+      style={{ '--sidebar-width': `${String(sidebarWidth)}px` } as React.CSSProperties}
+    >
       <a className="skip-link" href="#workspace-main">
         Skip to Task workspace
       </a>
@@ -307,6 +324,56 @@ export function AgentWorkspaceView({
         selectedTaskId={snapshot.selectedTaskId}
         onSelectTask={onSelectTask}
       />
+      <div
+        aria-label="Resize Settings and Task sidebar"
+        aria-orientation="vertical"
+        aria-valuemax={520}
+        aria-valuemin={240}
+        aria-valuenow={sidebarWidth}
+        className="sidebar-resize-handle"
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+          setSidebarWidth((current) =>
+            Math.min(520, Math.max(240, current + (event.key === 'ArrowRight' ? 24 : -24))),
+          );
+        }}
+        onLostPointerCapture={() => {
+          sidebarDrag.current = undefined;
+        }}
+        onPointerDown={(event) => {
+          sidebarDrag.current = {
+            pointerId: event.pointerId,
+            pointerX: event.clientX,
+            width: sidebarWidth,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const active = sidebarDrag.current;
+          if (active === undefined || active.pointerId !== event.pointerId) return;
+          const nextWidth = Math.min(
+            520,
+            Math.max(240, active.width + event.clientX - active.pointerX),
+          );
+          if (sidebarResizeFrame.current !== undefined) {
+            window.cancelAnimationFrame(sidebarResizeFrame.current);
+          }
+          sidebarResizeFrame.current = window.requestAnimationFrame(() => {
+            setSidebarWidth(nextWidth);
+            sidebarResizeFrame.current = undefined;
+          });
+        }}
+        onPointerUp={(event) => {
+          if (sidebarDrag.current?.pointerId !== event.pointerId) return;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          sidebarDrag.current = undefined;
+        }}
+        role="separator"
+        tabIndex={0}
+      >
+        <span aria-hidden="true" />
+      </div>
       {selected === undefined || selectedProject === undefined ? (
         <WorkspaceMessage
           eyebrow={snapshot.overview.projects.length === 0 ? 'Empty workspace' : 'No Task selected'}
