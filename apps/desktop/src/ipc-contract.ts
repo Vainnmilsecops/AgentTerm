@@ -3,31 +3,47 @@ import type {
   AgentWorkspaceOverview,
   ApplicationSettingsView,
   AttachAgentSessionTerminalInput,
+  CreateExecutionArtifactInput,
+  ExecutionArtifact,
+  ExecutionArtifactKind,
   GetTaskFileDiffInput,
   PtyRuntimeEvent,
   PtyTerminalSize,
+  QualityGate,
+  QualityGateKind,
   QualityGateSummary,
+  Task,
   TaskChangeSet,
+  TaskDependency,
   TaskFileDiff,
   TaskPullRequestState,
+  TaskReviewSummary,
   UpdateApplicationSettingsInput,
 } from '@agentterm/application';
 
 export const desktopIpcChannels = Object.freeze({
   acceptPlan: 'agentterm:planning:accept',
+  addTaskDependency: 'agentterm:task-dependency:add',
   approveReview: 'agentterm:review:approve',
   beginTaskPlanning: 'agentterm:task:begin-planning',
+  createArtifact: 'agentterm:artifact:create',
   createTask: 'agentterm:task:create',
   createPullRequest: 'agentterm:pull-request:create',
   getTaskFileDiff: 'agentterm:changes:diff',
   inspectPullRequest: 'agentterm:pull-request:inspect',
+  listProjectTasks: 'agentterm:project-tasks:list',
+  listQualityGateDetails: 'agentterm:quality-gates:list-details',
   listQualityGates: 'agentterm:quality-gates:list',
   listTaskChanges: 'agentterm:changes:list',
+  listTaskDependencies: 'agentterm:task-dependency:list',
+  listTaskReviews: 'agentterm:review:list',
   loadSettings: 'agentterm:settings:load',
   loadWorkspace: 'agentterm:workspace:load',
   openProject: 'agentterm:project:open',
   pushTaskBranch: 'agentterm:pull-request:push',
   refreshPullRequest: 'agentterm:pull-request:refresh',
+  registerQualityGate: 'agentterm:quality-gates:register',
+  removeTaskDependency: 'agentterm:task-dependency:remove',
   requestChanges: 'agentterm:review:request-changes',
   requestReview: 'agentterm:review:request',
   retryExecution: 'agentterm:execution:retry',
@@ -38,6 +54,7 @@ export const desktopIpcChannels = Object.freeze({
   terminalDetach: 'agentterm:terminal:detach',
   terminalResize: 'agentterm:terminal:resize',
   terminalWrite: 'agentterm:terminal:write',
+  unregisterQualityGate: 'agentterm:quality-gates:unregister',
   updateSettings: 'agentterm:settings:update',
 } as const);
 
@@ -79,6 +96,38 @@ interface QualityGateRequest extends TaskRequest {
   readonly gateId: string;
 }
 
+interface QualityGateIdRequest {
+  readonly gateId: string;
+}
+
+interface QualityGateRegistrationRequest {
+  readonly command: {
+    readonly arguments: readonly string[];
+    readonly executablePath: string;
+  };
+  readonly id: string;
+  readonly kind: QualityGateKind;
+  readonly timeoutMs: number;
+}
+
+interface CreateArtifactRequest {
+  readonly content: string;
+  readonly createdAt: number;
+  readonly id: string;
+  readonly kind: CreateExecutionArtifactInput['kind'];
+  readonly sessionId?: string;
+  readonly taskId: string;
+}
+
+interface TaskDependencyEdgeRequest {
+  readonly dependencyTaskId: string;
+  readonly taskId: string;
+}
+
+interface ProjectTasksRequest {
+  readonly projectId: string;
+}
+
 interface PullRequestRefreshRequest extends TaskRequest {
   readonly pullRequestNumber: number;
   readonly repositoryName: string;
@@ -101,19 +150,27 @@ interface TerminalResizeRequest extends PtyTerminalSize, TerminalSubscriptionReq
 
 export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.acceptPlan]: PlanRequest;
+  readonly [desktopIpcChannels.addTaskDependency]: TaskDependencyEdgeRequest;
   readonly [desktopIpcChannels.approveReview]: ReviewRequest;
   readonly [desktopIpcChannels.beginTaskPlanning]: TaskRequest;
+  readonly [desktopIpcChannels.createArtifact]: CreateArtifactRequest;
   readonly [desktopIpcChannels.createTask]: CreateTaskRequest;
   readonly [desktopIpcChannels.createPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.getTaskFileDiff]: GetTaskFileDiffInput;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskRequest;
+  readonly [desktopIpcChannels.listProjectTasks]: ProjectTasksRequest;
+  readonly [desktopIpcChannels.listQualityGateDetails]: EmptyRequest;
   readonly [desktopIpcChannels.listQualityGates]: EmptyRequest;
   readonly [desktopIpcChannels.listTaskChanges]: TaskRequest;
+  readonly [desktopIpcChannels.listTaskDependencies]: TaskRequest;
+  readonly [desktopIpcChannels.listTaskReviews]: TaskRequest;
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
   readonly [desktopIpcChannels.refreshPullRequest]: PullRequestRefreshRequest;
+  readonly [desktopIpcChannels.registerQualityGate]: QualityGateRegistrationRequest;
+  readonly [desktopIpcChannels.removeTaskDependency]: TaskDependencyEdgeRequest;
   readonly [desktopIpcChannels.requestChanges]: ReviewRequest;
   readonly [desktopIpcChannels.requestReview]: TaskRequest;
   readonly [desktopIpcChannels.retryExecution]: AgentTaskRequest;
@@ -124,24 +181,33 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.terminalDetach]: TerminalSubscriptionRequest;
   readonly [desktopIpcChannels.terminalResize]: TerminalResizeRequest;
   readonly [desktopIpcChannels.terminalWrite]: TerminalWriteRequest;
+  readonly [desktopIpcChannels.unregisterQualityGate]: QualityGateIdRequest;
   readonly [desktopIpcChannels.updateSettings]: UpdateApplicationSettingsInput;
 }
 
 export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.acceptPlan]: null;
+  readonly [desktopIpcChannels.addTaskDependency]: TaskDependency;
   readonly [desktopIpcChannels.approveReview]: null;
   readonly [desktopIpcChannels.beginTaskPlanning]: null;
+  readonly [desktopIpcChannels.createArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.createTask]: CreateDesktopTaskResult;
   readonly [desktopIpcChannels.createPullRequest]: null;
   readonly [desktopIpcChannels.getTaskFileDiff]: TaskFileDiff;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskPullRequestState;
+  readonly [desktopIpcChannels.listProjectTasks]: readonly Task[];
+  readonly [desktopIpcChannels.listQualityGateDetails]: readonly QualityGate[];
   readonly [desktopIpcChannels.listQualityGates]: readonly QualityGateSummary[];
   readonly [desktopIpcChannels.listTaskChanges]: TaskChangeSet;
+  readonly [desktopIpcChannels.listTaskDependencies]: readonly TaskDependency[];
+  readonly [desktopIpcChannels.listTaskReviews]: readonly TaskReviewSummary[];
   readonly [desktopIpcChannels.loadSettings]: ApplicationSettingsView;
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
   readonly [desktopIpcChannels.refreshPullRequest]: null;
+  readonly [desktopIpcChannels.registerQualityGate]: null;
+  readonly [desktopIpcChannels.removeTaskDependency]: boolean;
   readonly [desktopIpcChannels.requestChanges]: null;
   readonly [desktopIpcChannels.requestReview]: null;
   readonly [desktopIpcChannels.retryExecution]: null;
@@ -152,6 +218,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.terminalDetach]: null;
   readonly [desktopIpcChannels.terminalResize]: null;
   readonly [desktopIpcChannels.terminalWrite]: null;
+  readonly [desktopIpcChannels.unregisterQualityGate]: boolean;
   readonly [desktopIpcChannels.updateSettings]: ApplicationSettingsView;
 }
 
@@ -180,26 +247,35 @@ export interface TerminalIpcEventMessage {
 
 export interface AgentTermDesktopApi {
   acceptTaskPlan(input: PlanRequest): Promise<void>;
+  addTaskDependency(input: TaskDependencyEdgeRequest): Promise<TaskDependency>;
   approveTaskReview(input: ReviewRequest): Promise<void>;
   attachTerminal(input: AttachAgentSessionTerminalInput): Promise<AgentSessionTerminalAttachment>;
   beginTaskPlanning(input: TaskRequest): Promise<void>;
+  createArtifact(input: CreateArtifactRequest): Promise<ExecutionArtifact>;
   createTask(input: CreateTaskRequest): Promise<CreateDesktopTaskResult>;
   createTaskPullRequest(input: TaskRequest): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
   inspectTaskPullRequest(input: TaskRequest): Promise<TaskPullRequestState>;
+  listProjectTasks(input: ProjectTasksRequest): Promise<readonly Task[]>;
+  listQualityGateDetails(): Promise<readonly QualityGate[]>;
   listQualityGates(): Promise<readonly QualityGateSummary[]>;
   listTaskChanges(input: TaskRequest): Promise<TaskChangeSet>;
+  listTaskDependencies(input: TaskRequest): Promise<readonly TaskDependency[]>;
+  listTaskReviews(input: TaskRequest): Promise<readonly TaskReviewSummary[]>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   openProject(): Promise<OpenDesktopProjectResult>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
+  registerQualityGate(input: QualityGateRegistrationRequest): Promise<void>;
+  removeTaskDependency(input: TaskDependencyEdgeRequest): Promise<boolean>;
   requestTaskChanges(input: ReviewRequest): Promise<void>;
   requestTaskReview(input: TaskRequest): Promise<void>;
   retryTaskExecution(input: AgentTaskRequest): Promise<void>;
   runQualityGate(input: QualityGateRequest): Promise<void>;
   startTaskExecution(input: AgentTaskRequest): Promise<void>;
   startTaskPlanning(input: AgentTaskRequest): Promise<void>;
+  unregisterQualityGate(input: QualityGateIdRequest): Promise<boolean>;
   updateSettings(input: UpdateApplicationSettingsInput): Promise<ApplicationSettingsView>;
 }
 
@@ -227,6 +303,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
   switch (channel) {
     case desktopIpcChannels.loadWorkspace:
     case desktopIpcChannels.loadSettings:
+    case desktopIpcChannels.listQualityGateDetails:
     case desktopIpcChannels.listQualityGates:
     case desktopIpcChannels.openProject:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
@@ -319,10 +396,74 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.beginTaskPlanning:
     case desktopIpcChannels.inspectPullRequest:
     case desktopIpcChannels.listTaskChanges:
+    case desktopIpcChannels.listTaskDependencies:
+    case desktopIpcChannels.listTaskReviews:
     case desktopIpcChannels.pushTaskBranch:
     case desktopIpcChannels.requestReview: {
       const record = exactRecord(input, ['taskId']);
       return Object.freeze({ taskId: readIdentity(record.taskId) }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.unregisterQualityGate: {
+      const record = exactRecord(input, ['gateId']);
+      return Object.freeze({
+        gateId: readIdentity(record.gateId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.addTaskDependency:
+    case desktopIpcChannels.removeTaskDependency: {
+      const record = exactRecord(input, ['dependencyTaskId', 'taskId']);
+      return Object.freeze({
+        dependencyTaskId: readIdentity(record.dependencyTaskId),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.listProjectTasks: {
+      const record = exactRecord(input, ['projectId']);
+      return Object.freeze({
+        projectId: readIdentity(record.projectId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.createArtifact: {
+      const record = readRecord(input);
+      const expected =
+        record.sessionId === undefined
+          ? ['content', 'createdAt', 'id', 'kind', 'taskId']
+          : ['content', 'createdAt', 'id', 'kind', 'sessionId', 'taskId'];
+      assertExactKeys(Object.keys(record), expected);
+      const content = readBoundedString(record.content, 1_048_576);
+      const createdAt = readNonnegativeSafeInteger(record.createdAt);
+      const id = readIdentity(record.id);
+      const kind = readExecutionArtifactKind(record.kind);
+      const taskId = readIdentity(record.taskId);
+      const sessionId =
+        record.sessionId === undefined ? undefined : readIdentity(record.sessionId);
+      return Object.freeze({
+        content,
+        createdAt,
+        id,
+        kind,
+        ...(sessionId === undefined ? {} : { sessionId }),
+        taskId,
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.registerQualityGate: {
+      const record = exactRecord(input, [
+        'command',
+        'id',
+        'kind',
+        'timeoutMs',
+      ]);
+      const command = exactRecord(record.command, ['arguments', 'executablePath']);
+      const argumentsList = readStringArray(command.arguments, 32);
+      return Object.freeze({
+        command: Object.freeze({
+          arguments: Object.freeze(argumentsList),
+          executablePath: readBoundedString(command.executablePath, 32_768),
+        }),
+        id: readIdentity(record.id),
+        kind: readQualityGateKind(record.kind),
+        timeoutMs: readNonnegativeSafeInteger(record.timeoutMs),
+      }) as DesktopIpcRequestMap[C];
     }
   }
 }
@@ -536,6 +677,27 @@ function readRepositoryRelativePath(input: unknown): string {
     fail();
   }
   return value;
+}
+
+function readExecutionArtifactKind(input: unknown): CreateExecutionArtifactInput['kind'] {
+  if (typeof input !== 'string') fail();
+  if (Object.values(ExecutionArtifactKind).includes(input as CreateExecutionArtifactInput['kind'])) {
+    return input as CreateExecutionArtifactInput['kind'];
+  }
+  fail();
+}
+
+function readQualityGateKind(input: unknown): QualityGateKind {
+  if (typeof input !== 'string') fail();
+  if (Object.values(QualityGateKind).includes(input as QualityGateKind)) {
+    return input as QualityGateKind;
+  }
+  fail();
+}
+
+function readStringArray(input: unknown, maxLength: number): readonly string[] {
+  if (!Array.isArray(input) || input.length > maxLength) fail();
+  return Object.freeze(input.map((entry) => readBoundedString(entry, maximumIdentityLength)));
 }
 
 function readTerminalData(input: unknown): string {

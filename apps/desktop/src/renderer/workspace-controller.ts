@@ -1,7 +1,7 @@
 import type {
   AgentWorkspaceOverview,
   ApplicationSettingsView,
-  QualityGateSummary,
+  QualityGate,
   TaskChangeSet,
   TaskFileChange,
   TaskFileDiff,
@@ -51,11 +51,14 @@ export type WorkspaceChangeInspection =
 
 export type WorkspaceActionKind =
   | 'accept-plan'
+  | 'add-dependency'
   | 'approve-review'
   | 'begin-planning'
   | 'create-pull-request'
+  | 'produce-artifact'
   | 'push-branch'
   | 'refresh-pull-request'
+  | 'remove-dependency'
   | 'request-changes'
   | 'request-review'
   | 'retry-execution'
@@ -64,6 +67,19 @@ export type WorkspaceActionKind =
   | 'start-planning';
 
 export type WorkspaceAction =
+  | {
+      readonly dependencyTaskId: string;
+      readonly kind: 'add-dependency' | 'remove-dependency';
+      readonly taskId: string;
+    }
+  | {
+      readonly content: string;
+      readonly createdAt: number;
+      readonly id: string;
+      readonly kind: 'produce-artifact';
+      readonly sessionId: string | undefined;
+      readonly taskId: string;
+    }
   | {
       readonly gateId: string;
       readonly kind: 'run-quality-gate';
@@ -77,7 +93,14 @@ export type WorkspaceAction =
       readonly taskId: string;
     }
   | {
-      readonly kind: Exclude<WorkspaceActionKind, 'refresh-pull-request' | 'run-quality-gate'>;
+      readonly kind: Exclude<
+        WorkspaceActionKind,
+        | 'add-dependency'
+        | 'produce-artifact'
+        | 'refresh-pull-request'
+        | 'remove-dependency'
+        | 'run-quality-gate'
+      >;
       readonly taskId: string;
     };
 
@@ -92,7 +115,7 @@ export type WorkspaceSnapshot =
       readonly layout: WorkspaceLayout;
       readonly onboardingBusy?: boolean;
       readonly overview: AgentWorkspaceOverview;
-      readonly qualityGates?: readonly QualityGateSummary[];
+      readonly qualityGates?: readonly QualityGate[];
       readonly pullRequestInspection?: WorkspacePullRequestInspection;
       readonly selectedAgentId: string | undefined;
       readonly settings?: ApplicationSettingsView;
@@ -125,7 +148,7 @@ export class WorkspaceController {
     try {
       const [overview, qualityGates, settings] = await Promise.all([
         this.client.loadWorkspace(),
-        this.client.listQualityGates(),
+        this.client.listQualityGateDetails(),
         this.client.loadSettings(),
       ]);
       if (this.disposed || generation !== this.loadGeneration) {
@@ -149,7 +172,7 @@ export class WorkspaceController {
     try {
       const [overview, qualityGates, settings] = await Promise.all([
         this.client.loadWorkspace(),
-        this.client.listQualityGates(),
+        this.client.listQualityGateDetails(),
         this.client.loadSettings(),
       ]);
       if (!this.disposed && generation === this.loadGeneration) {
@@ -440,6 +463,83 @@ export class WorkspaceController {
     return this.executeSelectedAction('run-quality-gate', gateId);
   }
 
+  public async registerQualityGate(input: {
+    readonly arguments: readonly string[];
+    readonly executablePath: string;
+    readonly id: string;
+    readonly kind: 'BUILD' | 'CUSTOM' | 'FORMAT' | 'LINT' | 'TEST' | 'TYPECHECK';
+    readonly timeoutMs: number;
+  }): Promise<void> {
+    await this.client.registerQualityGate(input);
+    await this.refreshQualityGateCatalog();
+  }
+
+  public async unregisterQualityGate(gateId: string): Promise<void> {
+    await this.client.unregisterQualityGate({ gateId });
+    await this.refreshQualityGateCatalog();
+  }
+
+  private async refreshQualityGateCatalog(): Promise<void> {
+    if (this.snapshot.kind !== 'ready') return;
+    try {
+      const gates = await this.client.listQualityGateDetails();
+      this.publish({
+        ...this.snapshot,
+        qualityGates: Object.freeze([...gates]),
+      });
+    } catch {
+      // Surface via existing error path; keep previous snapshot.
+    }
+  }
+
+  public produceArtifact(input: {
+    readonly content: string;
+    readonly createdAt: number;
+    readonly id: string;
+    readonly sessionId: string | undefined;
+    readonly taskId: string;
+  }): Promise<void> {
+    if (this.snapshot.kind !== 'ready' || !containsTask(this.snapshot.overview, input.taskId)) {
+      return Promise.resolve();
+    }
+    return this.executeAction({
+      content: input.content,
+      createdAt: input.createdAt,
+      id: input.id,
+      kind: 'produce-artifact',
+      sessionId: input.sessionId,
+      taskId: input.taskId,
+    });
+  }
+
+  public addTaskDependency(input: {
+    readonly dependencyTaskId: string;
+    readonly taskId: string;
+  }): Promise<void> {
+    if (this.snapshot.kind !== 'ready' || !containsTask(this.snapshot.overview, input.taskId)) {
+      return Promise.resolve();
+    }
+    return this.executeAction({
+      dependencyTaskId: input.dependencyTaskId,
+      kind: 'add-dependency',
+      taskId: input.taskId,
+    });
+  }
+
+  public removeTaskDependency(input: {
+    readonly dependencyTaskId: string;
+    readonly taskId: string;
+  }): Promise<void> {
+    if (this.snapshot.kind !== 'ready' || !containsTask(this.snapshot.overview, input.taskId)) {
+      return Promise.resolve();
+    }
+    return this.executeAction({
+      dependencyTaskId: input.dependencyTaskId,
+      kind: 'remove-dependency',
+      taskId: input.taskId,
+    });
+  }
+
   public async selectTaskChange(change: TaskFileChange): Promise<void> {
     const current = this.snapshot;
     const inspection = current.kind === 'ready' ? current.changeInspection : undefined;
@@ -566,6 +666,52 @@ export class WorkspaceController {
     return attempt;
   }
 
+  private executeAction(action: WorkspaceAction): Promise<void> {
+    if (this.actionAttempt !== undefined) {
+      return this.actionAttempt;
+    }
+    const attempt = (async (): Promise<void> => {
+      const current = this.snapshot;
+      if (current.kind !== 'ready') return;
+      let sideEffectCompleted = false;
+      this.publish(
+        Object.freeze({
+          ...current,
+          actionError: undefined,
+          activeAction: Object.freeze(action),
+        }),
+      );
+      try {
+        await runWorkspaceAction(this.client, action, undefined, undefined);
+        sideEffectCompleted = true;
+        await this.refresh();
+      } catch {
+        if (!this.disposed) {
+          const latest = this.snapshot.kind === 'ready' ? this.snapshot : current;
+          this.publish(
+            Object.freeze({
+              ...latest,
+              actionError: sideEffectCompleted
+                ? 'Artifact persisted, but workspace status could not be refreshed.'
+                : 'Artifact could not be persisted. Check the content format.',
+              activeAction: undefined,
+              selectedTaskId: latest.selectedTaskId ?? action.taskId,
+            }),
+          );
+        }
+      }
+    })();
+    this.actionAttempt = attempt;
+    void attempt
+      .finally(() => {
+        if (this.actionAttempt === attempt) {
+          this.actionAttempt = undefined;
+        }
+      })
+      .catch(() => undefined);
+    return attempt;
+  }
+
   public dispose(): void {
     this.disposed = true;
     this.loadGeneration += 1;
@@ -595,7 +741,7 @@ export class WorkspaceController {
       sideEffectCompleted = true;
       const [overview, qualityGates] = await Promise.all([
         this.client.loadWorkspace(),
-        this.client.listQualityGates(),
+        this.client.listQualityGateDetails(),
       ]);
       if (!this.disposed) {
         const preferredTaskId =
@@ -625,7 +771,7 @@ export class WorkspaceController {
   private async reloadAfterOnboarding(preferredTaskId: string | undefined): Promise<void> {
     const [overview, qualityGates, settings] = await Promise.all([
       this.client.loadWorkspace(),
-      this.client.listQualityGates(),
+      this.client.listQualityGateDetails(),
       this.client.loadSettings(),
     ]);
     if (this.disposed) return;
@@ -635,7 +781,7 @@ export class WorkspaceController {
 
   private publishReady(
     overview: AgentWorkspaceOverview,
-    qualityGates: readonly QualityGateSummary[],
+    qualityGates: readonly QualityGate[],
     preferredTaskId: string | undefined,
     settings: ApplicationSettingsView | undefined,
   ): void {
@@ -904,6 +1050,28 @@ async function runWorkspaceAction(
     case 'create-pull-request':
       await client.createTaskPullRequest({ taskId: action.taskId });
       return;
+    case 'produce-artifact':
+      await client.createArtifact({
+        content: action.content,
+        createdAt: action.createdAt,
+        id: action.id,
+        kind: 'plan',
+        ...(action.sessionId === undefined ? {} : { sessionId: action.sessionId }),
+        taskId: action.taskId,
+      });
+      return;
+    case 'add-dependency':
+      await client.addTaskDependency({
+        dependencyTaskId: action.dependencyTaskId,
+        taskId: action.taskId,
+      });
+      return;
+    case 'remove-dependency':
+      await client.removeTaskDependency({
+        dependencyTaskId: action.dependencyTaskId,
+        taskId: action.taskId,
+      });
+      return;
     case 'refresh-pull-request':
       await client.refreshTaskPullRequest({
         pullRequestNumber: action.pullRequestNumber,
@@ -952,6 +1120,11 @@ function canRunAction(
       return (
         pullRequestInspection?.kind === 'ready' && pullRequestInspection.result.canCreatePullRequest
       );
+    case 'produce-artifact':
+      return true;
+    case 'add-dependency':
+    case 'remove-dependency':
+      return true;
     case 'refresh-pull-request':
       return (
         pullRequestInspection?.kind === 'ready' &&

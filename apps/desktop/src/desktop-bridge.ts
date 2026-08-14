@@ -90,6 +90,7 @@ export function createDesktopBridge(
 
   const api: AgentTermDesktopApi = {
     acceptTaskPlan: (input) => invokeVoid(desktopIpcChannels.acceptPlan, input),
+    addTaskDependency: (input) => invoke(desktopIpcChannels.addTaskDependency, input),
     approveTaskReview: (input) => invokeVoid(desktopIpcChannels.approveReview, input),
     attachTerminal: async ({ eventSink, sessionId }) => {
       if (typeof eventSink !== 'function') {
@@ -136,23 +137,31 @@ export function createDesktopBridge(
       });
     },
     beginTaskPlanning: (input) => invokeVoid(desktopIpcChannels.beginTaskPlanning, input),
+    createArtifact: (input) => invoke(desktopIpcChannels.createArtifact, input),
     createTask: (input) => invoke(desktopIpcChannels.createTask, input),
     createTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.createPullRequest, input),
     getTaskFileDiff: (input) => invoke(desktopIpcChannels.getTaskFileDiff, input),
     inspectTaskPullRequest: (input) => invoke(desktopIpcChannels.inspectPullRequest, input),
+    listProjectTasks: (input) => invoke(desktopIpcChannels.listProjectTasks, input),
+    listQualityGateDetails: () => invoke(desktopIpcChannels.listQualityGateDetails, {}),
     listQualityGates: () => invoke(desktopIpcChannels.listQualityGates, {}),
     listTaskChanges: (input) => invoke(desktopIpcChannels.listTaskChanges, input),
+    listTaskDependencies: (input) => invoke(desktopIpcChannels.listTaskDependencies, input),
+    listTaskReviews: (input) => invoke(desktopIpcChannels.listTaskReviews, input),
     loadSettings: () => invoke(desktopIpcChannels.loadSettings, {}),
     loadWorkspace: () => invoke(desktopIpcChannels.loadWorkspace, {}),
     openProject: () => invoke(desktopIpcChannels.openProject, {}),
     pushTaskBranch: (input) => invokeVoid(desktopIpcChannels.pushTaskBranch, input),
     refreshTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.refreshPullRequest, input),
+    registerQualityGate: (input) => invokeVoid(desktopIpcChannels.registerQualityGate, input),
+    removeTaskDependency: (input) => invoke(desktopIpcChannels.removeTaskDependency, input),
     requestTaskChanges: (input) => invokeVoid(desktopIpcChannels.requestChanges, input),
     requestTaskReview: (input) => invokeVoid(desktopIpcChannels.requestReview, input),
     retryTaskExecution: (input) => invokeVoid(desktopIpcChannels.retryExecution, input),
     runQualityGate: (input) => invokeVoid(desktopIpcChannels.runQualityGate, input),
     startTaskExecution: (input) => invokeVoid(desktopIpcChannels.startExecution, input),
     startTaskPlanning: (input) => invokeVoid(desktopIpcChannels.startPlanning, input),
+    unregisterQualityGate: (input) => invoke(desktopIpcChannels.unregisterQualityGate, input),
     updateSettings: (input) => invoke(desktopIpcChannels.updateSettings, input),
   };
   Object.freeze(api);

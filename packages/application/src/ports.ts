@@ -218,6 +218,10 @@ export interface QualityGateCatalog {
   findById(id: string): Promise<QualityGate | undefined>;
   /** Lists trusted configured gates; Presentation receives only safe projections. */
   list(): Promise<readonly QualityGate[]>;
+  /** Registers a trusted gate; validation belongs to the use case. */
+  register(gate: QualityGate): Promise<void>;
+  /** Removes a trusted gate by id; returns false when nothing matched. */
+  unregister(id: string): Promise<boolean>;
 }
 
 export interface QualityGateRunRepository {
