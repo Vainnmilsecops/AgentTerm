@@ -44,6 +44,9 @@ importers:
       '@agentterm/application':
         specifier: workspace:*
         version: link:../../packages/application
+      '@agentterm/infrastructure':
+        specifier: workspace:*
+        version: link:../../packages/infrastructure
       '@agentterm/shared':
         specifier: workspace:*
         version: link:../../packages/shared

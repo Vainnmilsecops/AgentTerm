@@ -20,6 +20,6 @@ Electron's larger binary and privileged main process remain accepted MVP costs. 
 
 ## Consequences
 
-- Desktop Presentation depends on Application interfaces; native capabilities live behind Infrastructure ports/adapters.
+- Desktop renderer Presentation depends on Application-facing contracts only; native capabilities live behind Infrastructure ports/adapters. The Electron main entrypoint is the outer composition root and may depend on both Application and Infrastructure to bind those ports, but it must expose them to the renderer only through the validated preload/IPC boundary.
 - Electron must be kept current because its Chromium and Node runtimes are part of the shipped security surface.
 - A later ADR is required before replacing Electron or introducing a second desktop runtime.

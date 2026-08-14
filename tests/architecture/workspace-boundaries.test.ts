@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ type Manifest = {
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const packages = {
-  'apps/desktop': ['@agentterm/application', '@agentterm/shared'],
+  'apps/desktop': ['@agentterm/application', '@agentterm/infrastructure', '@agentterm/shared'],
   'apps/website': [],
   'packages/application': ['@agentterm/domain'],
   'packages/config': [],
@@ -41,6 +41,14 @@ function internalDependencies(manifest: Manifest): string[] {
     .sort();
 }
 
+function listSourceFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return listSourceFiles(path);
+    return /\.[cm]?[jt]sx?$/u.test(entry.name) ? [path] : [];
+  });
+}
+
 describe('workspace dependency direction', () => {
   it.each(Object.entries(packages))(
     '%s only declares allowed AgentTerm dependencies',
@@ -50,4 +58,15 @@ describe('workspace dependency direction', () => {
       expect(internalDependencies(manifest)).toEqual([...allowed].sort());
     },
   );
+
+  it('keeps Electron, Node, and Infrastructure imports out of the desktop renderer', () => {
+    const rendererDirectory = resolve(workspaceRoot, 'apps', 'desktop', 'src', 'renderer');
+
+    for (const path of listSourceFiles(rendererDirectory)) {
+      const source = readFileSync(path, 'utf8');
+      expect(source, path).not.toMatch(
+        /(?:from\s+|import\s*\(|import\s+|require\s*\()\s*['"](?:electron|node:|@agentterm\/infrastructure)/u,
+      );
+    }
+  });
 });

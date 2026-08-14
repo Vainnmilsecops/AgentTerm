@@ -1,7 +1,6 @@
 import type {
   AgentWorkspaceOverview,
   ApplicationSettingsView,
-  GetTaskFileDiffInput,
   QualityGateSummary,
   TaskChangeSet,
   TaskFileChange,
@@ -10,7 +9,7 @@ import type {
   UpdateApplicationSettingsInput,
 } from '@agentterm/application';
 
-import type { TerminalSessionClient } from './terminal-controller';
+import type { AgentTermDesktopApi } from '../ipc-contract';
 import {
   activateWorkspacePane,
   activateWorkspaceTab,
@@ -28,31 +27,7 @@ import {
   type WorkspaceLayout,
 } from './workspace-layout';
 
-export interface AgentWorkspaceClient extends TerminalSessionClient {
-  acceptTaskPlan(input: { readonly planId: string; readonly taskId: string }): Promise<void>;
-  approveTaskReview(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
-  getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
-  createTaskPullRequest(input: { readonly taskId: string }): Promise<void>;
-  inspectTaskPullRequest(input: { readonly taskId: string }): Promise<TaskPullRequestState>;
-  listTaskChanges(input: { readonly taskId: string }): Promise<TaskChangeSet>;
-  listQualityGates(): Promise<readonly QualityGateSummary[]>;
-  loadWorkspace(): Promise<AgentWorkspaceOverview>;
-  loadSettings(): Promise<ApplicationSettingsView>;
-  requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
-  requestTaskReview(input: { readonly taskId: string }): Promise<void>;
-  pushTaskBranch(input: { readonly taskId: string }): Promise<void>;
-  refreshTaskPullRequest(input: {
-    readonly pullRequestNumber: number;
-    readonly repositoryName: string;
-    readonly repositoryOwner: string;
-    readonly taskId: string;
-  }): Promise<void>;
-  retryTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
-  runQualityGate(input: { readonly gateId: string; readonly taskId: string }): Promise<void>;
-  startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
-  startTaskPlanning(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
-  updateSettings(input: UpdateApplicationSettingsInput): Promise<ApplicationSettingsView>;
-}
+export type AgentWorkspaceClient = AgentTermDesktopApi;
 
 export type WorkspacePullRequestInspection =
   | { readonly kind: 'idle' }
