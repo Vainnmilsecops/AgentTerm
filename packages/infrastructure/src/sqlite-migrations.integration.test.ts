@@ -163,6 +163,7 @@ describe('SQLite migrations', () => {
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
+          { name: 'task-briefs', version: 12 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -197,14 +198,29 @@ describe('SQLite migrations', () => {
           .prepare('INSERT INTO projects (id, name) VALUES (?, ?)')
           .run('project-1', 'AgentTerm');
         const insertTask = database.prepare(
-          'INSERT INTO tasks (id, project_id, title, phase) VALUES (?, ?, ?, ?)',
+          'INSERT INTO tasks (id, project_id, title, brief, phase) VALUES (?, ?, ?, ?, ?)',
         );
 
         expect(() =>
-          insertTask.run('invalid-phase', 'project-1', 'Invalid phase', 'EXITED'),
+          insertTask.run('invalid-phase', 'project-1', 'Invalid phase', null, 'EXITED'),
         ).toThrow();
         expect(() =>
-          insertTask.run('missing-project', 'missing', 'Missing project', 'BACKLOG'),
+          insertTask.run('missing-project', 'missing', 'Missing project', null, 'BACKLOG'),
+        ).toThrow();
+        expect(() =>
+          insertTask.run('blank-brief', 'project-1', 'Blank brief', '\n\t', 'BACKLOG'),
+        ).toThrow();
+        expect(() =>
+          insertTask.run(
+            'oversized-brief',
+            'project-1',
+            'Oversized brief',
+            'x'.repeat(16_385),
+            'BACKLOG',
+          ),
+        ).toThrow();
+        expect(() =>
+          insertTask.run('nul-brief', 'project-1', 'NUL brief', 'unsafe\0brief', 'BACKLOG'),
         ).toThrow();
         expect(database.prepare('SELECT count(*) AS count FROM tasks').get()).toEqual({
           count: 0,
@@ -264,8 +280,11 @@ describe('SQLite migrations', () => {
         expect(migrated.prepare('SELECT id, name FROM projects').all()).toEqual([
           { id: 'legacy-project', name: 'Legacy Project' },
         ]);
-        expect(migrated.prepare('SELECT id, project_id, title, phase FROM tasks').all()).toEqual([
+        expect(
+          migrated.prepare('SELECT id, project_id, title, brief, phase FROM tasks').all(),
+        ).toEqual([
           {
+            brief: null,
             id: 'legacy-task',
             phase: 'PLANNING',
             project_id: 'legacy-project',
@@ -366,6 +385,7 @@ describe('SQLite migrations', () => {
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
+          { name: 'task-briefs', version: 12 },
         ]);
       } finally {
         migrated.close();
@@ -441,6 +461,7 @@ describe('SQLite migrations', () => {
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
+          { name: 'task-briefs', version: 12 },
         ]);
       } finally {
         migrated.close();
@@ -535,6 +556,7 @@ describe('SQLite migrations', () => {
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
+          { name: 'task-briefs', version: 12 },
         ]);
       } finally {
         migrated.close();
@@ -600,6 +622,7 @@ describe('SQLite migrations', () => {
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
+          { name: 'task-briefs', version: 12 },
         ]);
       } finally {
         migrated.close();
@@ -707,6 +730,7 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'pull-requests', version: 9 }),
           expect.objectContaining({ name: 'application-settings', version: 10 }),
           expect.objectContaining({ name: 'pull-request-sync', version: 11 }),
+          expect.objectContaining({ name: 'task-briefs', version: 12 }),
         ]);
       } finally {
         migrated.close();

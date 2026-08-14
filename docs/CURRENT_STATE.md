@@ -8,6 +8,9 @@ Updated: 2026-08-14
 - `@agentterm/domain` now exposes pure TypeScript Project, Task, Agent Session, and Quality Gate models.
 - `@agentterm/application` now exposes use cases to create Projects, create Tasks, and transition the current Task lifecycle.
 - `@agentterm/infrastructure` implements the existing Project and Task repository ports with SQLite.
+- Tasks may now carry a bounded multiline Task Brief. Migration 12 adds the optional column without
+  inventing content for legacy Tasks; new desktop onboarding requires a validated brief and the
+  workspace renders it as escaped text.
 - Project Management can inspect and open an existing local Git working tree, persist it atomically, deduplicate canonical path aliases, and list recent Projects. The desktop main process now owns a native directory picker; renderer IPC carries only an empty open request and the safe `OPENED` / `CANCELLED` result, never the selected native path.
 - A read-only Git repository adapter now returns canonical root, explicit attached/detached/unborn HEAD state, an offline base-branch suggestion, and structured working-tree status.
 - Task Worktree use cases now create, reuse, inspect, and safely clean up one deterministic primary Worktree per Task while preserving its branch and dirty or ignored files.
@@ -24,6 +27,11 @@ Updated: 2026-08-14
 - Migration 4 stores every Task session plus ordered status/runtime evidence. SQLite appends history and its current-session snapshot atomically with revision checks, so new attempts never overwrite earlier sessions.
 - Application startup reconciliation now finds persisted Agent Sessions whose history still implies possible runtime ownership, including a fatal runtime failure with no observed process exit, and appends a fatal `RUNTIME_OWNERSHIP_LOST` event before workspace reads. Restored sessions become `FAILED`, retain their full history, and never change the parent Task phase.
 - Application now exposes `startTaskPlanning` for a `PLANNING` Task: it resolves the user-selected stable agent before Git mutation, creates or reuses the primary Task Worktree, records a fresh Agent Session, and keeps the Task in `PLANNING`. Re-plan attempts append new Sessions in the same Worktree.
+- Planning and execution attempts deliver a one-line, provider-neutral kickoff containing the
+  persisted Task identity, brief, current phase, and human-owned lifecycle rule through the owned
+  PTY input handle. Brief content is not placed in adapter argv or environment. An initial write
+  failure is recorded as fatal `WRITE` evidence, requests process termination, and leaves Task phase
+  and Worktree state unchanged.
 - A session-produced structured Plan is stored as a new immutable `planning/plan.md` artifact. Only explicit user acceptance of the exact latest persisted Plan moves `PLANNING -> RUNNING`; SQLite atomically rechecks Task phase, Plan identity/provenance, the complete Session revision snapshot, and absence of a possible live writer. Agent output and process exit never accept a Plan.
 - `startTaskExecution` now requires an already-`RUNNING` history-free Task. After planning or an earlier execution attempt, `retryTaskExecution` creates the next selected-agent Session in the existing primary Worktree without cleaning it or replacing history.
 - Application now exposes an explicit `retryTaskExecution`: it reconstructs the prior attempt from persisted history, requires its latest Session to be `FAILED` or `EXITED`, resolves the user's selected stable agent ID, reuses the primary Worktree without cleaning dirty code, and creates a new Session while preserving every earlier attempt.
@@ -58,6 +66,10 @@ Updated: 2026-08-14
 - Application use cases are async functions with explicit inputs, Domain outputs, and injected repository ports.
 - Project and Task IDs cannot be silently replaced through create use cases; Task creation also requires an existing Project.
 - Task transitions load and persist state through `TaskRepository`, while transition validity remains owned by Domain.
+- Task Brief is immutable Task context in the current slice: Domain owns its bounds and control-byte
+  policy, SQLite preserves it through every transition, and older rows remain valid with no brief.
+  Agent kickoff is Application policy layered above provider adapters and below Presentation; PTY
+  mechanics and agent-specific command construction remain unchanged.
 - The PTY port is runtime-only: Infrastructure owns `node-pty` and ConPTY mechanics, while process
   exit remains evidence and never changes `TaskPhase`. Agent-specific commands, session policy,
   and validated IPC remain outside that runtime layer.

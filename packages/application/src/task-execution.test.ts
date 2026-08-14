@@ -299,7 +299,7 @@ class FakePtyHandle implements PtyHandle {
   public readonly dispose = vi.fn(async () => undefined);
   public readonly terminate = vi.fn(async () => undefined);
   public async resize(): Promise<void> {}
-  public async write(): Promise<void> {}
+  public readonly write = vi.fn(async () => undefined);
 }
 
 class FakePtyRuntime implements PtyRuntime {
@@ -540,6 +540,29 @@ describe('startTaskExecution', () => {
       },
     ]);
     expect(observedEvents).toEqual([{ kind: 'started', sequence: 1 }]);
+  });
+
+  it('delivers the persisted Task Brief through PTY without exposing it in process config', async () => {
+    const fixture = createFixture();
+    const taskWithBrief = transitionTask(
+      createTask({
+        brief: 'Implement secure kickoff.\nPreserve history and tests.',
+        id: primaryWorktree.taskId,
+        projectId: project.id,
+        title: 'Task kickoff',
+      }),
+      TaskPhase.PLANNING,
+    );
+    fixture.tasks.replace(transitionTask(taskWithBrief, TaskPhase.RUNNING));
+
+    await startTaskExecution(executionInput, fixture.dependencies);
+
+    expect(fixture.runtime.handles[0]?.write).toHaveBeenCalledOnce();
+    expect(fixture.runtime.handles[0]?.write).toHaveBeenCalledWith(
+      'AgentTerm Task "Task kickoff" (task-1), phase RUNNING. Brief: Implement secure kickoff. Preserve history and tests. Work only in the current Task Worktree. Report progress and evidence. Do not change Task phase or mark it DONE; lifecycle decisions belong to the user.\r',
+    );
+    expect(JSON.stringify(fixture.runtime.specs[0])).not.toContain('Implement secure kickoff');
+    expect(JSON.stringify(fixture.adapter.requests[0])).not.toContain('Implement secure kickoff');
   });
 
   it('requires the explicit Retry action after an exited Session', async () => {

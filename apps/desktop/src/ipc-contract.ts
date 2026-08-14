@@ -52,6 +52,7 @@ interface TaskRequest {
 }
 
 interface CreateTaskRequest {
+  readonly brief: string;
   readonly projectId: string;
   readonly title: string;
 }
@@ -230,8 +231,9 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.openProject:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
     case desktopIpcChannels.createTask: {
-      const record = exactRecord(input, ['projectId', 'title']);
+      const record = exactRecord(input, ['brief', 'projectId', 'title']);
       return Object.freeze({
+        brief: readTaskBrief(record.brief),
         projectId: readIdentity(record.projectId),
         title: readTaskTitle(record.title),
       }) as DesktopIpcRequestMap[C];
@@ -493,6 +495,24 @@ function readAgentId(input: unknown): string {
 
 function readTaskTitle(input: unknown): string {
   return readBoundedString(input, 512);
+}
+
+function readTaskBrief(input: unknown): string {
+  const value = readBoundedString(input, 16_384);
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint === 0x7f ||
+      (codePoint !== undefined &&
+        codePoint <= 0x1f &&
+        codePoint !== 0x09 &&
+        codePoint !== 0x0a &&
+        codePoint !== 0x0d)
+    ) {
+      fail();
+    }
+  }
+  return value;
 }
 
 function readSubscriptionId(input: unknown): string {

@@ -73,6 +73,7 @@ export {
 export {
   createTask,
   InvalidTaskPhaseTransitionError,
+  TaskBriefLimits,
   transitionTask,
   type CreateTaskInput,
   type Task,

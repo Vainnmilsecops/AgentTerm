@@ -35,6 +35,8 @@ export interface StartAgentSessionInput {
   readonly agentId: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
+  /** Optional provider-neutral input delivered through the owned PTY after launch. */
+  readonly initialInput?: string;
   readonly initialSize: PtyTerminalSize;
   readonly sessionId: string;
   readonly taskId: string;
@@ -369,6 +371,39 @@ export class AgentSessionCoordinator {
       );
       runtimeState.handle = handle;
       this.ownedRuntimes.set(input.sessionId, runtimeState);
+      if (input.initialInput !== undefined && runtimeState.acceptingTerminalInput) {
+        try {
+          await handle.write(input.initialInput);
+        } catch (error) {
+          runtimeState.acceptingTerminalInput = false;
+          let failureToThrow = error;
+          try {
+            await this.persistLaunchFailure(
+              starting,
+              error instanceof PtyRuntimeError ? error.reason : 'RUNTIME_FAILURE',
+              undefined,
+              'WRITE',
+            );
+          } catch (persistenceError) {
+            failureToThrow = persistenceError;
+          }
+          try {
+            await handle.terminate();
+          } catch {
+            // The durable WRITE failure remains primary; keep ownership until settlement is known.
+          }
+          buffering = false;
+          for (const event of bufferedEvents) {
+            this.enqueueRuntimeEvent(input.sessionId, runtimeState, event);
+          }
+          try {
+            await this.flush(input.sessionId);
+          } catch (persistenceError) {
+            failureToThrow = persistenceError;
+          }
+          throw failureToThrow;
+        }
+      }
       buffering = false;
       for (const event of bufferedEvents) {
         this.enqueueRuntimeEvent(input.sessionId, runtimeState, event);
@@ -397,6 +432,7 @@ export class AgentSessionCoordinator {
     current: AgentSession,
     code: string,
     runtimeSequence?: number,
+    stage: AgentSessionFailureStage = 'START',
   ): Promise<void> {
     if (current.status === AgentSessionStatus.FAILED) {
       return;
@@ -407,7 +443,7 @@ export class AgentSessionCoordinator {
       kind: 'RUNTIME_FAILED',
       occurredAt: this.clock(),
       ...(runtimeSequence === undefined ? {} : { runtimeSequence }),
-      stage: 'START',
+      stage,
     });
     try {
       await this.append(current, failed);

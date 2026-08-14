@@ -42,6 +42,7 @@ describe('SQLite persistence', () => {
         );
         const backlog = await createTask(
           {
+            brief: 'Persist the user goal and acceptance criteria for every future Session.',
             id: 'task-1',
             projectId: project.id,
             title: 'Persist task state',
@@ -68,6 +69,7 @@ describe('SQLite persistence', () => {
           name: 'AgentTerm',
         });
         await expect(reopened.tasks.findById('task-1')).resolves.toEqual({
+          brief: 'Persist the user goal and acceptance criteria for every future Session.',
           id: 'task-1',
           phase: TaskPhase.PLANNING,
           projectId: 'project-1',

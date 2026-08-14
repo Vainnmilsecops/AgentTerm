@@ -44,6 +44,7 @@ import {
 
 class CapturingPtyRuntime implements PtyRuntime {
   public readonly specs: PtyLaunchSpec[] = [];
+  public readonly writes: string[] = [];
   private readonly sinks: PtyRuntimeEventSink[] = [];
 
   public async open(spec: PtyLaunchSpec, sink: PtyRuntimeEventSink): Promise<PtyHandle> {
@@ -54,7 +55,9 @@ class CapturingPtyRuntime implements PtyRuntime {
       dispose: async () => undefined,
       resize: async () => undefined,
       terminate: async () => undefined,
-      write: async () => undefined,
+      write: async (input) => {
+        this.writes.push(input);
+      },
     };
   }
 
@@ -92,6 +95,7 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
         });
         await createTask(
           {
+            brief: 'Implement the execution slice while preserving Worktree and Session history.',
             id: 'task-execution',
             projectId: 'project-execution',
             title: 'Launch Codex in a Task Worktree',
@@ -246,6 +250,20 @@ describe('Task execution with real Git, SQLite, and Codex command construction',
           expect(spec.executablePath).toBeTruthy();
           expect(spec.workingDirectory).toBe(first.worktree.worktree.worktreePath);
           expect(spec.arguments.slice(-2)).toEqual(['--cd', first.worktree.worktree.worktreePath]);
+          expect(JSON.stringify(spec)).not.toContain('preserving Worktree and Session history');
+        }
+        expect(runtime.writes).toHaveLength(4);
+        expect(runtime.writes.slice(0, 2)).toEqual([
+          expect.stringContaining('phase PLANNING'),
+          expect.stringContaining('phase PLANNING'),
+        ]);
+        expect(runtime.writes.slice(2)).toEqual([
+          expect.stringContaining('phase RUNNING'),
+          expect.stringContaining('phase RUNNING'),
+        ]);
+        for (const kickoff of runtime.writes) {
+          expect(kickoff).toContain('preserving Worktree and Session history');
+          expect(kickoff.endsWith('\r')).toBe(true);
         }
         await expect(persistence.tasks.findById(planningInput.taskId)).resolves.toMatchObject({
           phase: TaskPhase.RUNNING,

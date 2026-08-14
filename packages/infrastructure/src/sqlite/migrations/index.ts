@@ -9,6 +9,7 @@ import { taskDependenciesMigration } from './0008-task-dependencies';
 import { pullRequestsMigration } from './0009-pull-requests';
 import { applicationSettingsMigration } from './0010-application-settings';
 import { pullRequestSyncMigration } from './0011-pull-request-sync';
+import { taskBriefsMigration } from './0012-task-briefs';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -28,4 +29,5 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   pullRequestsMigration,
   applicationSettingsMigration,
   pullRequestSyncMigration,
+  taskBriefsMigration,
 ];

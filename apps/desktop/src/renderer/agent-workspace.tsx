@@ -39,6 +39,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onBeginPlanning: () => void;
   readonly onCreatePullRequest: () => void;
   readonly onCreateTask: (input: {
+    readonly brief: string;
     readonly projectId: string;
     readonly title: string;
   }) => boolean | Promise<boolean>;
@@ -514,6 +515,11 @@ export function AgentWorkspaceView({
               </p>
             ) : null}
           </div>
+
+          <section className="task-brief" aria-label="Task brief">
+            <p className="eyebrow">Task brief</p>
+            <p>{selected.task.brief ?? 'This legacy Task has no persisted brief.'}</p>
+          </section>
 
           <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
           <PullRequestPanel
@@ -1143,6 +1149,7 @@ function WorkspaceSidebar({
   readonly busy: boolean;
   readonly error: string | undefined;
   readonly onCreateTask: (input: {
+    readonly brief: string;
     readonly projectId: string;
     readonly title: string;
   }) => boolean | Promise<boolean>;
@@ -1153,6 +1160,7 @@ function WorkspaceSidebar({
   readonly settingsPanel?: React.ReactNode;
 }) {
   const [projectId, setProjectId] = useState(projects[0]?.project.id ?? '');
+  const [brief, setBrief] = useState('');
   const [title, setTitle] = useState('');
   useEffect(() => {
     if (!projects.some(({ project }) => project.id === projectId)) {
@@ -1180,8 +1188,11 @@ function WorkspaceSidebar({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void Promise.resolve(onCreateTask({ projectId, title })).then((created) => {
-                if (created) setTitle('');
+              void Promise.resolve(onCreateTask({ brief, projectId, title })).then((created) => {
+                if (created) {
+                  setBrief('');
+                  setTitle('');
+                }
               });
             }}
           >
@@ -1212,9 +1223,21 @@ function WorkspaceSidebar({
                 value={title}
               />
             </label>
+            <label>
+              <span>Task brief</span>
+              <textarea
+                disabled={busy}
+                maxLength={16_384}
+                onChange={(event) => setBrief(event.currentTarget.value)}
+                placeholder="Describe the outcome, constraints, and evidence the agent should produce."
+                required
+                rows={5}
+                value={brief}
+              />
+            </label>
             <button
               className="primary-action"
-              disabled={busy || title.trim().length === 0}
+              disabled={busy || title.trim().length === 0 || brief.trim().length === 0}
               type="submit"
             >
               Create Task

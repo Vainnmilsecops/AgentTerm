@@ -97,6 +97,7 @@ const project = Object.freeze({
   name: 'Dự án AgentTerm',
 });
 const planningTask: WorkspaceTaskOverview['task'] = Object.freeze({
+  brief: 'Nối terminal an toàn và giữ nguyên lịch sử Session.',
   id: 'task-1',
   phase: 'PLANNING',
   projectId: project.id,
@@ -599,10 +600,15 @@ describe('WorkspaceController', () => {
     await controller.load();
 
     await expect(
-      controller.createTask({ projectId: project.id, title: 'Kiểm thử agent thật' }),
+      controller.createTask({
+        brief: 'Chạy agent trong đúng Worktree và giữ lịch sử.',
+        projectId: project.id,
+        title: 'Kiểm thử agent thật',
+      }),
     ).resolves.toBe(true);
 
     expect(client.createTask).toHaveBeenCalledWith({
+      brief: 'Chạy agent trong đúng Worktree và giữ lịch sử.',
       projectId: project.id,
       title: 'Kiểm thử agent thật',
     });
@@ -2566,7 +2572,11 @@ describe('AgentWorkspaceView', () => {
 
     expect(emptyProject).toContain('Create Task');
     expect(emptyProject).toContain('Task title');
+    expect(emptyProject).toContain('Task brief');
+    expect(emptyProject).toContain('textarea');
     expect(backlog).toContain('Begin planning');
+    expect(backlog).toContain('Task brief');
+    expect(backlog).toContain('Nối terminal an toàn');
     expect(backlog).not.toContain('Start planning');
   });
 });

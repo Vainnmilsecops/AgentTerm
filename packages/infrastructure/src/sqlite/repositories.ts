@@ -309,16 +309,16 @@ export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository
   public constructor(database: DatabaseSync) {
     this.database = database;
     this.findByIdStatement = database.prepare(
-      'SELECT id, project_id, title, phase FROM tasks WHERE id = ?',
+      'SELECT id, project_id, title, brief, phase FROM tasks WHERE id = ?',
     );
     this.insertStatement = database.prepare(
-      'INSERT INTO tasks (id, project_id, title, phase) VALUES (?, ?, ?, ?)',
+      'INSERT INTO tasks (id, project_id, title, brief, phase) VALUES (?, ?, ?, ?, ?)',
     );
     this.listByProjectIdStatement = database.prepare(
-      'SELECT id, project_id, title, phase FROM tasks WHERE project_id = ? ORDER BY id',
+      'SELECT id, project_id, title, brief, phase FROM tasks WHERE project_id = ? ORDER BY id',
     );
     this.updateStatement = database.prepare(
-      'UPDATE tasks SET project_id = ?, title = ?, phase = ? WHERE id = ? AND phase = ?',
+      'UPDATE tasks SET project_id = ?, title = ?, brief = ?, phase = ? WHERE id = ? AND phase = ?',
     );
     this.artifactByIdStatement = database.prepare(
       `SELECT id, task_id, session_id, ordinal, kind, phase, canonical_name,
@@ -347,7 +347,7 @@ export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository
 
   public async insert(task: Task): Promise<void> {
     try {
-      this.insertStatement.run(task.id, task.projectId, task.title, task.phase);
+      this.insertStatement.run(task.id, task.projectId, task.title, task.brief ?? null, task.phase);
     } catch (error) {
       if (
         isSqliteErrorCode(error, primaryKeyConstraintCode) ||
@@ -368,6 +368,7 @@ export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository
     const result = this.updateStatement.run(
       task.projectId,
       task.title,
+      task.brief ?? null,
       task.phase,
       task.id,
       expectedPhase,
@@ -430,6 +431,7 @@ export class SqliteTaskRepository implements TaskCatalog, TaskPlanningRepository
       const result = this.updateStatement.run(
         nextTask.projectId,
         nextTask.title,
+        nextTask.brief ?? null,
         nextTask.phase,
         nextTask.id,
         TaskPhase.PLANNING,
@@ -1073,7 +1075,7 @@ export class SqliteTaskReviewRepository implements TaskReviewRepository {
        ORDER BY ordinal`,
     );
     this.taskByIdStatement = database.prepare(
-      'SELECT id, project_id, title, phase FROM tasks WHERE id = ?',
+      'SELECT id, project_id, title, brief, phase FROM tasks WHERE id = ?',
     );
     this.activeSessionByTaskIdStatement = database.prepare(
       `SELECT session.id
@@ -2013,6 +2015,7 @@ function sameTask(left: Task, right: Task): boolean {
     left.id === right.id &&
     left.projectId === right.projectId &&
     left.title === right.title &&
+    left.brief === right.brief &&
     left.phase === right.phase
   );
 }

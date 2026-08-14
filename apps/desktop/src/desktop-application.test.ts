@@ -57,13 +57,19 @@ describe('production desktop Application composition', () => {
       expect(project).not.toHaveProperty('rootPath');
 
       const created = await application.createTask({
+        brief: 'Chạy agent trong Task Worktree và báo cáo evidence.',
         projectId: project!.id,
         title: 'Kiểm thử coding agent',
       });
       const backlog = await application.loadWorkspace();
       expect(backlog.projects[0]?.tasks[0]).toMatchObject({
         canBeginPlanning: true,
-        task: { id: created.taskId, phase: 'BACKLOG', title: 'Kiểm thử coding agent' },
+        task: {
+          brief: 'Chạy agent trong Task Worktree và báo cáo evidence.',
+          id: created.taskId,
+          phase: 'BACKLOG',
+          title: 'Kiểm thử coding agent',
+        },
       });
 
       await application.beginTaskPlanning({ taskId: created.taskId });
