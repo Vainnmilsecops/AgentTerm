@@ -4,6 +4,7 @@ import { normalize } from 'node:path';
 import {
   type CreatePullRequestRequest,
   type PullRequestBranchInspection,
+  type PullRequestCheckSummary,
   type PullRequestIntegration,
   TaskPullRequestError,
   type TaskPullRequest,
@@ -16,6 +17,13 @@ import { GitHubCli } from './github-cli';
 const maximumGitOutput = 1024 * 1024;
 const maximumPullRequestPages = 10;
 const pullRequestsPerPage = 100;
+const unknownChecks: PullRequestCheckSummary = Object.freeze({
+  failureCount: 0,
+  pendingCount: 0,
+  state: 'UNKNOWN',
+  successCount: 0,
+  totalCount: 0,
+});
 
 interface GitHubRepository {
   readonly name: string;
@@ -32,18 +40,21 @@ interface GitHubClient {
   isAvailable(): Promise<boolean>;
   isAuthenticated(): Promise<boolean>;
   requestJson(
-    method: 'GET' | 'PATCH' | 'POST',
+    method: 'GET' | 'POST',
     path: string,
     input?: Readonly<Record<string, unknown>>,
   ): Promise<unknown>;
+  requestOptionalJson(path: string): Promise<unknown | undefined>;
 }
 
 export interface GitHubPullRequestAdapterOverrides {
+  readonly clock?: () => number;
   readonly git?: GitClient;
   readonly github?: GitHubClient;
 }
 
 export class GitHubPullRequestAdapter implements PullRequestIntegration {
+  private readonly clock: () => number;
   private readonly git: GitClient;
   private readonly github: GitHubClient;
 
@@ -54,6 +65,7 @@ export class GitHubPullRequestAdapter implements PullRequestIntegration {
   ) {
     this.git = overrides.git ?? new GitCli(configuredGitExecutable);
     this.github = overrides.github ?? new GitHubCli(configuredGithubExecutable);
+    this.clock = overrides.clock ?? Date.now;
   }
 
   public async inspect(worktree: TaskWorktreeRecord): Promise<PullRequestBranchInspection> {
@@ -132,6 +144,7 @@ export class GitHubPullRequestAdapter implements PullRequestIntegration {
       if (remoteHead !== branch.headCommitId) {
         throw new TaskPullRequestError('BRANCH_NOT_READY', worktree.taskId);
       }
+      const syncedAt = readLocalTimestamp(this.clock());
       const candidates: TaskPullRequest[] = [];
       let complete = false;
       for (let page = 1; page <= maximumPullRequestPages; page += 1) {
@@ -144,7 +157,7 @@ export class GitHubPullRequestAdapter implements PullRequestIntegration {
         if (!Array.isArray(response)) {
           throw new Error('The GitHub Pull Request list is invalid.');
         }
-        candidates.push(...mapPullRequestList(response, worktree.taskId, branch));
+        candidates.push(...mapPullRequestList(response, worktree.taskId, branch, syncedAt));
         if (response.length < pullRequestsPerPage) {
           complete = true;
           break;
@@ -152,25 +165,126 @@ export class GitHubPullRequestAdapter implements PullRequestIntegration {
       }
       if (!complete) throw new Error('The GitHub Pull Request list exceeds its safety bound.');
       const existing = selectSuitablePullRequest(candidates);
-      if (existing?.status === 'OPEN' || existing?.status === 'MERGED') return existing;
-      const response =
-        existing?.status === 'CLOSED'
-          ? await this.github.requestJson(
-              'PATCH',
-              `${repositoryPath}/pulls/${String(existing.number)}`,
-              { state: 'open' },
-            )
-          : await this.github.requestJson('POST', `${repositoryPath}/pulls`, {
-              base: branch.baseBranch,
-              body: request.body,
-              head: branch.headBranch,
-              title: request.title,
-            });
-      return mapPullRequest(response, worktree.taskId, branch);
+      if (existing !== undefined) return existing;
+      const response = await this.github.requestJson('POST', `${repositoryPath}/pulls`, {
+        base: branch.baseBranch,
+        body: request.body,
+        head: branch.headBranch,
+        title: request.title,
+      });
+      return mapPullRequest(response, worktree.taskId, branch, syncedAt);
     } catch (error) {
       if (error instanceof TaskPullRequestError && error.reason === 'BRANCH_NOT_READY') throw error;
       throw new TaskPullRequestError('CREATE_FAILED', worktree.taskId, { cause: error });
     }
+  }
+
+  public async refresh(pullRequest: TaskPullRequest): Promise<TaskPullRequest | undefined> {
+    try {
+      if (!(await this.github.isAvailable())) {
+        throw new TaskPullRequestError('GITHUB_CLI_UNAVAILABLE', pullRequest.taskId);
+      }
+      if (!(await this.github.isAuthenticated())) {
+        throw new TaskPullRequestError('GITHUB_AUTH_UNAVAILABLE', pullRequest.taskId);
+      }
+      const syncedAt = readLocalTimestamp(this.clock());
+      const refreshed = await this.findPersistedPullRequest(pullRequest, syncedAt);
+      if (refreshed === undefined) return undefined;
+      const reviewState = await this.readReviewState(refreshed);
+      const checks = await this.readChecks(refreshed);
+      return Object.freeze({ ...refreshed, checks, reviewState });
+    } catch (error) {
+      if (
+        error instanceof TaskPullRequestError &&
+        (error.reason === 'GITHUB_AUTH_UNAVAILABLE' || error.reason === 'GITHUB_CLI_UNAVAILABLE')
+      ) {
+        throw error;
+      }
+      throw new TaskPullRequestError('REFRESH_FAILED', pullRequest.taskId, { cause: error });
+    }
+  }
+
+  private async findPersistedPullRequest(
+    persisted: TaskPullRequest,
+    syncedAt: number,
+  ): Promise<TaskPullRequest | undefined> {
+    assertRefreshIdentity(persisted);
+    const response = await this.github.requestOptionalJson(
+      `/repos/${persisted.repositoryOwner}/${persisted.repositoryName}/pulls/${String(persisted.number)}`,
+    );
+    return response === undefined
+      ? undefined
+      : mapRefreshedPullRequest(response, persisted, syncedAt);
+  }
+
+  private async readReviewState(
+    pullRequest: TaskPullRequest,
+  ): Promise<TaskPullRequest['reviewState']> {
+    const reviews = await this.readPagedArray(
+      `/repos/${pullRequest.repositoryOwner}/${pullRequest.repositoryName}/pulls/${String(pullRequest.number)}/reviews`,
+      'review',
+    );
+    return summarizeReviews(reviews);
+  }
+
+  private async readChecks(pullRequest: TaskPullRequest): Promise<PullRequestCheckSummary> {
+    const repositoryPath = `/repos/${pullRequest.repositoryOwner}/${pullRequest.repositoryName}`;
+    const checkRuns = await this.readPagedCollection(
+      `${repositoryPath}/commits/${pullRequest.headCommitId}/check-runs`,
+      'check_runs',
+    );
+    const statuses = await this.readPagedCollection(
+      `${repositoryPath}/commits/${pullRequest.headCommitId}/status`,
+      'statuses',
+    );
+    return summarizeChecks(checkRuns, statuses);
+  }
+
+  private async readPagedArray(path: string, context: string): Promise<readonly unknown[]> {
+    const values: unknown[] = [];
+    for (let page = 1; page <= maximumPullRequestPages; page += 1) {
+      const response = await this.github.requestJson(
+        'GET',
+        `${path}?per_page=${String(pullRequestsPerPage)}&page=${String(page)}`,
+      );
+      if (!Array.isArray(response)) throw new Error(`The GitHub ${context} list is invalid.`);
+      values.push(...response);
+      if (response.length < pullRequestsPerPage) return Object.freeze(values);
+    }
+    throw new Error(`The GitHub ${context} list exceeds its safety bound.`);
+  }
+
+  private async readPagedCollection(
+    path: string,
+    field: 'check_runs' | 'statuses',
+  ): Promise<readonly unknown[]> {
+    const values: unknown[] = [];
+    let expectedTotal: number | undefined;
+    for (let page = 1; page <= maximumPullRequestPages; page += 1) {
+      const response = readRecord(
+        await this.github.requestJson(
+          'GET',
+          `${path}?per_page=${String(pullRequestsPerPage)}&page=${String(page)}`,
+        ),
+      );
+      const total = readNonnegativeSafeInteger(response.total_count);
+      const pageValues = response[field];
+      if (!Array.isArray(pageValues) || (expectedTotal !== undefined && expectedTotal !== total)) {
+        throw new Error('The GitHub check/status collection is invalid.');
+      }
+      expectedTotal = total;
+      values.push(...pageValues);
+      if (values.length > total || values.length > maximumPullRequestPages * pullRequestsPerPage) {
+        throw new Error('The GitHub check/status collection exceeds its safety bound.');
+      }
+      if (pageValues.length < pullRequestsPerPage) {
+        if (values.length !== total) {
+          throw new Error('The GitHub check/status collection is incomplete.');
+        }
+        return Object.freeze(values);
+      }
+    }
+    throw new Error('The GitHub check/status collection exceeds its safety bound.');
   }
 
   private async inspectReadyBranch(
@@ -469,12 +583,13 @@ function mapPullRequestList(
   value: unknown,
   taskId: string,
   branch: Extract<PullRequestBranchInspection, { readonly kind: 'ready' }>,
+  syncedAt: number,
 ): readonly TaskPullRequest[] {
   if (!Array.isArray(value)) throw new Error('The GitHub Pull Request list is invalid.');
   return Object.freeze(
     value
       .filter((candidate) => isExactPullRequestCandidate(candidate, branch))
-      .map((candidate) => mapPullRequest(candidate, taskId, branch)),
+      .map((candidate) => mapPullRequest(candidate, taskId, branch, syncedAt)),
   );
 }
 
@@ -503,6 +618,7 @@ function mapPullRequest(
   value: unknown,
   taskId: string,
   branch: Extract<PullRequestBranchInspection, { readonly kind: 'ready' }>,
+  syncedAt: number,
 ): TaskPullRequest {
   const record = readRecord(value);
   const base = readRecord(record.base);
@@ -544,14 +660,17 @@ function mapPullRequest(
   }
   return Object.freeze({
     baseBranch,
+    checks: unknownChecks,
     createdAt,
     draft: record.draft,
     headBranch,
     headCommitId,
+    lastSyncedAt: syncedAt,
     number,
     provider: 'github',
     repositoryName: branch.repositoryName,
     repositoryOwner: branch.repositoryOwner,
+    reviewState: 'UNKNOWN',
     status,
     taskId,
     title: readBoundedString(record.title, 1024),
@@ -565,9 +684,171 @@ function selectSuitablePullRequest(
 ): TaskPullRequest | undefined {
   return (
     candidates.find((candidate) => candidate.status === 'OPEN') ??
-    candidates.find((candidate) => candidate.status === 'CLOSED') ??
-    candidates.find((candidate) => candidate.status === 'MERGED')
+    candidates.find((candidate) => candidate.status === 'MERGED') ??
+    candidates.find((candidate) => candidate.status === 'CLOSED')
   );
+}
+
+function mapRefreshedPullRequest(
+  value: unknown,
+  persisted: TaskPullRequest,
+  syncedAt: number,
+): TaskPullRequest {
+  const record = readRecord(value);
+  const base = readRecord(record.base);
+  const head = readRecord(record.head);
+  const number = readPositiveSafeInteger(record.number);
+  const remoteUrl = readGithubPullRequestUrl(record.html_url);
+  const mergedAt = record.merged_at;
+  const state = record.state;
+  const status =
+    typeof mergedAt === 'string'
+      ? 'MERGED'
+      : state === 'open'
+        ? 'OPEN'
+        : state === 'closed'
+          ? 'CLOSED'
+          : undefined;
+  if (
+    number !== persisted.number ||
+    remoteUrl.owner.toLowerCase() !== persisted.repositoryOwner.toLowerCase() ||
+    remoteUrl.repository.toLowerCase() !== persisted.repositoryName.toLowerCase() ||
+    remoteUrl.number !== persisted.number ||
+    status === undefined ||
+    (mergedAt !== null && typeof mergedAt !== 'string') ||
+    typeof record.draft !== 'boolean'
+  ) {
+    throw new Error('The GitHub Pull Request does not match persisted metadata.');
+  }
+  if (typeof mergedAt === 'string') readTimestamp(mergedAt);
+  const createdAt = readTimestamp(record.created_at);
+  const updatedAt = readTimestamp(record.updated_at);
+  if (updatedAt < createdAt) throw new Error('The GitHub Pull Request metadata is invalid.');
+  return Object.freeze({
+    baseBranch: readBoundedString(base.ref, 1024),
+    checks: unknownChecks,
+    createdAt,
+    draft: record.draft,
+    headBranch: readBoundedString(head.ref, 1024),
+    headCommitId: readObjectIdentity(head.sha),
+    lastSyncedAt: syncedAt,
+    number,
+    provider: 'github',
+    repositoryName: persisted.repositoryName,
+    repositoryOwner: persisted.repositoryOwner,
+    reviewState: 'UNKNOWN',
+    status,
+    taskId: persisted.taskId,
+    title: readBoundedString(record.title, 1024),
+    updatedAt,
+    url: persisted.url,
+  });
+}
+
+function assertRefreshIdentity(pullRequest: TaskPullRequest): void {
+  const repositoryPart = /^[A-Za-z0-9_.-]{1,255}$/u;
+  if (
+    pullRequest.provider !== 'github' ||
+    !repositoryPart.test(pullRequest.repositoryOwner) ||
+    !repositoryPart.test(pullRequest.repositoryName) ||
+    !Number.isSafeInteger(pullRequest.number) ||
+    pullRequest.number <= 0 ||
+    !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(pullRequest.headCommitId) ||
+    pullRequest.url !==
+      `https://github.com/${pullRequest.repositoryOwner}/${pullRequest.repositoryName}/pull/${String(pullRequest.number)}`
+  ) {
+    throw new Error('The persisted Pull Request identity is invalid.');
+  }
+}
+
+function summarizeReviews(values: readonly unknown[]): TaskPullRequest['reviewState'] {
+  const latestByReviewer = new Map<string, 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED'>();
+  for (const value of values) {
+    const record = readRecord(value);
+    readPositiveSafeInteger(record.id);
+    const user = readRecord(record.user);
+    const login = readBoundedString(user.login, 255).toLowerCase();
+    const state = record.state;
+    if (state === 'PENDING') continue;
+    readTimestamp(record.submitted_at);
+    if (state === 'DISMISSED') {
+      latestByReviewer.delete(login);
+    } else if (state === 'APPROVED' || state === 'CHANGES_REQUESTED') {
+      latestByReviewer.set(login, state);
+    } else if (state === 'COMMENTED') {
+      if (!latestByReviewer.has(login)) latestByReviewer.set(login, state);
+    } else {
+      throw new Error('The GitHub Pull Request review state is invalid.');
+    }
+  }
+  const states = [...latestByReviewer.values()];
+  if (states.includes('CHANGES_REQUESTED')) return 'CHANGES_REQUESTED';
+  if (states.includes('APPROVED')) return 'APPROVED';
+  if (states.includes('COMMENTED')) return 'COMMENTED';
+  return 'NONE';
+}
+
+function summarizeChecks(
+  checkRuns: readonly unknown[],
+  statuses: readonly unknown[],
+): PullRequestCheckSummary {
+  let successCount = 0;
+  let failureCount = 0;
+  let pendingCount = 0;
+  for (const value of checkRuns) {
+    const record = readRecord(value);
+    readPositiveSafeInteger(record.id);
+    const status = record.status;
+    if (
+      status === 'queued' ||
+      status === 'in_progress' ||
+      status === 'pending' ||
+      status === 'requested' ||
+      status === 'waiting'
+    ) {
+      pendingCount += 1;
+      continue;
+    }
+    if (status !== 'completed') throw new Error('The GitHub check run status is invalid.');
+    const conclusion = record.conclusion;
+    if (conclusion === 'success' || conclusion === 'neutral' || conclusion === 'skipped') {
+      successCount += 1;
+    } else if (
+      conclusion === 'action_required' ||
+      conclusion === 'cancelled' ||
+      conclusion === 'failure' ||
+      conclusion === 'startup_failure' ||
+      conclusion === 'stale' ||
+      conclusion === 'timed_out'
+    ) {
+      failureCount += 1;
+    } else {
+      throw new Error('The GitHub check run conclusion is invalid.');
+    }
+  }
+  for (const value of statuses) {
+    const record = readRecord(value);
+    readPositiveSafeInteger(record.id);
+    if (record.state === 'success') successCount += 1;
+    else if (record.state === 'failure' || record.state === 'error') failureCount += 1;
+    else if (record.state === 'pending') pendingCount += 1;
+    else throw new Error('The GitHub commit status is invalid.');
+  }
+  const totalCount = successCount + failureCount + pendingCount;
+  return Object.freeze({
+    failureCount,
+    pendingCount,
+    state:
+      totalCount === 0
+        ? 'NONE'
+        : failureCount > 0
+          ? 'FAILURE'
+          : pendingCount > 0
+            ? 'PENDING'
+            : 'SUCCESS',
+    successCount,
+    totalCount,
+  });
 }
 
 function readRecord(value: unknown): Readonly<Record<string, unknown>> {
@@ -580,6 +861,25 @@ function readRecord(value: unknown): Readonly<Record<string, unknown>> {
 function readPositiveSafeInteger(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new Error('The GitHub Pull Request number is invalid.');
+  }
+  return value;
+}
+
+function readNonnegativeSafeInteger(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error('The GitHub collection size is invalid.');
+  }
+  return value;
+}
+
+function readLocalTimestamp(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isSafeInteger(value) ||
+    value < 0 ||
+    value > 8_640_000_000_000_000
+  ) {
+    throw new Error('The Pull Request synchronization time is invalid.');
   }
   return value;
 }

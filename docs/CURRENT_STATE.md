@@ -44,9 +44,10 @@ Updated: 2026-08-14
 - Migration 7 preserves ordered Review history and normalized evidence snapshots. SQLite atomically couples `RUNNING -> REVIEW`, `REVIEW -> DONE`, or `REVIEW -> RUNNING` with the corresponding Review revision, validates the exact Session revisions and Artifact/gate histories captured before code inspection, and prevents new Sessions or gates after Review admission. A pre-v7 `REVIEW` Task with no structured attempt remains unchanged and can explicitly capture its first structured Review in place.
 - Infrastructure captures committed, staged, unstaged, untracked, and conflicted code context with a versioned content-sensitive Git/Worktree fingerprint. Hidden index flags are rejected; every stage-zero tracked file plus conflicted and visible untracked content is hashed under aggregate entry, byte, and time budgets that fail closed. Existing gates are associated honestly as `HEAD_MATCH_ONLY` or `STALE`; a passing gate never approves a Review.
 - The workspace read model and desktop expose Review action policy, the 20 newest decision records, code/evidence summaries, and explicit Start review, Request changes, and Approve and mark done actions without exposing native Worktree paths. Artifact and gate payload reads are limited to the newest 20 while payload-free projections determine readiness; full immutable history remains available through explicit history use cases.
-- Application now exposes explicit Pull Request inspection, Task-branch push, and create-or-refresh use cases. Infrastructure verifies the exact persisted primary Worktree, attached Task branch, base ancestry, clean code state, and a supported `github.com` HTTPS or SSH remote. Push pins the inspected commit to the named remote branch without force; no agent/session event invokes either mutation.
-- GitHub PR lookup and mutation reuse the installed `gh` CLI through structured argv and bounded JSON stdin. Readiness separately checks an active authenticated `github.com` account through `gh auth status` without requesting or persisting its token. A matching open or merged PR is reused, a closed PR is reopened, and a new PR is created only when no exact repository/head/base/current-commit match exists. Migration 9 stores only bounded GitHub PR identity/status metadata; it excludes body, commands, environment, credentials, and provider output.
-- The desktop loads Pull Request state lazily for the selected Task and shows repository, head/base, push readiness, stored PR number/status/URL, and explicit Push / Create or refresh controls. Errors are sanitized at the controller boundary, and PR evidence never changes Task phase or Review decisions.
+- Application now exposes explicit Pull Request inspection, Task-branch push, create, and remote-status refresh use cases. Infrastructure verifies the exact persisted primary Worktree for branch mutations, while refresh reads the exact persisted PR identity from GitHub without requiring or mutating local code. Push pins the inspected commit to the named remote branch without force; no agent/session event invokes any PR operation.
+- GitHub PR operations reuse the installed `gh` CLI through structured argv and bounded JSON stdin. A matching open, closed, or merged PR is reused without reopening it; only an exact missing head/base identity can create a new PR. Manual refresh maps GitHub `OPEN` / `CLOSED` / `MERGED`, latest basic review state, and bounded Check Run plus commit-status counts into one persisted snapshot; any auth/network/schema failure leaves last-known-good metadata untouched.
+- Migration 11 extends migration-9 metadata with review/check summary and local sync time, and appends every accepted current snapshot to immutable PR sync history. Pre-v11 rows are retained as `UNKNOWN` evidence, stale or exact-retry snapshots do not overwrite or duplicate history, and no body, command, environment, credential, token, or provider output is persisted.
+- The desktop loads Pull Request state lazily for the selected Task and shows repository, head/base, push readiness, PR state, review state, check summary, last successful sync, and distinct explicit Push / Create / Refresh GitHub status controls. Errors are sanitized at the controller boundary, refresh failures keep the visible last-known-good snapshot, and PR evidence never changes Task phase or Review decisions.
 - The desktop now has a searchable command palette opened by `Ctrl+Shift+P`, with accent-insensitive Vietnamese/Unicode search, wrapping arrow-key navigation, contextual Task/action commands, and explicit `Alt+1` / `Alt+2` / `Alt+3` focus shortcuts for sidebar, workspace, and terminal. `Alt+[` / `Alt+]` switch tabs and their Shift variants switch panes; ordinary terminal keys are not intercepted.
 - Application exposes only configured Quality Gate `id`/`kind` summaries plus Task-level run readiness to Presentation. Eligible palette commands dispatch the existing explicit gate workflow through the workspace client; executable, argv, environment, and run-identity policy remain outside the renderer.
 
@@ -212,7 +213,7 @@ Updated: 2026-08-14
   128 KiB or 2,000 changed lines. Inspector results are evidence only and never change Task phase.
 - Pull Request integration is one narrow Application port: GitHub remote parsing, Git and `gh`
   command policy, API response validation, and duplicate prevention stay in Infrastructure. Remote
-  inspection is read-only; push and PR mutation are separate user-triggered commands serialized per
+  inspection and status refresh are read-only; push and PR creation are separate user-triggered commands serialized per
   Task. Repository-local URL rewrites, SSH commands, credential helpers, and remote helpers are
   rejected before trusting or pushing a remote, while authentication remains owned by `gh` or the
   user's trusted Git credential configuration.
@@ -226,8 +227,9 @@ Updated: 2026-08-14
 No implementation blocker is known. Node.js 22.13 emits its documented experimental warning for
 `node:sqlite`; Electron 43's Node.js 24 runtime does not emit that warning in the current smoke test.
 The current development environment does not have `gh` installed, so real GitHub API/authentication
-was not exercised locally; the workspace reports GitHub CLI unavailable and disables Create/refresh
-while retaining explicit branch inspection and push readiness. AgentTerm does not install or manage
+was not exercised locally; the workspace reports GitHub CLI unavailable and disables Create, while
+remote refresh reports a sanitized availability failure and retains explicit branch inspection and
+push readiness. AgentTerm does not install or manage
 GitHub credentials.
 Git status and diff can still execute repository-configured clean/process filters. Stronger isolation
 for untrusted repositories is deferred; current inspection must follow an explicit user trust decision.
@@ -272,7 +274,7 @@ Bind startup session reconciliation, artifact/review/change-inspection/dependenc
 Settings read/update and settings-backed built-in agent catalog construction,
 `loadAgentWorkspace`, `startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`,
 `retryTaskExecution`, the three explicit Review commands, terminal attachment, explicit Task-branch
-push, configured Quality Gate listing/execution, and Pull Request create-or-refresh commands to the sandboxed renderer through a narrow validated
+push, configured Quality Gate listing/execution, and Pull Request create/remote-refresh commands to the sandboxed renderer through a narrow validated
 preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
 launches or workspace reads. That composition must own session identifiers, approved launch
 environment, Review identifiers and decision timestamps, database path, and managed Worktree root;

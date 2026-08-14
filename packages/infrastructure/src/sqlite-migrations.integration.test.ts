@@ -12,6 +12,8 @@ import { taskWorktreesMigration } from './sqlite/migrations/0003-task-worktrees'
 import { agentSessionsMigration } from './sqlite/migrations/0004-agent-sessions';
 import { executionArtifactsMigration } from './sqlite/migrations/0005-execution-artifacts';
 import { qualityGateRunsMigration } from './sqlite/migrations/0006-quality-gate-runs';
+import { pullRequestsMigration } from './sqlite/migrations/0009-pull-requests';
+import { migrateSqliteDatabase } from './sqlite/migrate';
 
 async function withTemporaryDatabase(run: (databasePath: string) => Promise<void>): Promise<void> {
   const directory = mkdtempSync(join(tmpdir(), 'agentterm-sqlite-migration-'));
@@ -119,6 +121,7 @@ describe('SQLite migrations', () => {
                  'task_reviews_one_pending_per_task_index',
                  'task_reviews_task_ordinal_index',
                  'task_dependencies_project_index',
+                 'task_pull_request_sync_history_task_index',
                  'task_pull_requests_task_updated_index',
                  'tasks_identity_project_index',
                  'tasks_project_id_index',
@@ -139,6 +142,7 @@ describe('SQLite migrations', () => {
           'projects',
           'quality_gate_runs',
           'task_dependencies',
+          'task_pull_request_sync_history',
           'task_pull_requests',
           'task_review_artifacts',
           'task_review_changed_paths',
@@ -158,6 +162,7 @@ describe('SQLite migrations', () => {
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
+          { name: 'pull-request-sync', version: 11 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -169,6 +174,7 @@ describe('SQLite migrations', () => {
           { name: 'quality_gate_runs_identity_task_index' },
           { name: 'quality_gate_runs_task_ordinal_index' },
           { name: 'task_dependencies_project_index' },
+          { name: 'task_pull_request_sync_history_task_index' },
           { name: 'task_pull_requests_task_updated_index' },
           { name: 'task_reviews_one_pending_per_task_index' },
           { name: 'task_reviews_task_ordinal_index' },
@@ -359,6 +365,7 @@ describe('SQLite migrations', () => {
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
+          { name: 'pull-request-sync', version: 11 },
         ]);
       } finally {
         migrated.close();
@@ -433,6 +440,7 @@ describe('SQLite migrations', () => {
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
+          { name: 'pull-request-sync', version: 11 },
         ]);
       } finally {
         migrated.close();
@@ -526,6 +534,7 @@ describe('SQLite migrations', () => {
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
+          { name: 'pull-request-sync', version: 11 },
         ]);
       } finally {
         migrated.close();
@@ -590,9 +599,63 @@ describe('SQLite migrations', () => {
           { name: 'task-dependencies', version: 8 },
           { name: 'pull-requests', version: 9 },
           { name: 'application-settings', version: 10 },
+          { name: 'pull-request-sync', version: 11 },
         ]);
       } finally {
         migrated.close();
+      }
+    });
+  });
+
+  it('upgrades v10 Pull Request metadata into an UNKNOWN append-only sync snapshot', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      const database = new DatabaseSync(databasePath, { enableForeignKeyConstraints: true });
+      try {
+        database.exec(`
+          CREATE TABLE _agentterm_migrations (
+            version INTEGER PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL UNIQUE,
+            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+          ) STRICT;
+          ${projectsAndTasksMigration.sql}
+          ${pullRequestsMigration.sql}
+          INSERT INTO _agentterm_migrations (version, name) VALUES
+            (1, 'projects-and-tasks'), (2, 'project-roots'), (3, 'task-worktrees'),
+            (4, 'agent-sessions'), (5, 'execution-artifacts'), (6, 'quality-gate-runs'),
+            (7, 'task-reviews'), (8, 'task-dependencies'), (9, 'pull-requests'),
+            (10, 'application-settings');
+          INSERT INTO projects (id, name) VALUES ('project-pr', 'AgentTerm');
+          INSERT INTO tasks (id, project_id, title, phase)
+          VALUES ('task-pr', 'project-pr', 'Legacy PR', 'RUNNING');
+          INSERT INTO task_pull_requests (
+            task_id, provider, repository_owner, repository_name, base_branch, head_branch,
+            pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at
+          ) VALUES (
+            'task-pr', 'github', 'agentterm', 'AgentTerm', 'main', 'agentterm/task/legacy',
+            42, 'https://github.com/agentterm/AgentTerm/pull/42', 'Legacy PR',
+            '${'b'.repeat(40)}', 'OPEN', 0, 1800000000000, 1800000000100
+          );
+        `);
+
+        migrateSqliteDatabase(database);
+
+        expect(
+          database
+            .prepare(
+              `SELECT status, review_state, check_state, last_synced_at
+               FROM task_pull_request_sync_history WHERE task_id = 'task-pr'`,
+            )
+            .all(),
+        ).toEqual([
+          {
+            check_state: 'UNKNOWN',
+            last_synced_at: null,
+            review_state: 'UNKNOWN',
+            status: 'OPEN',
+          },
+        ]);
+      } finally {
+        database.close();
       }
     });
   });
@@ -643,6 +706,7 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'task-dependencies', version: 8 }),
           expect.objectContaining({ name: 'pull-requests', version: 9 }),
           expect.objectContaining({ name: 'application-settings', version: 10 }),
+          expect.objectContaining({ name: 'pull-request-sync', version: 11 }),
         ]);
       } finally {
         migrated.close();

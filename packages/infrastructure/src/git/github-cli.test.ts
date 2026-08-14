@@ -70,4 +70,42 @@ describe('GitHub CLI command boundary', () => {
     expect(arguments_).toEqual(['auth', 'status', '--active', '--hostname', 'github.com']);
     expect(arguments_).not.toContain('--show-token');
   });
+
+  it('reads an exact optional resource from included HTTP status without parsing diagnostics', async () => {
+    execFileMock
+      .mockImplementationOnce((_executable, _arguments, _options, callback) => {
+        callback(
+          null,
+          'HTTP/2.0 200 OK\r\ncontent-type: application/json\r\n\r\n{"number":42}',
+          '',
+        );
+        return { stdin: { end: vi.fn() } };
+      })
+      .mockImplementationOnce((_executable, _arguments, _options, callback) => {
+        callback(
+          Object.assign(new Error('TOKEN=secret'), { code: 1 }),
+          'HTTP/2.0 404 Not Found\r\n\r\n',
+          '',
+        );
+        return { stdin: { end: vi.fn() } };
+      });
+    const cli = new GitHubCli(process.execPath);
+
+    await expect(cli.requestOptionalJson('/repos/agentterm/AgentTerm/pulls/42')).resolves.toEqual({
+      number: 42,
+    });
+    await expect(
+      cli.requestOptionalJson('/repos/agentterm/AgentTerm/pulls/404'),
+    ).resolves.toBeUndefined();
+
+    expect(execFileMock.mock.calls[0]?.[1]).toEqual([
+      'api',
+      '--hostname',
+      'github.com',
+      '--method',
+      'GET',
+      '--include',
+      '/repos/agentterm/AgentTerm/pulls/42',
+    ]);
+  });
 });

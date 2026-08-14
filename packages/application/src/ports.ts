@@ -483,16 +483,33 @@ export interface TaskChangeInspector {
 
 export type PullRequestStatus = 'CLOSED' | 'MERGED' | 'OPEN';
 
+export type PullRequestReviewState =
+  'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'NONE' | 'UNKNOWN';
+
+export type PullRequestCheckState = 'FAILURE' | 'NONE' | 'PENDING' | 'SUCCESS' | 'UNKNOWN';
+
+export interface PullRequestCheckSummary {
+  readonly failureCount: number;
+  readonly pendingCount: number;
+  readonly state: PullRequestCheckState;
+  readonly successCount: number;
+  readonly totalCount: number;
+}
+
 export interface TaskPullRequest {
   readonly baseBranch: string;
+  readonly checks: PullRequestCheckSummary;
   readonly createdAt: number;
   readonly draft: boolean;
   readonly headBranch: string;
   readonly headCommitId: string;
+  /** Local observation time for the last complete, successful GitHub metadata snapshot. */
+  readonly lastSyncedAt: number | undefined;
   readonly number: number;
   readonly provider: 'github';
   readonly repositoryName: string;
   readonly repositoryOwner: string;
+  readonly reviewState: PullRequestReviewState;
   readonly status: PullRequestStatus;
   readonly taskId: string;
   readonly title: string;
@@ -540,11 +557,13 @@ export interface PullRequestIntegration {
   inspect(worktree: TaskWorktreeRecord): Promise<PullRequestBranchInspection>;
   /** Performs a normal non-force push of the exact inspected Task branch. */
   push(worktree: TaskWorktreeRecord): Promise<PullRequestBranchInspection>;
-  /** Returns, reopens, refreshes, or creates the one suitable PR without duplicating it. */
+  /** Returns an existing suitable PR or creates one without reopening or duplicating it. */
   createOrRefresh(
     worktree: TaskWorktreeRecord,
     request: CreatePullRequestRequest,
   ): Promise<TaskPullRequest>;
+  /** Reads one persisted PR identity from GitHub without mutating remote state. */
+  refresh(pullRequest: TaskPullRequest): Promise<TaskPullRequest | undefined>;
 }
 
 export interface PullRequestRepository {

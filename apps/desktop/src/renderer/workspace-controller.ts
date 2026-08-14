@@ -41,6 +41,12 @@ export interface AgentWorkspaceClient extends TerminalSessionClient {
   requestTaskChanges(input: { readonly reviewId: string; readonly taskId: string }): Promise<void>;
   requestTaskReview(input: { readonly taskId: string }): Promise<void>;
   pushTaskBranch(input: { readonly taskId: string }): Promise<void>;
+  refreshTaskPullRequest(input: {
+    readonly pullRequestNumber: number;
+    readonly repositoryName: string;
+    readonly repositoryOwner: string;
+    readonly taskId: string;
+  }): Promise<void>;
   retryTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
   runQualityGate(input: { readonly gateId: string; readonly taskId: string }): Promise<void>;
   startTaskExecution(input: { readonly agentId: string; readonly taskId: string }): Promise<void>;
@@ -73,6 +79,7 @@ export type WorkspaceActionKind =
   | 'approve-review'
   | 'create-pull-request'
   | 'push-branch'
+  | 'refresh-pull-request'
   | 'request-changes'
   | 'request-review'
   | 'retry-execution'
@@ -87,7 +94,14 @@ export type WorkspaceAction =
       readonly taskId: string;
     }
   | {
-      readonly kind: Exclude<WorkspaceActionKind, 'run-quality-gate'>;
+      readonly kind: 'refresh-pull-request';
+      readonly pullRequestNumber: number;
+      readonly repositoryName: string;
+      readonly repositoryOwner: string;
+      readonly taskId: string;
+    }
+  | {
+      readonly kind: Exclude<WorkspaceActionKind, 'refresh-pull-request' | 'run-quality-gate'>;
       readonly taskId: string;
     };
 
@@ -349,6 +363,10 @@ export class WorkspaceController {
     return this.executeSelectedAction('create-pull-request');
   }
 
+  public refreshSelectedTaskPullRequest(): Promise<void> {
+    return this.executeSelectedAction('refresh-pull-request');
+  }
+
   public runSelectedQualityGate(gateId: string): Promise<void> {
     if (
       this.snapshot.kind !== 'ready' ||
@@ -470,7 +488,9 @@ export class WorkspaceController {
     const action: WorkspaceAction =
       kind === 'run-quality-gate'
         ? { gateId: requireGateId(gateId), kind, taskId }
-        : { kind, taskId };
+        : kind === 'refresh-pull-request'
+          ? createPullRequestRefreshAction(taskId, this.snapshot.pullRequestInspection)
+          : { kind, taskId };
     const attempt = this.performAction(action, evidenceId, selectedAgentId);
     this.actionAttempt = attempt;
     void attempt
@@ -806,6 +826,14 @@ async function runWorkspaceAction(
     case 'create-pull-request':
       await client.createTaskPullRequest({ taskId: action.taskId });
       return;
+    case 'refresh-pull-request':
+      await client.refreshTaskPullRequest({
+        pullRequestNumber: action.pullRequestNumber,
+        repositoryName: action.repositoryName,
+        repositoryOwner: action.repositoryOwner,
+        taskId: action.taskId,
+      });
+      return;
   }
 }
 
@@ -844,6 +872,11 @@ function canRunAction(
       return (
         pullRequestInspection?.kind === 'ready' && pullRequestInspection.result.canCreatePullRequest
       );
+    case 'refresh-pull-request':
+      return (
+        pullRequestInspection?.kind === 'ready' &&
+        pullRequestInspection.result.pullRequest !== undefined
+      );
   }
 }
 
@@ -868,6 +901,22 @@ function requireGateId(gateId: string | undefined): string {
   return gateId;
 }
 
+function createPullRequestRefreshAction(
+  taskId: string,
+  inspection: WorkspacePullRequestInspection | undefined,
+): Extract<WorkspaceAction, { readonly kind: 'refresh-pull-request' }> {
+  if (inspection?.kind !== 'ready' || inspection.result.pullRequest === undefined) {
+    throw new TypeError('A persisted Pull Request is required.');
+  }
+  return {
+    kind: 'refresh-pull-request',
+    pullRequestNumber: inspection.result.pullRequest.number,
+    repositoryName: inspection.result.pullRequest.repositoryName,
+    repositoryOwner: inspection.result.pullRequest.repositoryOwner,
+    taskId,
+  };
+}
+
 function actionFailureMessage(kind: WorkspaceActionKind): string {
   switch (kind) {
     case 'start-planning':
@@ -889,7 +938,9 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
     case 'push-branch':
       return 'Task branch could not be pushed.';
     case 'create-pull-request':
-      return 'Pull Request could not be created or refreshed.';
+      return 'Pull Request could not be created.';
+    case 'refresh-pull-request':
+      return 'Pull Request status could not be refreshed from GitHub.';
   }
 }
 
@@ -914,6 +965,8 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task branch pushed, but workspace status could not be refreshed.';
     case 'create-pull-request':
       return 'Pull Request updated, but workspace status could not be refreshed.';
+    case 'refresh-pull-request':
+      return 'Pull Request refreshed, but workspace status could not be reloaded.';
   }
 }
 

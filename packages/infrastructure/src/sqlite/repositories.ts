@@ -1,4 +1,4 @@
-import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import type { DatabaseSync, SQLInputValue, StatementSync } from 'node:sqlite';
 
 import {
   type AgentSessionRepository,
@@ -547,35 +547,71 @@ export class SqliteTaskDependencyRepository implements TaskDependencyRepository 
 }
 
 export class SqlitePullRequestRepository implements PullRequestRepository {
+  private readonly database: DatabaseSync;
+  private readonly findBranchStatement: StatementSync;
+  private readonly findPullRequestStatement: StatementSync;
+  private readonly insertHistoryStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
+  private readonly nextHistoryOrdinalStatement: StatementSync;
   private readonly recordStatement: StatementSync;
+  private readonly updateStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
+    this.database = database;
+    const selection = `
+      task_id, provider, repository_owner, repository_name, base_branch, head_branch,
+      pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at,
+      review_state, check_state, check_total_count, check_success_count, check_failure_count,
+      check_pending_count, last_synced_at`;
     this.listByTaskIdStatement = database.prepare(
-      `SELECT
-         task_id, provider, repository_owner, repository_name, base_branch, head_branch,
-         pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at
+      `SELECT ${selection}
        FROM task_pull_requests
        WHERE task_id = ?
-       ORDER BY updated_at, pull_request_number`,
+       ORDER BY COALESCE(last_synced_at, updated_at), pull_request_number`,
+    );
+    this.findBranchStatement = database.prepare(
+      `SELECT ${selection}
+       FROM task_pull_requests
+       WHERE task_id = ? AND provider = ? AND repository_owner = ? AND repository_name = ?
+         AND base_branch = ? AND head_branch = ?`,
+    );
+    this.findPullRequestStatement = database.prepare(
+      `SELECT ${selection}
+       FROM task_pull_requests
+       WHERE task_id = ? AND provider = ? AND repository_owner = ? AND repository_name = ?
+         AND pull_request_number = ?`,
     );
     this.recordStatement = database.prepare(
       `INSERT INTO task_pull_requests (
          task_id, provider, repository_owner, repository_name, base_branch, head_branch,
-         pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT (
-         task_id, provider, repository_owner, repository_name, base_branch, head_branch
-       ) DO UPDATE SET
-         pull_request_number = excluded.pull_request_number,
-         url = excluded.url,
-         title = excluded.title,
-         head_commit_id = excluded.head_commit_id,
-         status = excluded.status,
-         draft = excluded.draft,
-         created_at = excluded.created_at,
-         updated_at = excluded.updated_at
-       WHERE excluded.updated_at >= task_pull_requests.updated_at`,
+         pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at,
+         review_state, check_state, check_total_count, check_success_count, check_failure_count,
+         check_pending_count, last_synced_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    this.updateStatement = database.prepare(
+      `UPDATE task_pull_requests SET
+         base_branch = ?, head_branch = ?, pull_request_number = ?, url = ?, title = ?,
+         head_commit_id = ?, status = ?, draft = ?,
+         created_at = ?, updated_at = ?, review_state = ?, check_state = ?,
+         check_total_count = ?, check_success_count = ?, check_failure_count = ?,
+         check_pending_count = ?, last_synced_at = ?
+       WHERE task_id = ? AND provider = ? AND repository_owner = ? AND repository_name = ?
+         AND base_branch = ? AND head_branch = ?`,
+    );
+    this.nextHistoryOrdinalStatement = database.prepare(
+      `SELECT COALESCE(MAX(ordinal), 0) + 1 AS ordinal
+       FROM task_pull_request_sync_history
+       WHERE task_id = ? AND provider = ? AND repository_owner = ? AND repository_name = ?
+         AND pull_request_number = ?`,
+    );
+    this.insertHistoryStatement = database.prepare(
+      `INSERT INTO task_pull_request_sync_history (
+         task_id, provider, repository_owner, repository_name, base_branch, head_branch, ordinal,
+         pull_request_number, url, title, head_commit_id, status, draft, created_at, updated_at,
+         review_state, check_state, check_total_count, check_success_count, check_failure_count,
+         check_pending_count, last_synced_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
   }
 
@@ -586,23 +622,47 @@ export class SqlitePullRequestRepository implements PullRequestRepository {
   public async record(pullRequest: TaskPullRequest): Promise<void> {
     assertTaskPullRequestMetadata(pullRequest);
     try {
-      this.recordStatement.run(
-        pullRequest.taskId,
-        pullRequest.provider,
-        pullRequest.repositoryOwner,
-        pullRequest.repositoryName,
+      this.database.exec('BEGIN IMMEDIATE');
+      const branchIdentity = pullRequestBranchIdentityParameters(pullRequest);
+      const remoteIdentity = pullRequestRemoteIdentityParameters(pullRequest);
+      const row =
+        this.findPullRequestStatement.get(...remoteIdentity) ??
+        this.findBranchStatement.get(...branchIdentity);
+      const current = row === undefined ? undefined : mapTaskPullRequestRow(row);
+      if (current !== undefined && sameTaskPullRequest(current, pullRequest)) {
+        this.database.exec('COMMIT');
+        return;
+      }
+      if (current !== undefined && !isNewerPullRequestSnapshot(current, pullRequest)) {
+        this.database.exec('COMMIT');
+        return;
+      }
+      if (current === undefined) {
+        this.recordStatement.run(...pullRequestPersistenceParameters(pullRequest));
+      } else {
+        this.updateStatement.run(
+          pullRequest.baseBranch,
+          pullRequest.headBranch,
+          ...pullRequestMutableParameters(pullRequest),
+          ...pullRequestBranchIdentityParameters(current),
+        );
+      }
+      const ordinalRow = this.nextHistoryOrdinalStatement.get(...remoteIdentity);
+      const ordinal = ordinalRow?.ordinal;
+      if (typeof ordinal !== 'number' && typeof ordinal !== 'bigint') {
+        throw new Error('Pull Request sync history ordinal is invalid.');
+      }
+      this.insertHistoryStatement.run(
+        ...remoteIdentity.slice(0, 4),
         pullRequest.baseBranch,
         pullRequest.headBranch,
+        ordinal,
         pullRequest.number,
-        pullRequest.url,
-        pullRequest.title,
-        pullRequest.headCommitId,
-        pullRequest.status,
-        Number(pullRequest.draft),
-        pullRequest.createdAt,
-        pullRequest.updatedAt,
+        ...pullRequestMutableParameters(pullRequest).slice(1),
       );
+      this.database.exec('COMMIT');
     } catch (error) {
+      if (this.database.isTransaction) this.database.exec('ROLLBACK');
       throw new SqlitePersistenceError('Failed to persist Pull Request metadata.', {
         cause: error,
       });
@@ -2204,14 +2264,23 @@ function mapTaskPullRequestRow(row: Record<string, unknown>): TaskPullRequest {
   }
   const pullRequest = {
     baseBranch: row.base_branch,
+    checks: Object.freeze({
+      failureCount: row.check_failure_count,
+      pendingCount: row.check_pending_count,
+      state: row.check_state,
+      successCount: row.check_success_count,
+      totalCount: row.check_total_count,
+    }),
     createdAt: row.created_at,
     draft: draft === 1 || draft === 1n,
     headBranch: row.head_branch,
     headCommitId: row.head_commit_id,
+    lastSyncedAt: row.last_synced_at === null ? undefined : row.last_synced_at,
     number: row.pull_request_number,
     provider: row.provider,
     repositoryName: row.repository_name,
     repositoryOwner: row.repository_owner,
+    reviewState: row.review_state,
     status: row.status,
     taskId: row.task_id,
     title: row.title,
@@ -2229,6 +2298,29 @@ function assertTaskPullRequestMetadata(pullRequest: TaskPullRequest): void {
     value.trim().length > 0 &&
     value.length <= maximum &&
     !value.includes('\0');
+  const checks = pullRequest.checks;
+  const checkCountsValid =
+    typeof checks === 'object' &&
+    checks !== null &&
+    Number.isSafeInteger(checks.totalCount) &&
+    checks.totalCount >= 0 &&
+    checks.totalCount <= 2_000 &&
+    Number.isSafeInteger(checks.successCount) &&
+    checks.successCount >= 0 &&
+    Number.isSafeInteger(checks.failureCount) &&
+    checks.failureCount >= 0 &&
+    Number.isSafeInteger(checks.pendingCount) &&
+    checks.pendingCount >= 0 &&
+    checks.totalCount === checks.successCount + checks.failureCount + checks.pendingCount &&
+    ['FAILURE', 'NONE', 'PENDING', 'SUCCESS', 'UNKNOWN'].includes(checks.state) &&
+    ((checks.state === 'UNKNOWN' && checks.totalCount === 0) ||
+      (checks.state === 'NONE' && checks.totalCount === 0) ||
+      (checks.state === 'FAILURE' && checks.failureCount > 0) ||
+      (checks.state === 'PENDING' && checks.failureCount === 0 && checks.pendingCount > 0) ||
+      (checks.state === 'SUCCESS' &&
+        checks.totalCount > 0 &&
+        checks.failureCount === 0 &&
+        checks.pendingCount === 0));
   if (
     pullRequest.provider !== 'github' ||
     !validText(pullRequest.taskId, 32_768) ||
@@ -2245,14 +2337,105 @@ function assertTaskPullRequestMetadata(pullRequest: TaskPullRequest): void {
     !validText(pullRequest.title, 1_024) ||
     !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(pullRequest.headCommitId) ||
     !['OPEN', 'CLOSED', 'MERGED'].includes(pullRequest.status) ||
+    !['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'NONE', 'UNKNOWN'].includes(
+      pullRequest.reviewState,
+    ) ||
+    !checkCountsValid ||
     typeof pullRequest.draft !== 'boolean' ||
     !Number.isSafeInteger(pullRequest.createdAt) ||
     pullRequest.createdAt < 0 ||
     !Number.isSafeInteger(pullRequest.updatedAt) ||
-    pullRequest.updatedAt < pullRequest.createdAt
+    pullRequest.updatedAt < pullRequest.createdAt ||
+    (pullRequest.lastSyncedAt !== undefined &&
+      (!Number.isSafeInteger(pullRequest.lastSyncedAt) ||
+        pullRequest.lastSyncedAt < 0 ||
+        pullRequest.lastSyncedAt > 8_640_000_000_000_000))
   ) {
     throw new SqlitePersistenceError('Pull Request metadata is invalid.');
   }
+}
+
+function pullRequestBranchIdentityParameters(
+  pullRequest: TaskPullRequest,
+): readonly SQLInputValue[] {
+  return [
+    pullRequest.taskId,
+    pullRequest.provider,
+    pullRequest.repositoryOwner,
+    pullRequest.repositoryName,
+    pullRequest.baseBranch,
+    pullRequest.headBranch,
+  ];
+}
+
+function pullRequestRemoteIdentityParameters(
+  pullRequest: TaskPullRequest,
+): readonly SQLInputValue[] {
+  return [
+    pullRequest.taskId,
+    pullRequest.provider,
+    pullRequest.repositoryOwner,
+    pullRequest.repositoryName,
+    pullRequest.number,
+  ];
+}
+
+function pullRequestMutableParameters(pullRequest: TaskPullRequest): readonly SQLInputValue[] {
+  return [
+    pullRequest.number,
+    pullRequest.url,
+    pullRequest.title,
+    pullRequest.headCommitId,
+    pullRequest.status,
+    Number(pullRequest.draft),
+    pullRequest.createdAt,
+    pullRequest.updatedAt,
+    pullRequest.reviewState,
+    pullRequest.checks.state,
+    pullRequest.checks.totalCount,
+    pullRequest.checks.successCount,
+    pullRequest.checks.failureCount,
+    pullRequest.checks.pendingCount,
+    pullRequest.lastSyncedAt ?? null,
+  ];
+}
+
+function pullRequestPersistenceParameters(pullRequest: TaskPullRequest): readonly SQLInputValue[] {
+  return [
+    ...pullRequestBranchIdentityParameters(pullRequest),
+    ...pullRequestMutableParameters(pullRequest),
+  ];
+}
+
+function isNewerPullRequestSnapshot(current: TaskPullRequest, candidate: TaskPullRequest): boolean {
+  if (candidate.lastSyncedAt === undefined) return false;
+  return current.lastSyncedAt === undefined || candidate.lastSyncedAt >= current.lastSyncedAt;
+}
+
+function sameTaskPullRequest(left: TaskPullRequest, right: TaskPullRequest): boolean {
+  return (
+    left.taskId === right.taskId &&
+    left.provider === right.provider &&
+    left.repositoryOwner === right.repositoryOwner &&
+    left.repositoryName === right.repositoryName &&
+    left.baseBranch === right.baseBranch &&
+    left.headBranch === right.headBranch &&
+    left.number === right.number &&
+    left.url === right.url &&
+    left.title === right.title &&
+    left.headCommitId === right.headCommitId &&
+    left.status === right.status &&
+    left.draft === right.draft &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt &&
+    left.reviewState === right.reviewState &&
+    left.checks.state === right.checks.state &&
+    left.checks.totalCount === right.checks.totalCount &&
+    left.checks.successCount === right.checks.successCount &&
+    left.checks.failureCount === right.checks.failureCount &&
+    left.checks.pendingCount === right.checks.pendingCount &&
+    left.lastSyncedAt === right.lastSyncedAt
+  );
 }
 
 function isSqliteMetadataConflictError(error: unknown): boolean {

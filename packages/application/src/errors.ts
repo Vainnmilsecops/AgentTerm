@@ -48,7 +48,9 @@ export type TaskPullRequestFailure =
   | 'INSPECTION_FAILED'
   | 'METADATA_MISMATCH'
   | 'METADATA_PERSISTENCE_FAILED'
+  | 'PULL_REQUEST_NOT_FOUND'
   | 'PUSH_FAILED'
+  | 'REFRESH_FAILED'
   | 'WORKTREE_NOT_READY';
 
 export class TaskPullRequestError extends Error {
@@ -71,12 +73,16 @@ export class TaskPullRequestError extends Error {
                 : reason === 'PUSH_FAILED'
                   ? 'The Task branch could not be pushed.'
                   : reason === 'CREATE_FAILED'
-                    ? 'The Pull Request could not be created or refreshed.'
+                    ? 'The Pull Request could not be created.'
                     : reason === 'METADATA_PERSISTENCE_FAILED'
                       ? 'The Pull Request exists, but its metadata could not be persisted.'
-                      : reason === 'METADATA_MISMATCH'
-                        ? 'The Pull Request metadata does not match the Task Worktree.'
-                        : 'The Task Pull Request state could not be inspected.',
+                      : reason === 'PULL_REQUEST_NOT_FOUND'
+                        ? 'The persisted Pull Request could not be found on GitHub.'
+                        : reason === 'REFRESH_FAILED'
+                          ? 'The Pull Request status could not be refreshed from GitHub.'
+                          : reason === 'METADATA_MISMATCH'
+                            ? 'The Pull Request metadata does not match its expected Task identity.'
+                            : 'The Task Pull Request state could not be inspected.',
       options,
     );
     this.name = 'TaskPullRequestError';
