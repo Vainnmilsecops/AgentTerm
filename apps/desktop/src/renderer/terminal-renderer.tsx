@@ -117,6 +117,22 @@ export function TerminalRenderer({
         </button>
       </header>
       <div className="terminal-panel__viewport" ref={containerRef} />
+      {state === 'empty' ? (
+        <div className="terminal-panel__empty" data-terminal-empty role="status">
+          <div className="terminal-panel__empty-card">
+            <span className="terminal-panel__empty-icon" aria-hidden="true">
+              ›_
+            </span>
+            <strong>No Agent Session attached</strong>
+            <p>Start a task or accept a plan to open its terminal in this pane.</p>
+            <div className="terminal-panel__empty-skeleton" aria-hidden="true">
+              <span className="skeleton" style={{ width: '60%', height: '0.7rem' }} />
+              <span className="skeleton" style={{ width: '80%', height: '0.7rem' }} />
+              <span className="skeleton" style={{ width: '40%', height: '0.7rem' }} />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

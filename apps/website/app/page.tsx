@@ -1,12 +1,23 @@
+import { DownloadSection } from './download-section';
+import { FeaturesSection } from './features-section';
+import { Hero } from './hero';
+import { SiteFooter } from './site-footer';
+import { SiteHeader } from './site-header';
+import { VideoSection } from './video-section';
+import { WorkflowSection } from './workflow-section';
+
 export default function HomePage() {
   return (
-    <main>
-      <p className="eyebrow">Foundation preview</p>
-      <h1>AgentTerm</h1>
-      <p>Windows-first terminal workspace for coding agents.</p>
-      <p className="note">
-        The full product website is intentionally deferred to a design session.
-      </p>
-    </main>
+    <>
+      <SiteHeader />
+      <main id="main">
+        <Hero />
+        <WorkflowSection />
+        <FeaturesSection />
+        <VideoSection />
+        <DownloadSection />
+      </main>
+      <SiteFooter />
+    </>
   );
 }
