@@ -170,6 +170,7 @@ describe('desktop main IPC handlers', () => {
 
     await expect(
       ipcMain.invoke(desktopIpcChannels.createTask, event(sender), {
+        brief: 'Khởi động agent với Task context bền vững.',
         projectId: 'project-1',
         title: 'Tạo Task',
       }),
@@ -181,6 +182,7 @@ describe('desktop main IPC handlers', () => {
     ).resolves.toEqual({ ok: true, value: null });
 
     expect(application.createTask).toHaveBeenCalledWith({
+      brief: 'Khởi động agent với Task context bền vững.',
       projectId: 'project-1',
       title: 'Tạo Task',
     });

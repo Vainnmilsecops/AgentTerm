@@ -43,6 +43,24 @@ describe('createTask', () => {
     });
   });
 
+  it('preserves a bounded multiline Task Brief through lifecycle transitions', () => {
+    const brief = 'Inspect the current flow.\n\nAcceptance: preserve existing sessions.';
+
+    const backlog = createTask({ ...validTaskInput, brief });
+    const planning = transitionTask(backlog, TaskPhase.PLANNING);
+
+    expect(backlog.brief).toBe(brief);
+    expect(planning.brief).toBe(brief);
+  });
+
+  it.each(['', '   ', 'x'.repeat(16_385), 'unsafe\0brief', 'terminal\u001b[31mcontrol'])(
+    'rejects an invalid Task Brief without weakening legacy Task creation',
+    (brief) => {
+      expect(() => createTask({ ...validTaskInput, brief })).toThrow(TypeError);
+      expect(createTask(validTaskInput)).not.toHaveProperty('brief');
+    },
+  );
+
   it.each([
     { ...validTaskInput, id: '' },
     { ...validTaskInput, id: '   ' },

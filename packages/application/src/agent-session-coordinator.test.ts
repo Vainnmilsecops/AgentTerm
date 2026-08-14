@@ -276,6 +276,67 @@ describe('AgentSessionCoordinator', () => {
     await expect(fixture.tasks.findById(task.id)).resolves.toEqual(task);
   });
 
+  it('writes provider-neutral initial input exactly once after PTY ownership is established', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+
+    const first = await fixture.coordinator.start({
+      ...launchInput,
+      initialInput: 'Task kickoff\r',
+    });
+    const repeated = await fixture.coordinator.start({
+      ...launchInput,
+      initialInput: 'Task kickoff\r',
+    });
+
+    expect(first).toEqual(repeated);
+    expect(fixture.runtime.handle.write).toHaveBeenCalledOnce();
+    expect(fixture.runtime.handle.write).toHaveBeenCalledWith('Task kickoff\r');
+    expect(fixture.runtime.specs[0]).not.toHaveProperty('initialInput');
+  });
+
+  it('records initial-input failure as WRITE evidence and requests runtime termination', async () => {
+    const fixture = createFixture();
+    const writeFailure = new PtyRuntimeError('write', 'RUNTIME_FAILURE');
+    fixture.runtime.handle.write.mockRejectedValueOnce(writeFailure);
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+
+    await expect(
+      fixture.coordinator.start({ ...launchInput, initialInput: 'Task kickoff\r' }),
+    ).rejects.toBe(writeFailure);
+
+    await expect(fixture.coordinator.findById(launchInput.sessionId)).resolves.toMatchObject({
+      history: expect.arrayContaining([
+        expect.objectContaining({
+          code: 'RUNTIME_FAILURE',
+          fatal: true,
+          kind: 'RUNTIME_FAILED',
+          stage: 'WRITE',
+        }),
+      ]),
+      status: AgentSessionStatus.FAILED,
+    });
+    expect(fixture.runtime.handle.terminate).toHaveBeenCalledOnce();
+    expect(fixture.tasks.update).not.toHaveBeenCalled();
+    await expect(fixture.tasks.findById(task.id)).resolves.toEqual(task);
+  });
+
+  it('does not write kickoff input after a synchronous process exit', async () => {
+    const fixture = createFixture();
+    fixture.runtime.onOpen = (sink) => {
+      sink({ kind: 'started', sequence: 1 });
+      sink({ exitCode: 0, kind: 'exited', sequence: 2 });
+    };
+
+    const session = await fixture.coordinator.start({
+      ...launchInput,
+      initialInput: 'Task kickoff\r',
+    });
+
+    expect(session.status).toBe(AgentSessionStatus.EXITED);
+    expect(fixture.runtime.handle.write).not.toHaveBeenCalled();
+  });
+
   it('keeps every session created for one Task', async () => {
     const fixture = createFixture();
     fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });

@@ -97,7 +97,8 @@ kbd {
 }
 
 .workspace-onboarding input,
-.workspace-onboarding select {
+.workspace-onboarding select,
+.workspace-onboarding textarea {
   width: 100%;
   min-width: 0;
   border: 1px solid #343e47;
@@ -108,10 +109,32 @@ kbd {
   font: inherit;
 }
 
+.workspace-onboarding textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
 .workspace-onboarding input:focus-visible,
-.workspace-onboarding select:focus-visible {
+.workspace-onboarding select:focus-visible,
+.workspace-onboarding textarea:focus-visible {
   outline: 2px solid #f2c879;
   outline-offset: 2px;
+}
+
+.task-brief {
+  display: grid;
+  gap: 0.45rem;
+  border: 1px solid #2b343d;
+  border-radius: 0.65rem;
+  padding: 0.85rem 1rem;
+  background: #0b1015;
+}
+
+.task-brief p:last-child {
+  margin: 0;
+  color: #cbd5df;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .settings-panel > summary {

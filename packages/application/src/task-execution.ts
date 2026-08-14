@@ -188,6 +188,7 @@ async function executeTaskAttempt(
       agentId: input.agentId,
       environment: input.environment,
       ...(input.eventSink === undefined ? {} : { eventSink: input.eventSink }),
+      initialInput: createTaskKickoff(currentTask, expectedPhase),
       initialSize: input.initialSize,
       sessionId: input.sessionId,
       taskId: input.taskId,
@@ -202,6 +203,38 @@ async function executeTaskAttempt(
       ...(session === undefined ? {} : { session }),
     });
   }
+}
+
+function createTaskKickoff(
+  task: Task,
+  phase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING,
+): string {
+  const taskId = collapseKickoffText(task.id);
+  const title = collapseKickoffText(task.title);
+  const brief = ensureSentence(collapseKickoffText(task.brief ?? task.title));
+  const phaseDirection =
+    phase === TaskPhase.PLANNING
+      ? 'Produce a concrete plan and evidence; do not begin implementation.'
+      : 'Work only in the current Task Worktree. Report progress and evidence.';
+  return (
+    `AgentTerm Task "${title}" (${taskId}), phase ${phase}. Brief: ${brief} ` +
+    `${phaseDirection} Do not change Task phase or mark it DONE; lifecycle decisions belong to the user.\r`
+  );
+}
+
+function ensureSentence(value: string): string {
+  return /[.!?]$/u.test(value) ? value : `${value}.`;
+}
+
+function collapseKickoffText(value: string): string {
+  return [...value]
+    .map((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f) ? ' ' : character;
+    })
+    .join('')
+    .replace(/\s+/gu, ' ')
+    .trim();
 }
 
 function assertConfiguredAgent(agentId: string, coordinator: AgentSessionCoordinator): void {

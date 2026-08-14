@@ -68,10 +68,12 @@ export function mapLocalProjectRow(row: SqliteRow): LocalProject {
 
 export function mapTaskRow(row: SqliteRow): Task {
   const storedPhase = readTaskPhase(row);
+  const brief = readNullableText(row, 'brief', 'Task');
   let task = createTask({
     id: readText(row, 'id', 'Task'),
     projectId: readText(row, 'project_id', 'Task'),
     title: readText(row, 'title', 'Task'),
+    ...(brief === undefined ? {} : { brief }),
   });
 
   for (const phase of taskPhaseProgression) {

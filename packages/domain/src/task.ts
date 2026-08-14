@@ -8,7 +8,10 @@ const allowedNextTaskPhases: Readonly<Record<TaskPhaseValue, readonly TaskPhaseV
   [TaskPhase.DONE]: [],
 };
 
+export const TaskBriefLimits = Object.freeze({ CONTENT: 16_384 });
+
 export interface Task {
+  readonly brief?: string;
   readonly id: string;
   readonly projectId: string;
   readonly title: string;
@@ -16,6 +19,7 @@ export interface Task {
 }
 
 export interface CreateTaskInput {
+  readonly brief?: string;
   readonly id: string;
   readonly projectId: string;
   readonly title: string;
@@ -37,8 +41,38 @@ export function createTask(input: CreateTaskInput): Task {
   assertNonBlank(input.id, 'Task id');
   assertNonBlank(input.projectId, 'Task project id');
   assertNonBlank(input.title, 'Task title');
+  if (input.brief !== undefined) {
+    assertTaskBrief(input.brief);
+  }
 
   return Object.freeze({ ...input, phase: TaskPhase.BACKLOG });
+}
+
+function assertTaskBrief(value: string): void {
+  if (
+    value.trim().length === 0 ||
+    value.length > TaskBriefLimits.CONTENT ||
+    hasForbiddenTaskBriefControl(value)
+  ) {
+    throw new TypeError('Task Brief is invalid.');
+  }
+}
+
+function hasForbiddenTaskBriefControl(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint === 0x7f ||
+      (codePoint !== undefined &&
+        codePoint <= 0x1f &&
+        codePoint !== 0x09 &&
+        codePoint !== 0x0a &&
+        codePoint !== 0x0d)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function transitionTask(task: Task, to: TaskPhaseValue): Task {

@@ -294,6 +294,7 @@ export class WorkspaceController {
   }
 
   public createTask(input: {
+    readonly brief: string;
     readonly projectId: string;
     readonly title: string;
   }): Promise<boolean> {
@@ -301,14 +302,19 @@ export class WorkspaceController {
     if (
       this.snapshot.kind !== 'ready' ||
       !this.snapshot.overview.projects.some(({ project }) => project.id === input.projectId) ||
-      input.title.trim().length === 0
+      input.title.trim().length === 0 ||
+      input.brief.trim().length === 0
     ) {
       return Promise.resolve(false);
     }
     const current = this.snapshot;
     this.publish(Object.freeze({ ...current, actionError: undefined, onboardingBusy: true }));
     const attempt = this.client
-      .createTask({ projectId: input.projectId, title: input.title.trim() })
+      .createTask({
+        brief: input.brief.trim(),
+        projectId: input.projectId,
+        title: input.title.trim(),
+      })
       .then(async ({ taskId }) => {
         await this.reloadAfterOnboarding(taskId);
         return true;

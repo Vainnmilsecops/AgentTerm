@@ -21,10 +21,15 @@ describe('desktop IPC contract validation', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.openProject, {})).toEqual({});
     expect(
       validateDesktopIpcRequest(desktopIpcChannels.createTask, {
+        brief: 'Khởi động đúng agent và giữ nguyên lịch sử.',
         projectId: 'project-1',
         title: 'Sửa luồng khởi động agent',
       }),
-    ).toEqual({ projectId: 'project-1', title: 'Sửa luồng khởi động agent' });
+    ).toEqual({
+      brief: 'Khởi động đúng agent và giữ nguyên lịch sử.',
+      projectId: 'project-1',
+      title: 'Sửa luồng khởi động agent',
+    });
     expect(
       validateDesktopIpcRequest(desktopIpcChannels.beginTaskPlanning, { taskId: 'task-1' }),
     ).toEqual({ taskId: 'task-1' });
@@ -36,7 +41,20 @@ describe('desktop IPC contract validation', () => {
     [desktopIpcChannels.terminalResize, { columns: 0, rows: 24, subscriptionId: 'sub-1' }],
     [desktopIpcChannels.updateSettings, { expectedRevision: -1 }],
     [desktopIpcChannels.openProject, { path: 'C:\\private\\repository' }],
-    [desktopIpcChannels.createTask, { projectId: 'project-1', title: '   ' }],
+    [desktopIpcChannels.createTask, { projectId: 'project-1', title: 'Task' }],
+    [
+      desktopIpcChannels.createTask,
+      { brief: 'A safe brief', projectId: 'project-1', title: '   ' },
+    ],
+    [desktopIpcChannels.createTask, { brief: '   ', projectId: 'project-1', title: 'Task' }],
+    [
+      desktopIpcChannels.createTask,
+      { brief: `unsafe\u001bprompt`, projectId: 'project-1', title: 'Task' },
+    ],
+    [
+      desktopIpcChannels.createTask,
+      { brief: 'x'.repeat(16_385), projectId: 'project-1', title: 'Task' },
+    ],
   ] as const)('rejects malformed or over-capability payloads for %s', (channel, payload) => {
     expect(() => validateDesktopIpcRequest(channel, payload)).toThrow(
       DesktopIpcRequestValidationError,

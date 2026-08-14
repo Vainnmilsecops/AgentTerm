@@ -77,7 +77,11 @@ describe('desktop preload bridge', () => {
 
     await expect(api.openProject()).resolves.toBe('OPENED');
     await expect(
-      api.createTask({ projectId: 'project-1', title: 'Tạo Task tiếng Việt' }),
+      api.createTask({
+        brief: 'Mô tả Task để agent nhận context.',
+        projectId: 'project-1',
+        title: 'Tạo Task tiếng Việt',
+      }),
     ).resolves.toEqual({ taskId: 'task-new' });
     await expect(api.beginTaskPlanning({ taskId: 'task-new' })).resolves.toBeUndefined();
 
@@ -85,7 +89,11 @@ describe('desktop preload bridge', () => {
       { channel: desktopIpcChannels.openProject, input: {} },
       {
         channel: desktopIpcChannels.createTask,
-        input: { projectId: 'project-1', title: 'Tạo Task tiếng Việt' },
+        input: {
+          brief: 'Mô tả Task để agent nhận context.',
+          projectId: 'project-1',
+          title: 'Tạo Task tiếng Việt',
+        },
       },
       { channel: desktopIpcChannels.beginTaskPlanning, input: { taskId: 'task-new' } },
     ]);
