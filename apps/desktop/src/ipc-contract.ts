@@ -16,6 +16,8 @@ import type {
 export const desktopIpcChannels = Object.freeze({
   acceptPlan: 'agentterm:planning:accept',
   approveReview: 'agentterm:review:approve',
+  beginTaskPlanning: 'agentterm:task:begin-planning',
+  createTask: 'agentterm:task:create',
   createPullRequest: 'agentterm:pull-request:create',
   getTaskFileDiff: 'agentterm:changes:diff',
   inspectPullRequest: 'agentterm:pull-request:inspect',
@@ -23,6 +25,7 @@ export const desktopIpcChannels = Object.freeze({
   listTaskChanges: 'agentterm:changes:list',
   loadSettings: 'agentterm:settings:load',
   loadWorkspace: 'agentterm:workspace:load',
+  openProject: 'agentterm:project:open',
   pushTaskBranch: 'agentterm:pull-request:push',
   refreshPullRequest: 'agentterm:pull-request:refresh',
   requestChanges: 'agentterm:review:request-changes',
@@ -47,6 +50,17 @@ type EmptyRequest = Readonly<Record<string, never>>;
 interface TaskRequest {
   readonly taskId: string;
 }
+
+interface CreateTaskRequest {
+  readonly projectId: string;
+  readonly title: string;
+}
+
+export interface CreateDesktopTaskResult {
+  readonly taskId: string;
+}
+
+export type OpenDesktopProjectResult = 'CANCELLED' | 'OPENED';
 
 interface AgentTaskRequest extends TaskRequest {
   readonly agentId: string;
@@ -87,6 +101,8 @@ interface TerminalResizeRequest extends PtyTerminalSize, TerminalSubscriptionReq
 export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.acceptPlan]: PlanRequest;
   readonly [desktopIpcChannels.approveReview]: ReviewRequest;
+  readonly [desktopIpcChannels.beginTaskPlanning]: TaskRequest;
+  readonly [desktopIpcChannels.createTask]: CreateTaskRequest;
   readonly [desktopIpcChannels.createPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.getTaskFileDiff]: GetTaskFileDiffInput;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskRequest;
@@ -94,6 +110,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.listTaskChanges]: TaskRequest;
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
+  readonly [desktopIpcChannels.openProject]: EmptyRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
   readonly [desktopIpcChannels.refreshPullRequest]: PullRequestRefreshRequest;
   readonly [desktopIpcChannels.requestChanges]: ReviewRequest;
@@ -112,6 +129,8 @@ export interface DesktopIpcRequestMap {
 export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.acceptPlan]: null;
   readonly [desktopIpcChannels.approveReview]: null;
+  readonly [desktopIpcChannels.beginTaskPlanning]: null;
+  readonly [desktopIpcChannels.createTask]: CreateDesktopTaskResult;
   readonly [desktopIpcChannels.createPullRequest]: null;
   readonly [desktopIpcChannels.getTaskFileDiff]: TaskFileDiff;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskPullRequestState;
@@ -119,6 +138,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.listTaskChanges]: TaskChangeSet;
   readonly [desktopIpcChannels.loadSettings]: ApplicationSettingsView;
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
+  readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
   readonly [desktopIpcChannels.refreshPullRequest]: null;
   readonly [desktopIpcChannels.requestChanges]: null;
@@ -161,6 +181,8 @@ export interface AgentTermDesktopApi {
   acceptTaskPlan(input: PlanRequest): Promise<void>;
   approveTaskReview(input: ReviewRequest): Promise<void>;
   attachTerminal(input: AttachAgentSessionTerminalInput): Promise<AgentSessionTerminalAttachment>;
+  beginTaskPlanning(input: TaskRequest): Promise<void>;
+  createTask(input: CreateTaskRequest): Promise<CreateDesktopTaskResult>;
   createTaskPullRequest(input: TaskRequest): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
   inspectTaskPullRequest(input: TaskRequest): Promise<TaskPullRequestState>;
@@ -168,6 +190,7 @@ export interface AgentTermDesktopApi {
   listTaskChanges(input: TaskRequest): Promise<TaskChangeSet>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
+  openProject(): Promise<OpenDesktopProjectResult>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
   requestTaskChanges(input: ReviewRequest): Promise<void>;
@@ -204,7 +227,15 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.loadWorkspace:
     case desktopIpcChannels.loadSettings:
     case desktopIpcChannels.listQualityGates:
+    case desktopIpcChannels.openProject:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
+    case desktopIpcChannels.createTask: {
+      const record = exactRecord(input, ['projectId', 'title']);
+      return Object.freeze({
+        projectId: readIdentity(record.projectId),
+        title: readTaskTitle(record.title),
+      }) as DesktopIpcRequestMap[C];
+    }
     case desktopIpcChannels.startExecution:
     case desktopIpcChannels.retryExecution:
     case desktopIpcChannels.startPlanning: {
@@ -283,6 +314,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.createPullRequest:
+    case desktopIpcChannels.beginTaskPlanning:
     case desktopIpcChannels.inspectPullRequest:
     case desktopIpcChannels.listTaskChanges:
     case desktopIpcChannels.pushTaskBranch:
@@ -457,6 +489,10 @@ function readAgentId(input: unknown): string {
   const value = readBoundedString(input, 64);
   if (!stableAgentIdPattern.test(value)) fail();
   return value;
+}
+
+function readTaskTitle(input: unknown): string {
+  return readBoundedString(input, 512);
 }
 
 function readSubscriptionId(input: unknown): string {

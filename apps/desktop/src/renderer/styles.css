@@ -71,6 +71,49 @@ kbd {
   grid-template-columns: 1fr;
 }
 
+.workspace-onboarding {
+  display: grid;
+  gap: 0.6rem;
+  border-bottom: 1px solid #242a31;
+  padding: 0.65rem;
+}
+
+.workspace-onboarding form,
+.workspace-onboarding label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.workspace-onboarding form {
+  gap: 0.6rem;
+}
+
+.workspace-onboarding label > span {
+  color: #8fa1b2;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-onboarding input,
+.workspace-onboarding select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #343e47;
+  border-radius: 0.45rem;
+  padding: 0.55rem 0.6rem;
+  color: #e8edf2;
+  background: #0b0f13;
+  font: inherit;
+}
+
+.workspace-onboarding input:focus-visible,
+.workspace-onboarding select:focus-visible {
+  outline: 2px solid #f2c879;
+  outline-offset: 2px;
+}
+
 .settings-panel > summary {
   cursor: pointer;
   padding: 0.7rem 0.85rem;

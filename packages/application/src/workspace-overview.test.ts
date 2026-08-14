@@ -421,6 +421,7 @@ describe('loadAgentWorkspace', () => {
               activeSession: workingSummary,
               artifacts: [plan, summary],
               blocked: false,
+              canBeginPlanning: false,
               canAcceptPlan: false,
               canRetryExecution: false,
               canRevisePlan: false,
@@ -443,6 +444,7 @@ describe('loadAgentWorkspace', () => {
               activeSession: olderActiveSummary,
               artifacts: [],
               blocked: false,
+              canBeginPlanning: false,
               canAcceptPlan: false,
               canRetryExecution: false,
               canRevisePlan: false,
@@ -645,12 +647,14 @@ describe('loadAgentWorkspace', () => {
 
     expect(workspace.projects[0]?.tasks).toMatchObject([
       {
+        canBeginPlanning: true,
         canRetryExecution: false,
         canStartExecution: false,
         canStartPlanning: false,
         task: { phase: 'BACKLOG' },
       },
       {
+        canBeginPlanning: false,
         canRetryExecution: false,
         canStartExecution: false,
         canStartPlanning: true,

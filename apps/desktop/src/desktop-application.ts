@@ -6,6 +6,7 @@ import {
   AgentSessionCoordinator,
   acceptTaskPlan,
   approveTaskReview,
+  createTask as createApplicationTask,
   createTaskPullRequest,
   getTaskFileDiff,
   inspectTaskPullRequest,
@@ -13,6 +14,7 @@ import {
   listTaskChanges,
   loadAgentWorkspace,
   loadApplicationSettings,
+  openProject as openApplicationProject,
   pushTaskBranch,
   refreshTaskPullRequest,
   requestTaskChanges,
@@ -22,6 +24,7 @@ import {
   runQualityGate,
   startTaskExecution,
   startTaskPlanning,
+  transitionTask,
   updateApplicationSettings,
   type QualityGateCatalog,
 } from '@agentterm/application';
@@ -30,6 +33,7 @@ import {
   GitCliTaskReviewCodeInspector,
   GitCliTaskWorktreeLifecycle,
   GitHubPullRequestAdapter,
+  LocalGitProjectDiscovery,
   NodeQualityGateProcessRunner,
   WindowsConPtyRuntime,
   createBuiltInAgentCatalogFromSettings,
@@ -70,6 +74,7 @@ export async function createProductionDesktopApplication(
     const git = new GitCliTaskWorktreeLifecycle(join(dataDirectory, 'worktrees'));
     const codeInspector = new GitCliTaskReviewCodeInspector();
     const pullRequestIntegration = new GitHubPullRequestAdapter();
+    const projectDiscovery = new LocalGitProjectDiscovery();
     const sessionCoordinator = new AgentSessionCoordinator({
       agents,
       clock,
@@ -147,6 +152,20 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return sessionCoordinator.attachTerminal(input);
       },
+      beginTaskPlanning: async (input): Promise<void> => {
+        requireOpen();
+        await transitionTask({ taskId: input.taskId, to: 'PLANNING' }, persistence.tasks);
+      },
+      createTask: async (input) => {
+        requireOpen();
+        const taskId = `task-${newId()}`;
+        await createApplicationTask(
+          { ...input, id: taskId },
+          persistence.projects,
+          persistence.tasks,
+        );
+        return Object.freeze({ taskId });
+      },
       createTaskPullRequest: async (input): Promise<void> => {
         requireOpen();
         await createTaskPullRequest(input, pullRequestDependencies);
@@ -188,6 +207,10 @@ export async function createProductionDesktopApplication(
           agents,
           persistence.taskDependencies,
         );
+      },
+      openProject: async (input): Promise<void> => {
+        requireOpen();
+        await openApplicationProject(input, projectDiscovery, persistence.projects);
       },
       pushTaskBranch: async (input): Promise<void> => {
         requireOpen();

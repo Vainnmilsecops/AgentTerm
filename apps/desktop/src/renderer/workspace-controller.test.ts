@@ -29,12 +29,15 @@ import {
 type TestWorkspaceViewProps = Omit<
   AgentWorkspaceViewProps,
   | 'onAcceptPlan'
+  | 'onBeginPlanning'
   | 'onCloseWorkspacePane'
   | 'onCloseWorkspaceTab'
   | 'onCreatePullRequest'
+  | 'onCreateTask'
   | 'onCycleWorkspacePane'
   | 'onCycleWorkspaceTab'
   | 'onPushTaskBranch'
+  | 'onOpenProject'
   | 'onRefreshPullRequest'
   | 'onRunQualityGate'
   | 'onSelectWorkspacePane'
@@ -47,12 +50,15 @@ type TestWorkspaceViewProps = Omit<
     Pick<
       AgentWorkspaceViewProps,
       | 'onAcceptPlan'
+      | 'onBeginPlanning'
       | 'onCloseWorkspacePane'
       | 'onCloseWorkspaceTab'
       | 'onCreatePullRequest'
+      | 'onCreateTask'
       | 'onCycleWorkspacePane'
       | 'onCycleWorkspaceTab'
       | 'onPushTaskBranch'
+      | 'onOpenProject'
       | 'onRefreshPullRequest'
       | 'onRunQualityGate'
       | 'onSelectWorkspacePane'
@@ -66,12 +72,15 @@ type TestWorkspaceViewProps = Omit<
 function AgentWorkspaceView(props: TestWorkspaceViewProps) {
   return createElement(AgentWorkspaceViewComponent, {
     onAcceptPlan: () => undefined,
+    onBeginPlanning: () => undefined,
     onCloseWorkspacePane: () => undefined,
     onCloseWorkspaceTab: () => undefined,
     onCreatePullRequest: () => undefined,
+    onCreateTask: async () => true,
     onCycleWorkspacePane: () => undefined,
     onCycleWorkspaceTab: () => undefined,
     onPushTaskBranch: () => undefined,
+    onOpenProject: () => undefined,
     onRefreshPullRequest: () => undefined,
     onRunQualityGate: () => undefined,
     onSelectWorkspacePane: () => undefined,
@@ -152,6 +161,7 @@ const emptyReviewState = Object.freeze({
   blocked: false,
   canAcceptPlan: false,
   canApproveReview: false,
+  canBeginPlanning: false,
   canRequestChanges: false,
   canRequestReview: false,
   canRevisePlan: false,
@@ -278,6 +288,32 @@ const planningOverview: AgentWorkspaceOverview = Object.freeze({
       ],
     },
   ],
+});
+const emptyProjectOverview: AgentWorkspaceOverview = Object.freeze({
+  agents: availableAgents,
+  projects: Object.freeze([{ project, tasks: Object.freeze([]) }]),
+});
+const backlogOverview: AgentWorkspaceOverview = Object.freeze({
+  agents: availableAgents,
+  projects: Object.freeze([
+    {
+      project,
+      tasks: Object.freeze([
+        {
+          ...emptyReviewState,
+          activeSession: undefined,
+          artifacts: Object.freeze([]),
+          canBeginPlanning: true,
+          canRetryExecution: false,
+          canStartExecution: false,
+          latestSession: undefined,
+          previousSession: undefined,
+          qualityGateRuns: Object.freeze([]),
+          task: Object.freeze({ ...planningTask, phase: 'BACKLOG' as const }),
+        },
+      ]),
+    },
+  ]),
 });
 const runningStartOverview: AgentWorkspaceOverview = Object.freeze({
   agents: availableAgents,
@@ -448,6 +484,9 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     resize: async () => undefined,
     write: async () => undefined,
   }));
+  public readonly beginTaskPlanning = vi.fn(async () => undefined);
+  public readonly createTask = vi.fn(async () => ({ taskId: planningTask.id }));
+  public readonly openProject = vi.fn(async () => 'OPENED' as const);
   public loadResults: AgentWorkspaceOverview[] = [planningOverview];
   public loadFailure: Error | undefined;
   public startGate: Promise<void> | undefined;
@@ -534,6 +573,61 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
 }
 
 describe('WorkspaceController', () => {
+  it('opens a Project through the safe bridge and reloads the workspace after selection', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [
+      Object.freeze({ agents: availableAgents, projects: [] }),
+      emptyProjectOverview,
+    ];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await expect(controller.openProject()).resolves.toBe(true);
+
+    expect(client.openProject).toHaveBeenCalledWith();
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      onboardingBusy: false,
+      overview: { projects: [{ project: { id: project.id } }] },
+    });
+  });
+
+  it('creates a BACKLOG Task and selects it without exposing repository paths', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [emptyProjectOverview, backlogOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await expect(
+      controller.createTask({ projectId: project.id, title: 'Kiểm thử agent thật' }),
+    ).resolves.toBe(true);
+
+    expect(client.createTask).toHaveBeenCalledWith({
+      projectId: project.id,
+      title: 'Kiểm thử agent thật',
+    });
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      selectedTaskId: planningTask.id,
+    });
+  });
+
+  it('requires an explicit user action before a BACKLOG Task enters PLANNING', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [backlogOverview, planningOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    expect(client.beginTaskPlanning).not.toHaveBeenCalled();
+    await controller.beginSelectedTaskPlanning();
+
+    expect(client.beginTaskPlanning).toHaveBeenCalledWith({ taskId: planningTask.id });
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      overview: { projects: [{ tasks: [{ task: { phase: 'PLANNING' } }] }] },
+    });
+  });
+
   it('uses the persisted default agent when that agent is currently available', async () => {
     const claude = Object.freeze({
       capabilities: Object.freeze(['SESSION_RESUME'] as const),
@@ -2421,9 +2515,59 @@ describe('AgentWorkspaceView', () => {
 
     expect(loading).toContain('Loading workspace');
     expect(empty).toContain('No Projects yet');
+    expect(empty).toContain('Open Project');
     expect(empty).toContain('<summary>Settings</summary>');
     expect(error).toContain('Workspace data could not be loaded.');
     expect(error).toContain('Retry');
+  });
+
+  it('renders keyboard-native Project, Task, and explicit planning onboarding controls', () => {
+    const common = {
+      client: new FakeWorkspaceClient(),
+      onApproveReview: () => undefined,
+      onRefresh: () => undefined,
+      onRequestChanges: () => undefined,
+      onRequestReview: () => undefined,
+      onRetry: () => undefined,
+      onRetryTask: () => undefined,
+      onSelectTask: () => undefined,
+      onStartTask: () => undefined,
+    };
+    const emptyProject = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        ...common,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          layout: Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) }),
+          overview: emptyProjectOverview,
+          selectedAgentId: 'codex',
+          selectedTaskId: undefined,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+    const backlog = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        ...common,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          layout: createWorkspaceLayout({ taskId: planningTask.id }),
+          overview: backlogOverview,
+          selectedAgentId: 'codex',
+          selectedTaskId: planningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(emptyProject).toContain('Create Task');
+    expect(emptyProject).toContain('Task title');
+    expect(backlog).toContain('Begin planning');
+    expect(backlog).not.toContain('Start planning');
   });
 });
 

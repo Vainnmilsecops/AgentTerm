@@ -52,6 +52,7 @@ export type WorkspaceChangeInspection =
 export type WorkspaceActionKind =
   | 'accept-plan'
   | 'approve-review'
+  | 'begin-planning'
   | 'create-pull-request'
   | 'push-branch'
   | 'refresh-pull-request'
@@ -89,6 +90,7 @@ export type WorkspaceSnapshot =
       readonly changeInspection?: WorkspaceChangeInspection;
       readonly kind: 'ready';
       readonly layout: WorkspaceLayout;
+      readonly onboardingBusy?: boolean;
       readonly overview: AgentWorkspaceOverview;
       readonly qualityGates?: readonly QualityGateSummary[];
       readonly pullRequestInspection?: WorkspacePullRequestInspection;
@@ -108,6 +110,7 @@ export class WorkspaceController {
   private readonly client: AgentWorkspaceClient;
   private readonly sink: ((snapshot: WorkspaceSnapshot) => void) | undefined;
   private actionAttempt: Promise<void> | undefined;
+  private onboardingAttempt: Promise<boolean> | undefined;
   private settingsAttempt: Promise<void> | undefined;
   public snapshot: WorkspaceSnapshot = Object.freeze({ kind: 'loading' });
 
@@ -254,6 +257,81 @@ export class WorkspaceController {
     );
   }
 
+  public openProject(): Promise<boolean> {
+    if (this.onboardingAttempt !== undefined) return this.onboardingAttempt;
+    if (this.snapshot.kind !== 'ready') return Promise.resolve(false);
+    const current = this.snapshot;
+    this.publish(Object.freeze({ ...current, actionError: undefined, onboardingBusy: true }));
+    const attempt = this.client
+      .openProject()
+      .then(async (result) => {
+        if (result === 'CANCELLED') {
+          if (!this.disposed && this.snapshot.kind === 'ready') {
+            this.publish(Object.freeze({ ...this.snapshot, onboardingBusy: false }));
+          }
+          return false;
+        }
+        await this.reloadAfterOnboarding(undefined);
+        return true;
+      })
+      .catch(() => {
+        if (!this.disposed && this.snapshot.kind === 'ready') {
+          this.publish(
+            Object.freeze({
+              ...this.snapshot,
+              actionError: 'Project could not be opened. Select a local Git repository.',
+              onboardingBusy: false,
+            }),
+          );
+        }
+        return false;
+      })
+      .finally(() => {
+        if (this.onboardingAttempt === attempt) this.onboardingAttempt = undefined;
+      });
+    this.onboardingAttempt = attempt;
+    return attempt;
+  }
+
+  public createTask(input: {
+    readonly projectId: string;
+    readonly title: string;
+  }): Promise<boolean> {
+    if (this.onboardingAttempt !== undefined) return this.onboardingAttempt;
+    if (
+      this.snapshot.kind !== 'ready' ||
+      !this.snapshot.overview.projects.some(({ project }) => project.id === input.projectId) ||
+      input.title.trim().length === 0
+    ) {
+      return Promise.resolve(false);
+    }
+    const current = this.snapshot;
+    this.publish(Object.freeze({ ...current, actionError: undefined, onboardingBusy: true }));
+    const attempt = this.client
+      .createTask({ projectId: input.projectId, title: input.title.trim() })
+      .then(async ({ taskId }) => {
+        await this.reloadAfterOnboarding(taskId);
+        return true;
+      })
+      .catch(() => {
+        if (!this.disposed && this.snapshot.kind === 'ready') {
+          this.publish(
+            Object.freeze({
+              ...this.snapshot,
+              actionError: 'Task could not be created. Check the title and selected Project.',
+              onboardingBusy: false,
+            }),
+          );
+        }
+        return false;
+      })
+      .finally(() => {
+        if (this.onboardingAttempt === attempt) this.onboardingAttempt = undefined;
+      });
+    this.onboardingAttempt = attempt;
+    return attempt;
+  }
+
   public saveSettings(input: UpdateApplicationSettingsInput): Promise<void> {
     if (this.settingsAttempt !== undefined) {
       return this.settingsAttempt;
@@ -304,6 +382,10 @@ export class WorkspaceController {
 
   public startSelectedTask(): Promise<void> {
     return this.executeSelectedAction('start-execution');
+  }
+
+  public beginSelectedTaskPlanning(): Promise<void> {
+    return this.executeSelectedAction('begin-planning');
   }
 
   public retrySelectedTask(): Promise<void> {
@@ -534,6 +616,17 @@ export class WorkspaceController {
     }
   }
 
+  private async reloadAfterOnboarding(preferredTaskId: string | undefined): Promise<void> {
+    const [overview, qualityGates, settings] = await Promise.all([
+      this.client.loadWorkspace(),
+      this.client.listQualityGates(),
+      this.client.loadSettings(),
+    ]);
+    if (this.disposed) return;
+    this.publishReady(overview, qualityGates, preferredTaskId, settings);
+    await this.loadSelectedTaskEvidence();
+  }
+
   private publishReady(
     overview: AgentWorkspaceOverview,
     qualityGates: readonly QualityGateSummary[],
@@ -583,6 +676,7 @@ export class WorkspaceController {
         changeInspection: Object.freeze({ kind: 'idle' }),
         kind: 'ready',
         layout,
+        onboardingBusy: false,
         overview,
         pullRequestInspection: Object.freeze({ kind: 'idle' }),
         qualityGates: Object.freeze([...qualityGates]),
@@ -765,6 +859,9 @@ async function runWorkspaceAction(
   agentId: string | undefined,
 ): Promise<void> {
   switch (action.kind) {
+    case 'begin-planning':
+      await client.beginTaskPlanning({ taskId: action.taskId });
+      return;
     case 'start-planning':
       await client.startTaskPlanning({ agentId: requireAgentId(agentId), taskId: action.taskId });
       return;
@@ -825,6 +922,8 @@ function canRunAction(
   pullRequestInspection: WorkspacePullRequestInspection | undefined,
 ): boolean {
   switch (kind) {
+    case 'begin-planning':
+      return task.canBeginPlanning;
     case 'start-planning':
       return task.canStartPlanning || task.canRevisePlan;
     case 'accept-plan':
@@ -894,6 +993,8 @@ function createPullRequestRefreshAction(
 
 function actionFailureMessage(kind: WorkspaceActionKind): string {
   switch (kind) {
+    case 'begin-planning':
+      return 'Task could not enter planning.';
     case 'start-planning':
       return 'Task planning could not be started.';
     case 'accept-plan':
@@ -921,6 +1022,8 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
 
 function refreshFailureMessage(kind: WorkspaceActionKind): string {
   switch (kind) {
+    case 'begin-planning':
+      return 'Task entered planning, but workspace status could not be refreshed.';
     case 'start-planning':
       return 'Task planning started, but workspace status could not be refreshed.';
     case 'accept-plan':

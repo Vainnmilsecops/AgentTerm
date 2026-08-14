@@ -35,6 +35,7 @@ const maximumWorkspaceReviewChangedPaths = 50;
 export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
   readonly artifacts: readonly ExecutionArtifact[];
+  readonly canBeginPlanning: boolean;
   readonly canApproveReview: boolean;
   readonly canAcceptPlan: boolean;
   readonly canRequestChanges: boolean;
@@ -230,6 +231,7 @@ export async function loadAgentWorkspace(
             activeSession: summarizeSession(activeSession),
             artifacts: Object.freeze([...artifactHistory]),
             blocked,
+            canBeginPlanning: task.phase === TaskPhase.BACKLOG,
             canAcceptPlan:
               phaseAllowsPlanning &&
               !hasUnsettledReviewWriter &&

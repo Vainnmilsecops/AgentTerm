@@ -11,9 +11,12 @@ import {
   type DesktopIpcErrorCode,
   type DesktopIpcRequestMap,
   type DesktopIpcResponse,
+  type OpenDesktopProjectResult,
 } from './ipc-contract';
 
-export type DesktopIpcApplication = AgentTermDesktopApi;
+export type DesktopIpcApplication = Omit<AgentTermDesktopApi, 'openProject'> & {
+  openProject(input: { readonly path: string }): Promise<void>;
+};
 
 export interface DesktopIpcSender {
   readonly id: number;
@@ -27,6 +30,7 @@ export interface DesktopIpcSender {
 export interface DesktopIpcMainEvent {
   readonly frameId: number;
   readonly sender: DesktopIpcSender;
+  readonly senderFrame: unknown | null;
 }
 
 export interface DesktopIpcMain {
@@ -44,6 +48,7 @@ interface RegisterDesktopIpcHandlersInput {
   readonly application: DesktopIpcApplication | Promise<DesktopIpcApplication>;
   readonly authorize: (event: DesktopIpcMainEvent) => boolean;
   readonly ipcMain: DesktopIpcMain;
+  readonly selectProjectDirectory: () => Promise<string | undefined>;
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -81,6 +86,7 @@ const expectedApplicationErrors = new Set([
   'TaskExecutionPhaseError',
   'TaskExecutionRetryError',
   'TaskExecutionStartError',
+  'InvalidTaskPhaseTransitionError',
   'TaskPlanningPhaseError',
   'TaskPlanReadinessError',
   'TaskPullRequestError',
@@ -147,6 +153,21 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
     switch (channel) {
       case desktopIpcChannels.loadWorkspace:
         return application.loadWorkspace();
+      case desktopIpcChannels.openProject: {
+        const path = await input.selectProjectDirectory();
+        if (path === undefined) return 'CANCELLED' satisfies OpenDesktopProjectResult;
+        await application.openProject({ path });
+        return 'OPENED' satisfies OpenDesktopProjectResult;
+      }
+      case desktopIpcChannels.createTask:
+        return application.createTask(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.createTask],
+        );
+      case desktopIpcChannels.beginTaskPlanning:
+        await application.beginTaskPlanning(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.beginTaskPlanning],
+        );
+        return null;
       case desktopIpcChannels.loadSettings:
         return application.loadSettings();
       case desktopIpcChannels.updateSettings:

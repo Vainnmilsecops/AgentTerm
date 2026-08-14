@@ -135,6 +135,8 @@ export function createDesktopBridge(
         },
       });
     },
+    beginTaskPlanning: (input) => invokeVoid(desktopIpcChannels.beginTaskPlanning, input),
+    createTask: (input) => invoke(desktopIpcChannels.createTask, input),
     createTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.createPullRequest, input),
     getTaskFileDiff: (input) => invoke(desktopIpcChannels.getTaskFileDiff, input),
     inspectTaskPullRequest: (input) => invoke(desktopIpcChannels.inspectPullRequest, input),
@@ -142,6 +144,7 @@ export function createDesktopBridge(
     listTaskChanges: (input) => invoke(desktopIpcChannels.listTaskChanges, input),
     loadSettings: () => invoke(desktopIpcChannels.loadSettings, {}),
     loadWorkspace: () => invoke(desktopIpcChannels.loadWorkspace, {}),
+    openProject: () => invoke(desktopIpcChannels.openProject, {}),
     pushTaskBranch: (input) => invokeVoid(desktopIpcChannels.pushTaskBranch, input),
     refreshTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.refreshPullRequest, input),
     requestTaskChanges: (input) => invokeVoid(desktopIpcChannels.requestChanges, input),
