@@ -36,12 +36,18 @@ export interface AgentWorkspaceProps {
 export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onAcceptPlan: () => void;
   readonly onApproveReview: () => void;
+  readonly onBeginPlanning: () => void;
   readonly onCreatePullRequest: () => void;
+  readonly onCreateTask: (input: {
+    readonly projectId: string;
+    readonly title: string;
+  }) => boolean | Promise<boolean>;
   readonly onCloseWorkspacePane: (paneId: string) => void;
   readonly onCloseWorkspaceTab: (tabId: string) => void;
   readonly onCycleWorkspacePane: (delta: -1 | 1) => void;
   readonly onCycleWorkspaceTab: (delta: -1 | 1) => void;
   readonly onPushTaskBranch: () => void;
+  readonly onOpenProject: () => void;
   readonly onRefreshPullRequest: () => void;
   readonly onRefresh: () => void;
   readonly onRequestChanges: () => void;
@@ -86,13 +92,16 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       {...(client === undefined ? {} : { client })}
       onAcceptPlan={() => void controller?.acceptSelectedPlan()}
       onApproveReview={() => void controller?.approveSelectedTaskReview()}
+      onBeginPlanning={() => void controller?.beginSelectedTaskPlanning()}
       onCreatePullRequest={() => void controller?.createSelectedTaskPullRequest()}
+      onCreateTask={(input) => controller?.createTask(input) ?? false}
       onCloseWorkspacePane={(paneId) => controller?.closeWorkspacePane(paneId)}
       onCloseWorkspaceTab={(tabId) => controller?.closeWorkspaceTab(tabId)}
       onCycleWorkspacePane={(delta) => controller?.cycleWorkspacePane(delta)}
       onCycleWorkspaceTab={(delta) => controller?.cycleWorkspaceTab(delta)}
       onRefresh={() => void controller?.refresh()}
       onPushTaskBranch={() => void controller?.pushSelectedTaskBranch()}
+      onOpenProject={() => void controller?.openProject()}
       onRefreshPullRequest={() => void controller?.refreshSelectedTaskPullRequest()}
       onRequestChanges={() => void controller?.requestSelectedTaskChanges()}
       onRequestReview={() => void controller?.requestSelectedTaskReview()}
@@ -117,13 +126,16 @@ export function AgentWorkspaceView({
   client,
   onAcceptPlan,
   onApproveReview,
+  onBeginPlanning,
   onCreatePullRequest,
+  onCreateTask,
   onCloseWorkspacePane,
   onCloseWorkspaceTab,
   onCycleWorkspacePane,
   onCycleWorkspaceTab,
   onRefresh,
   onPushTaskBranch,
+  onOpenProject,
   onRefreshPullRequest,
   onRequestChanges,
   onRequestReview,
@@ -267,6 +279,10 @@ export function AgentWorkspaceView({
   return (
     <main className="workspace-shell">
       <WorkspaceSidebar
+        busy={snapshot.onboardingBusy ?? false}
+        error={snapshot.actionError}
+        onCreateTask={onCreateTask}
+        onOpenProject={onOpenProject}
         settingsPanel={
           snapshot.settings === undefined || onSaveSettings === undefined ? undefined : (
             <SettingsPanel
@@ -289,7 +305,18 @@ export function AgentWorkspaceView({
               ? 'No Projects yet. Open a local Git Project to begin.'
               : 'Choose a Task from the sidebar to inspect its execution state.'
           }
-        />
+        >
+          {snapshot.overview.projects.length === 0 ? (
+            <button
+              className="primary-action"
+              disabled={snapshot.onboardingBusy ?? false}
+              onClick={onOpenProject}
+              type="button"
+            >
+              Open Project
+            </button>
+          ) : null}
+        </WorkspaceMessage>
       ) : (
         <section
           className="workspace-main"
@@ -304,6 +331,18 @@ export function AgentWorkspaceView({
               <p className="task-id">{selected.task.id}</p>
             </div>
             <div className="task-actions" aria-busy={actionsBusy}>
+              {selected.canBeginPlanning ? (
+                <button
+                  className="primary-action"
+                  disabled={actionsBusy}
+                  onClick={onBeginPlanning}
+                  type="button"
+                >
+                  {isSelectedAction(snapshot, selected.task.id, 'begin-planning')
+                    ? 'Entering planning…'
+                    : 'Begin planning'}
+                </button>
+              ) : null}
               <button
                 aria-label="Open command palette"
                 className="command-palette-trigger"
@@ -1092,16 +1131,35 @@ function formatDuration(durationMs: number | undefined): string {
   return `${(durationMs / 1_000).toFixed(1)} s`;
 }
 function WorkspaceSidebar({
+  busy,
+  error,
+  onCreateTask,
+  onOpenProject,
   onSelectTask,
   projects,
   selectedTaskId,
   settingsPanel,
 }: {
+  readonly busy: boolean;
+  readonly error: string | undefined;
+  readonly onCreateTask: (input: {
+    readonly projectId: string;
+    readonly title: string;
+  }) => boolean | Promise<boolean>;
+  readonly onOpenProject: () => void;
   readonly onSelectTask: (taskId: string) => void;
   readonly projects: readonly WorkspaceProjectOverview[];
   readonly selectedTaskId: string | undefined;
   readonly settingsPanel?: React.ReactNode;
 }) {
+  const [projectId, setProjectId] = useState(projects[0]?.project.id ?? '');
+  const [title, setTitle] = useState('');
+  useEffect(() => {
+    if (!projects.some(({ project }) => project.id === projectId)) {
+      setProjectId(projects[0]?.project.id ?? '');
+    }
+  }, [projectId, projects]);
+
   return (
     <aside className="workspace-sidebar" id="workspace-sidebar" tabIndex={-1}>
       <header className="workspace-brand">
@@ -1114,6 +1172,61 @@ function WorkspaceSidebar({
         </div>
         <kbd>Alt+1</kbd>
       </header>
+      <section className="workspace-onboarding" aria-label="Project and Task setup">
+        <button className="secondary-action" disabled={busy} onClick={onOpenProject} type="button">
+          {busy ? 'Working…' : 'Open Project'}
+        </button>
+        {projects.length === 0 ? null : (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void Promise.resolve(onCreateTask({ projectId, title })).then((created) => {
+                if (created) setTitle('');
+              });
+            }}
+          >
+            <label>
+              <span>Project</span>
+              <select
+                aria-label="Project for new Task"
+                disabled={busy}
+                onChange={(event) => setProjectId(event.currentTarget.value)}
+                value={projectId}
+              >
+                {projects.map(({ project }) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Task title</span>
+              <input
+                disabled={busy}
+                maxLength={512}
+                onChange={(event) => setTitle(event.currentTarget.value)}
+                placeholder="What should the agent work on?"
+                required
+                type="text"
+                value={title}
+              />
+            </label>
+            <button
+              className="primary-action"
+              disabled={busy || title.trim().length === 0}
+              type="submit"
+            >
+              Create Task
+            </button>
+          </form>
+        )}
+        {error === undefined ? null : (
+          <p className="inline-error" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
       <nav className="project-navigation" aria-label="Projects and Tasks">
         {projects.map((project) => (
           <section className="project-group" key={project.project.id}>

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 
 import {
   createProductionDesktopApplication,
@@ -50,13 +50,22 @@ function createWindow(): void {
 async function verifySmokeRenderer(window: BrowserWindow | null): Promise<number> {
   try {
     const result = (await window?.webContents.executeJavaScript(
-      `({
-        bridgeKeys: Object.keys(window.agenttermWorkspace ?? {}),
-        hasProcess: typeof globalThis.process !== 'undefined',
-        hasRawIpc: 'ipcRenderer' in (window.agenttermWorkspace ?? {}),
-        hasRequire: typeof globalThis.require !== 'undefined',
-        renderedText: document.getElementById('root')?.textContent ?? ''
-      })`,
+      `(async () => {
+        const bridge = window.agenttermWorkspace;
+        let workspaceLoaded = false;
+        try {
+          const workspace = await bridge?.loadWorkspace();
+          workspaceLoaded = Array.isArray(workspace?.projects) && Array.isArray(workspace?.agents);
+        } catch {}
+        return {
+          bridgeKeys: Object.keys(bridge ?? {}),
+          hasProcess: typeof globalThis.process !== 'undefined',
+          hasRawIpc: 'ipcRenderer' in (bridge ?? {}),
+          hasRequire: typeof globalThis.require !== 'undefined',
+          renderedText: document.getElementById('root')?.textContent ?? '',
+          workspaceLoaded
+        };
+      })()`,
       true,
     )) as
       | {
@@ -65,6 +74,7 @@ async function verifySmokeRenderer(window: BrowserWindow | null): Promise<number
           readonly hasRawIpc: boolean;
           readonly hasRequire: boolean;
           readonly renderedText: string;
+          readonly workspaceLoaded: boolean;
         }
       | undefined;
     if (
@@ -74,6 +84,7 @@ async function verifySmokeRenderer(window: BrowserWindow | null): Promise<number
       result.hasProcess ||
       result.hasRawIpc ||
       result.hasRequire ||
+      !result.workspaceLoaded ||
       !result.bridgeKeys.includes('loadWorkspace') ||
       result.bridgeKeys.includes('invoke')
     ) {
@@ -103,11 +114,22 @@ function startDesktopApplication(): void {
   disposeIpcHandlers = registerDesktopIpcHandlers({
     application: applicationAttempt,
     authorize: (event: DesktopIpcMainEvent) =>
-      event.frameId === 0 &&
       mainWindow !== null &&
       !mainWindow.isDestroyed() &&
-      event.sender.id === mainWindow.webContents.id,
+      event.sender.id === mainWindow.webContents.id &&
+      event.senderFrame !== null &&
+      event.senderFrame === mainWindow.webContents.mainFrame,
     ipcMain: ipcMain as unknown as DesktopIpcMain,
+    selectProjectDirectory: async () => {
+      const window = mainWindow;
+      if (window === null || window.isDestroyed()) return undefined;
+      const selection = await dialog.showOpenDialog(window, {
+        properties: ['openDirectory'],
+        title: 'Open Git Project',
+      });
+      const path = selection.filePaths[0];
+      return selection.canceled || path === undefined || path.length === 0 ? undefined : path;
+    },
   });
 }
 

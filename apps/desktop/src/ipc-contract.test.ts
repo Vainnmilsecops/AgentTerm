@@ -17,11 +17,26 @@ describe('desktop IPC contract validation', () => {
     ).toEqual({ agentId: 'claude', taskId: 'task-1' });
   });
 
+  it('accepts bounded onboarding requests without exposing a filesystem path', () => {
+    expect(validateDesktopIpcRequest(desktopIpcChannels.openProject, {})).toEqual({});
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.createTask, {
+        projectId: 'project-1',
+        title: 'Sửa luồng khởi động agent',
+      }),
+    ).toEqual({ projectId: 'project-1', title: 'Sửa luồng khởi động agent' });
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.beginTaskPlanning, { taskId: 'task-1' }),
+    ).toEqual({ taskId: 'task-1' });
+  });
+
   it.each([
     [desktopIpcChannels.startExecution, { agentId: 'claude', taskId: ' ', token: 'secret' }],
     [desktopIpcChannels.getTaskFileDiff, { area: 'UNSTAGED', path: '../secret', taskId: 'task-1' }],
     [desktopIpcChannels.terminalResize, { columns: 0, rows: 24, subscriptionId: 'sub-1' }],
     [desktopIpcChannels.updateSettings, { expectedRevision: -1 }],
+    [desktopIpcChannels.openProject, { path: 'C:\\private\\repository' }],
+    [desktopIpcChannels.createTask, { projectId: 'project-1', title: '   ' }],
   ] as const)('rejects malformed or over-capability payloads for %s', (channel, payload) => {
     expect(() => validateDesktopIpcRequest(channel, payload)).toThrow(
       DesktopIpcRequestValidationError,

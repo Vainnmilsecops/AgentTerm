@@ -65,6 +65,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => false,
       ipcMain,
+      selectProjectDirectory: async () => undefined,
     });
     const sender = new FakeSender(7);
 
@@ -87,7 +88,12 @@ describe('desktop main IPC handlers', () => {
         throw new Error('GH_TOKEN=secret C:\\private\\repo');
       }),
     });
-    registerDesktopIpcHandlers({ application, authorize: () => true, ipcMain });
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      selectProjectDirectory: async () => undefined,
+    });
     const sender = new FakeSender(3);
 
     await expect(
@@ -112,12 +118,73 @@ describe('desktop main IPC handlers', () => {
   it('returns typed successful responses from the explicit handler allowlist', async () => {
     const ipcMain = new FakeIpcMain();
     const application = createApplication();
-    registerDesktopIpcHandlers({ application, authorize: () => true, ipcMain });
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      selectProjectDirectory: async () => undefined,
+    });
 
     await expect(
       ipcMain.invoke(desktopIpcChannels.loadWorkspace, event(new FakeSender(1)), {}),
     ).resolves.toEqual({ ok: true, value: emptyWorkspace });
     expect([...ipcMain.handlers.keys()].sort()).toEqual(Object.values(desktopIpcChannels).sort());
+  });
+
+  it('keeps native Project selection in main and handles an explicit cancel', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication({ openProject: vi.fn(async () => undefined) });
+    const selectedPaths: Array<string | undefined> = ['D:\\Core\\AgentTerm', undefined];
+    const selectProjectDirectory = vi.fn(async () => selectedPaths.shift());
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      selectProjectDirectory,
+    });
+    const sender = new FakeSender(5);
+
+    const opened = await ipcMain.invoke(desktopIpcChannels.openProject, event(sender), {});
+    const cancelled = await ipcMain.invoke(desktopIpcChannels.openProject, event(sender), {});
+
+    expect(opened).toEqual({ ok: true, value: 'OPENED' });
+    expect(cancelled).toEqual({ ok: true, value: 'CANCELLED' });
+    expect(application.openProject).toHaveBeenCalledOnce();
+    expect(application.openProject).toHaveBeenCalledWith({ path: 'D:\\Core\\AgentTerm' });
+    expect(JSON.stringify([opened, cancelled])).not.toContain('D:\\Core');
+  });
+
+  it('dispatches validated Task creation and the fixed BACKLOG to PLANNING action', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication({
+      beginTaskPlanning: vi.fn(async () => undefined),
+      createTask: vi.fn(async () => ({ taskId: 'task-created' })),
+    });
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      selectProjectDirectory: async () => undefined,
+    });
+    const sender = new FakeSender(6);
+
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.createTask, event(sender), {
+        projectId: 'project-1',
+        title: 'Tạo Task',
+      }),
+    ).resolves.toEqual({ ok: true, value: { taskId: 'task-created' } });
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.beginTaskPlanning, event(sender), {
+        taskId: 'task-created',
+      }),
+    ).resolves.toEqual({ ok: true, value: null });
+
+    expect(application.createTask).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      title: 'Tạo Task',
+    });
+    expect(application.beginTaskPlanning).toHaveBeenCalledWith({ taskId: 'task-created' });
   });
 
   it('owns terminal subscriptions per sender and detaches without terminating the Session', async () => {
@@ -134,7 +201,12 @@ describe('desktop main IPC handlers', () => {
         return attachment;
       }),
     });
-    registerDesktopIpcHandlers({ application, authorize: () => true, ipcMain });
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      selectProjectDirectory: async () => undefined,
+    });
     const owner = new FakeSender(11);
     const other = new FakeSender(12);
     const subscriptionId = 'd14a72b9-26f6-4a9c-a810-69935ec6d277';
@@ -177,7 +249,7 @@ describe('desktop main IPC handlers', () => {
 });
 
 function event(sender: FakeSender): DesktopIpcMainEvent {
-  return { frameId: 0, sender };
+  return { frameId: 1, sender, senderFrame: Object.freeze({}) };
 }
 
 function createApplication(
@@ -190,6 +262,8 @@ function createApplication(
     acceptTaskPlan: vi.fn(unavailable),
     approveTaskReview: vi.fn(unavailable),
     attachTerminal: vi.fn(unavailable),
+    beginTaskPlanning: vi.fn(unavailable),
+    createTask: vi.fn(unavailable),
     createTaskPullRequest: vi.fn(unavailable),
     getTaskFileDiff: vi.fn(unavailable),
     inspectTaskPullRequest: vi.fn(unavailable),
@@ -197,6 +271,7 @@ function createApplication(
     listTaskChanges: vi.fn(unavailable),
     loadSettings: vi.fn(unavailable),
     loadWorkspace: vi.fn(async () => emptyWorkspace),
+    openProject: vi.fn(unavailable),
     pushTaskBranch: vi.fn(unavailable),
     refreshTaskPullRequest: vi.fn(unavailable),
     requestTaskChanges: vi.fn(unavailable),

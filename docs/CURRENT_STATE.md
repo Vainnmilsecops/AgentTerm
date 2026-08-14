@@ -8,7 +8,7 @@ Updated: 2026-08-14
 - `@agentterm/domain` now exposes pure TypeScript Project, Task, Agent Session, and Quality Gate models.
 - `@agentterm/application` now exposes use cases to create Projects, create Tasks, and transition the current Task lifecycle.
 - `@agentterm/infrastructure` implements the existing Project and Task repository ports with SQLite.
-- Project Management can inspect and open an existing local Git working tree, persist it atomically, deduplicate canonical path aliases, and list recent Projects.
+- Project Management can inspect and open an existing local Git working tree, persist it atomically, deduplicate canonical path aliases, and list recent Projects. The desktop main process now owns a native directory picker; renderer IPC carries only an empty open request and the safe `OPENED` / `CANCELLED` result, never the selected native path.
 - A read-only Git repository adapter now returns canonical root, explicit attached/detached/unborn HEAD state, an offline base-branch suggestion, and structured working-tree status.
 - Task Worktree use cases now create, reuse, inspect, and safely clean up one deterministic primary Worktree per Task while preserving its branch and dirty or ignored files.
 - Migration 3 stores Worktree identity, exact base revision, and `PROVISIONING` / `PRESENT` / `REMOVING` / `REMOVED` reconciliation checkpoints.
@@ -30,7 +30,7 @@ Updated: 2026-08-14
 - Domain and Application now model required same-Project Task dependencies as a small directed acyclic graph with explicit add, remove, list, and readiness use cases. `BLOCKED` is derived when any direct dependency is not explicitly `DONE`; it is not a new Task phase and completion never launches a dependent Task automatically.
 - Migration 8 stores unique dependency edges with same-Project foreign keys and a cycle-prevention trigger. Planning, initial execution, and retry check readiness before Git work and again before Session launch, while SQLite rejects a new Session atomically if a required Task is incomplete. Existing Worktrees and immutable Session history remain untouched when admission is blocked.
 - The desktop now supports multiple renderer-owned workspace tabs and up to two xterm.js panes per tab. Each pane owns one stable terminal controller and exact Agent Session attachment; hidden tabs stay mounted to preserve independent live buffers, while close detaches listeners without terminating the process. The Application coordinator rejects a second interactive consumer for the same live Session.
-- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds tabbed/split terminals, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector chooses the agent for the next planning or execution attempt; the workspace shows the latest Plan and explicit Start planning, Revise plan, and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
+- The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds tabbed/split terminals, and exposes the safe agent catalog through an application-shaped client. Keyboard-native onboarding can open a Git Project, create a new immutable-ID Task in `BACKLOG`, and explicitly move that Task to `PLANNING`; only then can the selected available agent start a planning Session. The workspace also shows the latest Plan and explicit Revise plan and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
 - Electron now loads a sandboxed CommonJS preload that exposes only the typed `agenttermWorkspace` capability allowlist. Every request uses one fixed channel, is validated again in main, and receives a structured sanitized result; the renderer has no raw IPC, Node, process, filesystem, Git, PTY, or SQLite capability.
 - The main-process production composition owns the SQLite path, managed Worktree root, launch environment, generated Session/Review/gate identifiers, startup Session reconciliation, agent catalog, runtime, Git adapters, and Application use-case dependencies. Terminal subscriptions are scoped to the invoking top-level `webContents`; detach and renderer destruction remove observers without terminating the Agent Session.
 - The workspace read model and desktop also expose dependency summaries and a text-labeled `BLOCKED` / `READY` state. Incomplete required Tasks disable planning and execution actions with an explicit reason; no provider-specific or Git logic is added to Presentation.
@@ -194,6 +194,10 @@ Updated: 2026-08-14
   keys and bounds, invokes existing Application use cases, and maps errors without forwarding causes,
   paths, commands, environments, credentials, or provider diagnostics. Terminal event delivery uses a
   per-window subscription identity and idempotent detach ownership.
+- Project onboarding follows the same boundary: Electron alone receives the selected directory, while
+  Application Git discovery and SQLite catalogs own Project/Task state. Presentation consumes the
+  Application-provided `canBeginPlanning` policy and can invoke only the fixed `BACKLOG -> PLANNING`
+  action; it cannot submit an arbitrary Task phase.
 - Review completion is user-owned. Generic Task transitions cannot enter or leave `REVIEW`; only the
   structured Review workflows may do so, and neither agent output, process exit, Artifacts, nor a
   passing Quality Gate can move a Task to `DONE`.
@@ -254,8 +258,8 @@ and environment policy is owned by the main-process composition and agent adapte
 into the renderer. Persisted executable overrides are read when that immutable catalog is composed at
 startup; changing Settings does not restart or mutate an active Session and takes effect after the next
 application composition.
-The production IPC surface covers the actions already consumed by the workspace. Project open/create,
-artifact production, and dependency editing still have no renderer workflow. Quality Gate IPC is wired
+The production IPC surface covers the actions already consumed by the workspace. Artifact production
+and dependency editing still have no renderer workflow. Quality Gate IPC is wired
 through the existing use case, but the production composition intentionally exposes an empty gate catalog
 until an explicit trusted configuration consumer is introduced.
 Workspace tabs and split panes are intentionally renderer-local in this foundation; their layout is
@@ -276,7 +280,7 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-Add the missing explicit Project-open, artifact-production, dependency-editing, and trusted Quality Gate
+Add the missing artifact-production, dependency-editing, and trusted Quality Gate
 configuration workflows through the same validated Application/IPC boundary. Preserve the current rule
 that renderer commands never receive raw filesystem, Git, database, process, PTY, or environment
 capabilities. Process reattachment, provider-native resume, terminal output replay, installed-package

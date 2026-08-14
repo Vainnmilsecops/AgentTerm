@@ -37,6 +37,8 @@ describe('desktop preload bridge', () => {
       'acceptTaskPlan',
       'approveTaskReview',
       'attachTerminal',
+      'beginTaskPlanning',
+      'createTask',
       'createTaskPullRequest',
       'getTaskFileDiff',
       'inspectTaskPullRequest',
@@ -44,6 +46,7 @@ describe('desktop preload bridge', () => {
       'listTaskChanges',
       'loadSettings',
       'loadWorkspace',
+      'openProject',
       'pushTaskBranch',
       'refreshTaskPullRequest',
       'requestTaskChanges',
@@ -57,6 +60,36 @@ describe('desktop preload bridge', () => {
     expect(lifecycle.api).not.toHaveProperty('invoke');
     expect(lifecycle.api).not.toHaveProperty('ipcRenderer');
     expect(lifecycle.api).not.toHaveProperty('require');
+  });
+
+  it('invokes onboarding capabilities without accepting or returning a native path', async () => {
+    const ipc = new FakeIpcRenderer();
+    ipc.response = (channel) => ({
+      ok: true,
+      value:
+        channel === desktopIpcChannels.openProject
+          ? 'OPENED'
+          : channel === desktopIpcChannels.createTask
+            ? { taskId: 'task-new' }
+            : null,
+    });
+    const { api } = createDesktopBridge(ipc);
+
+    await expect(api.openProject()).resolves.toBe('OPENED');
+    await expect(
+      api.createTask({ projectId: 'project-1', title: 'Tạo Task tiếng Việt' }),
+    ).resolves.toEqual({ taskId: 'task-new' });
+    await expect(api.beginTaskPlanning({ taskId: 'task-new' })).resolves.toBeUndefined();
+
+    expect(ipc.calls).toEqual([
+      { channel: desktopIpcChannels.openProject, input: {} },
+      {
+        channel: desktopIpcChannels.createTask,
+        input: { projectId: 'project-1', title: 'Tạo Task tiếng Việt' },
+      },
+      { channel: desktopIpcChannels.beginTaskPlanning, input: { taskId: 'task-new' } },
+    ]);
+    expect(JSON.stringify(ipc.calls)).not.toContain('C:\\');
   });
 
   it('maps structured handler errors without exposing arbitrary rejection details', async () => {
