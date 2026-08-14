@@ -5,18 +5,27 @@ import { isAbsolute, join, resolve } from 'node:path';
 import {
   AgentSessionCoordinator,
   acceptTaskPlan,
+  addTaskDependency,
   approveTaskReview,
   createTask as createApplicationTask,
+  createExecutionArtifact,
   createTaskPullRequest,
   getTaskFileDiff,
   inspectTaskPullRequest,
   listQualityGateSummaries,
+  listProjectTasks,
+  listQualityGateRuns,
   listTaskChanges,
+  listTaskDependencies,
+  listTaskExecutionArtifacts,
+  listTaskReviews,
   loadAgentWorkspace,
   loadApplicationSettings,
   openProject as openApplicationProject,
   pushTaskBranch,
   refreshTaskPullRequest,
+  registerQualityGate,
+  removeTaskDependency,
   requestTaskChanges,
   requestTaskReview,
   restoreAgentSessionsAfterRestart,
@@ -25,6 +34,7 @@ import {
   startTaskExecution,
   startTaskPlanning,
   transitionTask,
+  unregisterQualityGate,
   updateApplicationSettings,
   type QualityGateCatalog,
 } from '@agentterm/application';
@@ -33,6 +43,7 @@ import {
   GitCliTaskReviewCodeInspector,
   GitCliTaskWorktreeLifecycle,
   GitHubPullRequestAdapter,
+  JsonFileQualityGateCatalog,
   LocalGitProjectDiscovery,
   NodeQualityGateProcessRunner,
   WindowsConPtyRuntime,
@@ -83,6 +94,9 @@ export async function createProductionDesktopApplication(
       tasks: persistence.tasks,
     });
     const qualityGateRunner = new NodeQualityGateProcessRunner();
+    const qualityGateCatalog = new JsonFileQualityGateCatalog({
+      filePath: join(dataDirectory, 'quality-gates.json'),
+    });
     await restoreAgentSessionsAfterRestart(persistence.sessions, clock);
 
     const settingsDependencies = Object.freeze({
@@ -124,7 +138,7 @@ export async function createProductionDesktopApplication(
     });
     const qualityGateDependencies = Object.freeze({
       clock,
-      gates: emptyQualityGateCatalog,
+      gates: qualityGateCatalog,
       git,
       localProjects: persistence.projects,
       maxOutputBytes: maximumQualityGateOutputBytes,
@@ -144,6 +158,10 @@ export async function createProductionDesktopApplication(
         requireOpen();
         await acceptTaskPlan(input, planningDependencies);
       },
+      addTaskDependency: async (input) => {
+        requireOpen();
+        return addTaskDependency(input, persistence.tasks, persistence.taskDependencies);
+      },
       approveTaskReview: async (input): Promise<void> => {
         requireOpen();
         await approveTaskReview(input, reviewDependencies);
@@ -155,6 +173,15 @@ export async function createProductionDesktopApplication(
       beginTaskPlanning: async (input): Promise<void> => {
         requireOpen();
         await transitionTask({ taskId: input.taskId, to: 'PLANNING' }, persistence.tasks);
+      },
+      createArtifact: async (input) => {
+        requireOpen();
+        return createExecutionArtifact(
+          input,
+          persistence.tasks,
+          persistence.sessions,
+          persistence.artifacts,
+        );
       },
       createTask: async (input) => {
         requireOpen();
@@ -183,13 +210,29 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return inspectTaskPullRequest(input, pullRequestDependencies);
       },
+      listProjectTasks: async (input) => {
+        requireOpen();
+        return listProjectTasks(input.projectId, persistence.projects, persistence.tasks);
+      },
+      listQualityGateDetails: async () => {
+        requireOpen();
+        return qualityGateCatalog.list();
+      },
       listQualityGates: async () => {
         requireOpen();
-        return listQualityGateSummaries(emptyQualityGateCatalog);
+        return listQualityGateSummaries(qualityGateCatalog);
       },
       listTaskChanges: async (input) => {
         requireOpen();
         return listTaskChanges(input, persistence.tasks, persistence.worktrees, git);
+      },
+      listTaskDependencies: async (input) => {
+        requireOpen();
+        return listTaskDependencies(input, persistence.tasks, persistence.taskDependencies);
+      },
+      listTaskReviews: async (input) => {
+        requireOpen();
+        return listTaskReviews(input, persistence.tasks, persistence.reviews);
       },
       loadSettings: async () => {
         requireOpen();
@@ -219,6 +262,14 @@ export async function createProductionDesktopApplication(
       refreshTaskPullRequest: async (input): Promise<void> => {
         requireOpen();
         await refreshTaskPullRequest(input, pullRequestDependencies);
+      },
+      registerQualityGate: async (input): Promise<void> => {
+        requireOpen();
+        await registerQualityGate(input, qualityGateCatalog);
+      },
+      removeTaskDependency: async (input) => {
+        requireOpen();
+        return removeTaskDependency(input, persistence.tasks, persistence.taskDependencies);
       },
       requestTaskChanges: async (input): Promise<void> => {
         requireOpen();
@@ -267,6 +318,10 @@ export async function createProductionDesktopApplication(
           },
           executionDependencies,
         );
+      },
+      unregisterQualityGate: async (input) => {
+        requireOpen();
+        return unregisterQualityGate(input.gateId, qualityGateCatalog);
       },
       updateSettings: async (input) => {
         requireOpen();

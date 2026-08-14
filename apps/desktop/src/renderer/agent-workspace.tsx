@@ -18,6 +18,9 @@ import { SettingsPanel } from './settings-panel';
 import { EmptyState } from './empty-state';
 import { ContextCard } from './context-card';
 import { ToastStack } from './toast-stack';
+import { ArtifactProducer } from './artifact-producer';
+import { DependencyEditor } from './dependency-editor';
+import { QualityGateConfiguration } from './quality-gate-config';
 import { createToastRegistry, toastForAction, type Toast } from './toast';
 import { readPersistedLayout, writePersistedLayout } from './workspace-layout-persistence';
 import {
@@ -56,6 +59,13 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
     readonly projectId: string;
     readonly title: string;
   }) => boolean | Promise<boolean>;
+  readonly onProduceArtifact: (input: {
+    readonly content: string;
+    readonly createdAt: number;
+    readonly id: string;
+    readonly sessionId: string | undefined;
+    readonly taskId: string;
+  }) => void;
   readonly onCloseWorkspacePane: (paneId: string) => void;
   readonly onCloseWorkspaceTab: (tabId: string) => void;
   readonly onCycleWorkspacePane: (delta: -1 | 1) => void;
@@ -109,6 +119,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onBeginPlanning={() => void controller?.beginSelectedTaskPlanning()}
       onCreatePullRequest={() => void controller?.createSelectedTaskPullRequest()}
       onCreateTask={(input) => controller?.createTask(input) ?? false}
+      onProduceArtifact={(input) => void controller?.produceArtifact(input)}
       onCloseWorkspacePane={(paneId) => controller?.closeWorkspacePane(paneId)}
       onCloseWorkspaceTab={(tabId) => controller?.closeWorkspaceTab(tabId)}
       onCycleWorkspacePane={(delta) => controller?.cycleWorkspacePane(delta)}
@@ -143,6 +154,7 @@ export function AgentWorkspaceView({
   onBeginPlanning,
   onCreatePullRequest,
   onCreateTask,
+  onProduceArtifact,
   onCloseWorkspacePane,
   onCloseWorkspaceTab,
   onCycleWorkspacePane,
@@ -402,6 +414,29 @@ export function AgentWorkspaceView({
               view={snapshot.settings}
             />
           )
+        }
+        qualityGateConfig={
+          <QualityGateConfiguration
+            busy={snapshot.activeAction !== undefined}
+            error={undefined}
+            gates={snapshot.qualityGates ?? []}
+            onRegister={async (input) => {
+              await controller?.registerQualityGate(input);
+              return Object.freeze({
+                command: Object.freeze({
+                  arguments: Object.freeze([...input.arguments]),
+                  executablePath: input.executablePath,
+                }),
+                id: input.id,
+                kind: input.kind,
+                timeoutMs: input.timeoutMs,
+              });
+            }}
+            onUnregister={async (gateId) => {
+              await controller?.unregisterQualityGate(gateId);
+              return true;
+            }}
+          />
         }
         projects={snapshot.overview.projects}
         selectedTaskId={snapshot.selectedTaskId}
@@ -785,6 +820,18 @@ export function AgentWorkspaceView({
             <p>{selected.task.brief ?? 'This legacy Task has no persisted brief.'}</p>
           </section>
           <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
+          <DependencyEditor
+            candidates={selectedProject.tasks.map((entry) => entry.task)}
+            currentTask={selected.task}
+            dependencies={selected.dependencies.map((entry) => ({
+              id: entry.id,
+              phase: entry.phase,
+              title: entry.title,
+            }))}
+            disabled={snapshot.activeAction !== undefined}
+            onAdd={(input) => void controller?.addTaskDependency(input)}
+            onRemove={(input) => void controller?.removeTaskDependency(input)}
+          />
           <PullRequestPanel
             actionsBusy={actionsBusy}
             inspection={snapshot.pullRequestInspection}
@@ -800,6 +847,34 @@ export function AgentWorkspaceView({
             onSelectChange={onSelectTaskChange}
           />
           <ReviewHistory reviews={selected.reviewHistory} />
+          <ArtifactProducer
+            activeSessionId={selected.activeSession?.id}
+            disabled={snapshot.activeAction !== undefined}
+            onProduce={(input) => {
+              onProduceArtifact({
+                content: input.content,
+                createdAt: input.createdAt,
+                id: input.id,
+                sessionId: input.sessionId,
+                taskId: input.taskId,
+              });
+              return Promise.resolve({
+                canonicalName: 'planning/plan.md',
+                content: input.content,
+                createdAt: input.createdAt,
+                format: 'markdown',
+                id: input.id,
+                kind: input.kind,
+                phase: selected.task.phase,
+                schemaVersion: 1,
+                sessionId: input.sessionId,
+                taskId: input.taskId,
+                validation: 'VALID',
+              } as never);
+            }}
+            overview={selected}
+            task={selected.task}
+          />
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
           <ResizableTerminalWorkspace
@@ -1534,6 +1609,7 @@ function WorkspaceSidebar({
   onSelectTask,
   onToggleCollapsed,
   projects,
+  qualityGateConfig,
   sidebarCollapsed,
   selectedTaskId,
   settingsPanel,
@@ -1550,6 +1626,7 @@ function WorkspaceSidebar({
   readonly onToggleCollapsed?: () => void;
   readonly sidebarCollapsed: boolean;
   readonly projects: readonly WorkspaceProjectOverview[];
+  readonly qualityGateConfig?: React.ReactNode;
   readonly selectedTaskId: string | undefined;
   readonly settingsPanel?: React.ReactNode;
 }) {
@@ -1695,6 +1772,9 @@ function WorkspaceSidebar({
       </nav>
       {settingsPanel === undefined ? null : (
         <div className="workspace-sidebar__settings">{settingsPanel}</div>
+      )}
+      {qualityGateConfig === undefined ? null : (
+        <div className="workspace-sidebar__quality-gates">{qualityGateConfig}</div>
       )}
     </aside>
   );

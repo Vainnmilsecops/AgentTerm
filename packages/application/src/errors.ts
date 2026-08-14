@@ -684,3 +684,13 @@ function taskExecutionRetryFailureMessage(reason: TaskExecutionRetryFailure): st
       return 'The Task already has Session history and must use the Retry action.';
   }
 }
+
+export class InvalidQualityGateConfigurationError extends Error {
+  public readonly details: Readonly<Record<string, unknown>>;
+
+  public constructor(message: string, details: Readonly<Record<string, unknown>>) {
+    super(message);
+    this.name = 'InvalidQualityGateConfigurationError';
+    this.details = Object.freeze({ ...details });
+  }
+}

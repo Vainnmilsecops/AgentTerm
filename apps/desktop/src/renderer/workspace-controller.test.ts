@@ -523,6 +523,15 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly gateSummaries: readonly QualityGateSummary[] = Object.freeze([
     Object.freeze({ id: 'lint', kind: 'LINT' as const }),
   ]);
+  public readonly gateDetails: readonly QualityGate[] = Object.freeze([
+    Object.freeze({
+      command: Object.freeze({ arguments: Object.freeze([]), executablePath: 'C:/tools/eslint' }),
+      id: 'lint',
+      kind: 'LINT' as const,
+      timeoutMs: 60_000,
+    }),
+  ]);
+  public readonly listQualityGateDetails = vi.fn(async () => this.gateDetails);
   public readonly listQualityGates = vi.fn(async () => this.gateSummaries);
   public readonly runQualityGate = vi.fn(async () => undefined);
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
@@ -864,8 +873,17 @@ describe('WorkspaceController', () => {
     await controller.load();
     await controller.runSelectedQualityGate('lint');
 
-    expect(client.listQualityGates).toHaveBeenCalledTimes(2);
-    expect(controller.snapshot).toMatchObject({ qualityGates: [{ id: 'lint', kind: 'LINT' }] });
+    expect(client.listQualityGateDetails).toHaveBeenCalledTimes(2);
+    expect(controller.snapshot).toMatchObject({
+      qualityGates: [
+        {
+          command: Object.freeze({ arguments: Object.freeze([]), executablePath: 'C:/tools/eslint' }),
+          id: 'lint',
+          kind: 'LINT',
+          timeoutMs: 60_000,
+        },
+      ],
+    });
     expect(client.runQualityGate).toHaveBeenCalledWith({ gateId: 'lint', taskId: runningTask.id });
   });
 
@@ -1624,7 +1642,14 @@ describe('command palette discoverability', () => {
           layout: defaultWorkspaceLayout,
           overview: runningStartOverview,
           pullRequestInspection: { kind: 'idle' },
-          qualityGates: [{ id: 'lint', kind: 'LINT' }],
+          qualityGates: [
+            {
+              command: Object.freeze({ arguments: Object.freeze([]), executablePath: 'C:/tools/eslint' }),
+              id: 'lint',
+              kind: 'LINT',
+              timeoutMs: 60_000,
+            },
+          ],
           selectedAgentId: 'codex',
           selectedTaskId: runningTask.id,
           terminalSessionId: workingSession.id,

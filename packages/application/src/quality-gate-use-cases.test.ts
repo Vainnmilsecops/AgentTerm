@@ -126,6 +126,14 @@ class FakeGateCatalog implements QualityGateCatalog {
   public async list() {
     return [this.value];
   }
+
+  public async register(): Promise<void> {
+    throw new Error('register is not implemented in the fake catalog.');
+  }
+
+  public async unregister(): Promise<boolean> {
+    return false;
+  }
 }
 
 class FakeProcessRunner implements QualityGateProcessRunner {
@@ -376,7 +384,12 @@ describe('runQualityGate', () => {
         { environment: {}, gateId: gate.id, runId: 'run-mismatch', taskId: task.id },
         {
           ...dependencies({ processRunner: runner, runs }),
-          gates: { findById: async () => mismatchedGate, list: async () => [mismatchedGate] },
+          gates: {
+            findById: async () => mismatchedGate,
+            list: async () => [mismatchedGate],
+            register: async () => undefined,
+            unregister: async () => false,
+          },
         },
       ),
     ).rejects.toMatchObject({ reason: 'GATE_NOT_FOUND' });

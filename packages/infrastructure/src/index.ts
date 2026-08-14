@@ -12,6 +12,10 @@ export { GitHubPullRequestAdapter } from './git/github-pull-request-adapter';
 export { GitCliTaskReviewCodeInspector } from './git/git-cli-task-review-code-inspector';
 export { GitCliTaskWorktreeLifecycle } from './git/git-cli-task-worktree-lifecycle';
 export { LocalGitProjectDiscovery } from './git/local-git-project-discovery';
+export {
+  JsonFileQualityGateCatalog,
+  type JsonFileQualityGateCatalogOptions,
+} from './json-quality-gate-catalog';
 export { NodeQualityGateProcessRunner } from './quality-gate/node-quality-gate-process-runner';
 export { WindowsConPtyRuntime } from './pty/windows-conpty-runtime';
 export { SqlitePersistenceError } from './sqlite/errors';

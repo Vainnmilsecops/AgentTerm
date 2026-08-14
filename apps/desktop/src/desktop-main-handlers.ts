@@ -174,6 +174,8 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.updateSettings(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.updateSettings],
         );
+      case desktopIpcChannels.listQualityGateDetails:
+        return application.listQualityGateDetails();
       case desktopIpcChannels.listQualityGates:
         return application.listQualityGates();
       case desktopIpcChannels.startPlanning:
@@ -243,6 +245,39 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.refreshPullRequest],
         );
         return null;
+      case desktopIpcChannels.registerQualityGate:
+        await application.registerQualityGate(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.registerQualityGate],
+        );
+        return null;
+      case desktopIpcChannels.unregisterQualityGate:
+        return application.unregisterQualityGate(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.unregisterQualityGate],
+        );
+      case desktopIpcChannels.createArtifact:
+        return application.createArtifact(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.createArtifact],
+        );
+      case desktopIpcChannels.listTaskDependencies:
+        return application.listTaskDependencies(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskDependencies],
+        );
+      case desktopIpcChannels.listProjectTasks:
+        return application.listProjectTasks(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.listProjectTasks],
+        );
+      case desktopIpcChannels.listTaskReviews:
+        return application.listTaskReviews(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskReviews],
+        );
+      case desktopIpcChannels.addTaskDependency:
+        return application.addTaskDependency(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.addTaskDependency],
+        );
+      case desktopIpcChannels.removeTaskDependency:
+        return application.removeTaskDependency(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.removeTaskDependency],
+        );
       case desktopIpcChannels.terminalAttach: {
         const terminalRequest =
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.terminalAttach];
