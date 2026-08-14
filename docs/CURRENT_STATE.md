@@ -31,6 +31,8 @@ Updated: 2026-08-14
 - Migration 8 stores unique dependency edges with same-Project foreign keys and a cycle-prevention trigger. Planning, initial execution, and retry check readiness before Git work and again before Session launch, while SQLite rejects a new Session atomically if a required Task is incomplete. Existing Worktrees and immutable Session history remain untouched when admission is blocked.
 - The desktop now supports multiple renderer-owned workspace tabs and up to two xterm.js panes per tab. Each pane owns one stable terminal controller and exact Agent Session attachment; hidden tabs stay mounted to preserve independent live buffers, while close detaches listeners without terminating the process. The Application coordinator rejects a second interactive consumer for the same live Session.
 - The first desktop workspace view groups recent Projects and their Tasks, keeps Task phase and active/latest Agent Session status visibly separate, embeds tabbed/split terminals, and exposes the safe agent catalog through an application-shaped client. One keyboard-native selector chooses the agent for the next planning or execution attempt; the workspace shows the latest Plan and explicit Start planning, Revise plan, and Accept Plan actions while historical unknown agent IDs remain visible through a raw-ID fallback.
+- Electron now loads a sandboxed CommonJS preload that exposes only the typed `agenttermWorkspace` capability allowlist. Every request uses one fixed channel, is validated again in main, and receives a structured sanitized result; the renderer has no raw IPC, Node, process, filesystem, Git, PTY, or SQLite capability.
+- The main-process production composition owns the SQLite path, managed Worktree root, launch environment, generated Session/Review/gate identifiers, startup Session reconciliation, agent catalog, runtime, Git adapters, and Application use-case dependencies. Terminal subscriptions are scoped to the invoking top-level `webContents`; detach and renderer destruction remove observers without terminating the Agent Session.
 - The workspace read model and desktop also expose dependency summaries and a text-labeled `BLOCKED` / `READY` state. Incomplete required Tasks disable planning and execution actions with an explicit reason; no provider-specific or Git logic is added to Presentation.
 - Domain now defines versioned `plan`, `execution-summary`, and `review` artifact contracts with canonical names, required Markdown structure, producing phase, validation state, Task provenance, and optional Agent Session provenance.
 - Application exposes create/read/list artifact use cases. Migration 5 stores immutable artifact history in SQLite with per-Task ordering and same-Task Session foreign-key enforcement; the workspace read model and desktop show that history separately from Task and Session state.
@@ -184,8 +186,14 @@ Updated: 2026-08-14
   configured process suspended, assigns it to a kill-on-close Job Object, then resumes it and waits
   for zero active descendants; missing or malformed settlement evidence fails closed.
 - The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
-  check verifies nonempty rendered content instead of accepting `did-finish-load` alone. The CSP
-  permits only the inline style elements/attributes required by xterm while scripts remain self-only.
+  check verifies nonempty rendered content, the preload allowlist, and absence of renderer `require`,
+  `process`, and raw IPC instead of accepting `did-finish-load` alone. The CSP permits only the inline
+  style elements/attributes required by xterm while scripts remain self-only.
+- Desktop IPC is an explicit transport adapter, not a second business layer. Preload never accepts a
+  channel name from the renderer; main authorizes the current top-level window, validates exact payload
+  keys and bounds, invokes existing Application use cases, and maps errors without forwarding causes,
+  paths, commands, environments, credentials, or provider diagnostics. Terminal event delivery uses a
+  per-window subscription identity and idempotent detach ownership.
 - Review completion is user-owned. Generic Task transitions cannot enter or leave `REVIEW`; only the
   structured Review workflows may do so, and neither agent output, process exit, Artifacts, nor a
   passing Quality Gate can move a Task to `DONE`.
@@ -242,16 +250,14 @@ The unpacked packaged-desktop layout has not been introduced, so native loading 
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
 copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
 `node-pty` module outside ASAR. PTY children run with the desktop process's privileges; executable
-and environment policy belongs to the future session/agent coordinator.
-The renderer-side workspace and terminal contracts are implemented, but the sandboxed Electron
-renderer still has no validated preload/IPC binding to the main-process repositories and execution
-coordinator. Until that composition and its database/worktree/environment policy are added, the
-desktop shell intentionally renders a recoverable connection-unavailable state rather than using
-demo data or exposing Infrastructure to React.
-Settings read/update and startup catalog composition likewise have no production preload/main-process
-binding yet. Persisted executable overrides therefore take effect only once that composition reads
-Settings before constructing the immutable agent catalog; this foundation intentionally does not
-restart the application or any active Session when the row changes.
+and environment policy is owned by the main-process composition and agent adapters and never crosses
+into the renderer. Persisted executable overrides are read when that immutable catalog is composed at
+startup; changing Settings does not restart or mutate an active Session and takes effect after the next
+application composition.
+The production IPC surface covers the actions already consumed by the workspace. Project open/create,
+artifact production, and dependency editing still have no renderer workflow. Quality Gate IPC is wired
+through the existing use case, but the production composition intentionally exposes an empty gate catalog
+until an explicit trusted configuration consumer is introduced.
 Workspace tabs and split panes are intentionally renderer-local in this foundation; their layout is
 not persisted or restored after an application restart. Closing UI detaches observers only, while a
 later reattachment cannot replay output emitted during the detached interval because terminal output
@@ -270,15 +276,8 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-Bind startup session reconciliation, artifact/review/change-inspection/dependency/PR reads,
-Settings read/update and settings-backed built-in agent catalog construction,
-`loadAgentWorkspace`, `startTaskPlanning`, Plan creation/acceptance, `startTaskExecution`,
-`retryTaskExecution`, the three explicit Review commands, terminal attachment, explicit Task-branch
-push, configured Quality Gate listing/execution, and Pull Request create/remote-refresh commands to the sandboxed renderer through a narrow validated
-preload/IPC adapter in the Electron main process. Reconciliation must finish before new runtime
-launches or workspace reads. That composition must own session identifiers, approved launch
-environment, Review identifiers and decision timestamps, database path, and managed Worktree root;
-validated dependency add/remove commands must likewise remain behind this Application boundary;
-the renderer must not receive raw filesystem,
-Git, database, process, or environment capability. Process reattachment, provider-native resume,
-output replay, and cross-process live-execution reconciliation remain later lifecycle slices.
+Add the missing explicit Project-open, artifact-production, dependency-editing, and trusted Quality Gate
+configuration workflows through the same validated Application/IPC boundary. Preserve the current rule
+that renderer commands never receive raw filesystem, Git, database, process, PTY, or environment
+capabilities. Process reattachment, provider-native resume, terminal output replay, installed-package
+validation, and cross-process live-execution reconciliation remain later lifecycle slices.

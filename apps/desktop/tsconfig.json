@@ -5,5 +5,11 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "tsup.config.ts", "vite.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "tsup.config.ts",
+    "tsup.preload.config.ts",
+    "vite.config.ts"
+  ]
 }
