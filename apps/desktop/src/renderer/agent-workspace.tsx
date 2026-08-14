@@ -14,6 +14,12 @@ import { WorkspaceCommandPalette } from './command-palette';
 import { WorkspaceTerminals } from './workspace-terminals';
 import { SettingsPanel } from './settings-panel';
 import {
+  DEFAULT_TERMINAL_HEIGHT,
+  MAX_TERMINAL_VIEWPORT_OFFSET,
+  MIN_TERMINAL_HEIGHT,
+  resizeTerminalHeight,
+} from './terminal-pane-size';
+import {
   buildWorkspaceCommands,
   initialCommandPaletteState,
   reduceCommandPalette,
@@ -279,6 +285,9 @@ export function AgentWorkspaceView({
 
   return (
     <main className="workspace-shell">
+      <a className="skip-link" href="#workspace-main">
+        Skip to Task workspace
+      </a>
       <WorkspaceSidebar
         busy={snapshot.onboardingBusy ?? false}
         error={snapshot.actionError}
@@ -515,12 +524,10 @@ export function AgentWorkspaceView({
               </p>
             ) : null}
           </div>
-
           <section className="task-brief" aria-label="Task brief">
             <p className="eyebrow">Task brief</p>
             <p>{selected.task.brief ?? 'This legacy Task has no persisted brief.'}</p>
           </section>
-
           <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
           <PullRequestPanel
             actionsBusy={actionsBusy}
@@ -539,23 +546,22 @@ export function AgentWorkspaceView({
           <ReviewHistory reviews={selected.reviewHistory} />
           <ArtifactHistory artifacts={selected.artifacts} />
           <QualityGateHistory runs={selected.qualityGateRuns} />
-
-          <WorkspaceTerminals
-            {...(client === undefined ? {} : { client })}
-            layout={snapshot.layout}
-            fontSize={snapshot.settings?.settings.terminalFontSize ?? 14}
-            onActivatePane={onSelectWorkspacePane}
-            onActivateTab={onSelectWorkspaceTab}
-            onClosePane={onCloseWorkspacePane}
-            onCloseTab={onCloseWorkspaceTab}
-            onRuntimeEvent={(event) => {
-              if (event.kind !== 'output') {
-                onRefresh();
-              }
-            }}
-            onSplit={onSplitTerminal}
-            overview={snapshot.overview}
-          />
+          <ResizableTerminalWorkspace>
+            <WorkspaceTerminals
+              {...(client === undefined ? {} : { client })}
+              layout={snapshot.layout}
+              fontSize={snapshot.settings?.settings.terminalFontSize ?? 14}
+              onActivatePane={onSelectWorkspacePane}
+              onActivateTab={onSelectWorkspaceTab}
+              onClosePane={onCloseWorkspacePane}
+              onCloseTab={onCloseWorkspaceTab}
+              onRuntimeEvent={(event) => {
+                if (event.kind !== 'output') onRefresh();
+              }}
+              onSplit={onSplitTerminal}
+              overview={snapshot.overview}
+            />
+          </ResizableTerminalWorkspace>
           <WorkspaceCommandPalette
             commands={commands}
             onAction={handlePaletteAction}
@@ -565,6 +571,83 @@ export function AgentWorkspaceView({
         </section>
       )}
     </main>
+  );
+}
+
+interface TerminalResizeDrag {
+  readonly height: number;
+  readonly pointerId: number;
+  readonly pointerY: number;
+}
+function ResizableTerminalWorkspace({ children }: { readonly children: React.ReactNode }) {
+  const [height, setHeight] = useState(DEFAULT_TERMINAL_HEIGHT);
+  const [resizing, setResizing] = useState(false);
+  const drag = useRef<TerminalResizeDrag | undefined>(undefined);
+  const animationFrame = useRef<number | undefined>(undefined);
+  const viewportHeight =
+    typeof window === 'undefined'
+      ? DEFAULT_TERMINAL_HEIGHT + MAX_TERMINAL_VIEWPORT_OFFSET
+      : window.innerHeight;
+  useEffect(
+    () => () => {
+      if (animationFrame.current !== undefined) window.cancelAnimationFrame(animationFrame.current);
+    },
+    [],
+  );
+  const resizeBy = (delta: number) =>
+    setHeight((current) => resizeTerminalHeight(current + delta, 0, 0, window.innerHeight));
+  return (
+    <section
+      className={`resizable-terminal${resizing ? ' resizable-terminal--resizing' : ''}`}
+      style={{ '--terminal-height': `${String(height)}px` } as React.CSSProperties}
+    >
+      <div
+        aria-label="Resize terminal height"
+        aria-orientation="horizontal"
+        aria-valuemax={Math.max(MIN_TERMINAL_HEIGHT, viewportHeight - MAX_TERMINAL_VIEWPORT_OFFSET)}
+        aria-valuemin={MIN_TERMINAL_HEIGHT}
+        aria-valuenow={height}
+        className="terminal-resize-handle"
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          resizeBy(event.key === 'ArrowUp' ? 24 : -24);
+        }}
+        onLostPointerCapture={() => {
+          drag.current = undefined;
+          setResizing(false);
+        }}
+        onPointerDown={(event) => {
+          drag.current = { height, pointerId: event.pointerId, pointerY: event.clientY };
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setResizing(true);
+        }}
+        onPointerMove={(event) => {
+          const active = drag.current;
+          if (active === undefined || active.pointerId !== event.pointerId) return;
+          const currentY = event.clientY;
+          if (animationFrame.current !== undefined)
+            window.cancelAnimationFrame(animationFrame.current);
+          animationFrame.current = window.requestAnimationFrame(() => {
+            setHeight(
+              resizeTerminalHeight(active.height, active.pointerY, currentY, window.innerHeight),
+            );
+            animationFrame.current = undefined;
+          });
+        }}
+        onPointerUp={(event) => {
+          if (drag.current?.pointerId !== event.pointerId) return;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          drag.current = undefined;
+          setResizing(false);
+        }}
+        role="separator"
+        tabIndex={0}
+      >
+        <span aria-hidden="true" />
+      </div>
+      {children}
+    </section>
   );
 }
 
