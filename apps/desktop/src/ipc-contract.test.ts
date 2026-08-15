@@ -17,6 +17,99 @@ describe('desktop IPC contract validation', () => {
     ).toEqual({ agentId: 'claude', taskId: 'task-1' });
   });
 
+  it('accepts a Quality Gate configuration load request with a bounded path', () => {
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.loadQualityGateConfig, {
+        path: 'C:/agentterm/quality-gates.json',
+      }),
+    ).toEqual({ path: 'C:/agentterm/quality-gates.json' });
+  });
+
+  it('accepts a Quality Gate configuration save request with a minimal gate payload', () => {
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.saveQualityGateConfig, {
+        configuration: {
+          gates: [
+            {
+              command: { arguments: ['lint'], executablePath: 'C:/node/node.exe' },
+              id: 'lint:eslint',
+              kind: 'LINT',
+              timeoutMs: 60_000,
+            },
+          ],
+          revision: 'rev-1',
+        },
+        path: 'C:/agentterm/quality-gates.json',
+      }),
+    ).toEqual({
+      configuration: {
+        gates: [
+          {
+            command: { arguments: ['lint'], executablePath: 'C:/node/node.exe' },
+            id: 'lint:eslint',
+            kind: 'LINT',
+            timeoutMs: 60_000,
+          },
+        ],
+        revision: 'rev-1',
+      },
+      path: 'C:/agentterm/quality-gates.json',
+    });
+  });
+
+  it.each([
+    [desktopIpcChannels.loadQualityGateConfig, { path: '' }],
+    [
+      desktopIpcChannels.saveQualityGateConfig,
+      {
+        configuration: { gates: [], revision: '   ' },
+        path: 'C:/agentterm/quality-gates.json',
+      },
+    ],
+    [
+      desktopIpcChannels.saveQualityGateConfig,
+      {
+        configuration: {
+          gates: [
+            {
+              command: { arguments: ['lint'], executablePath: 'relative' },
+              id: 'lint:eslint',
+              kind: 'LINT',
+              timeoutMs: 60_000,
+            },
+          ],
+          revision: 'rev-1',
+        },
+        path: 'C:/agentterm/quality-gates.json',
+      },
+    ],
+    [
+      desktopIpcChannels.saveQualityGateConfig,
+      {
+        configuration: {
+          gates: [
+            {
+              command: { arguments: ['lint'], executablePath: 'C:/node/node.exe' },
+              id: 'lint:eslint',
+              kind: 'LINT',
+              timeoutMs: 60_000,
+              secret: 'value',
+            },
+          ],
+          revision: 'rev-1',
+        },
+        path: 'C:/agentterm/quality-gates.json',
+      },
+    ],
+  ] as const)(
+    'rejects malformed or over-capability payloads for %s',
+    (channel, payload) => {
+      expect(() => validateDesktopIpcRequest(channel, payload)).toThrow(
+        DesktopIpcRequestValidationError,
+      );
+    },
+  );
+
   it('accepts bounded onboarding requests without exposing a filesystem path', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.openProject, {})).toEqual({});
     expect(

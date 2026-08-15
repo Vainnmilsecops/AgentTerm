@@ -146,6 +146,10 @@ export function WorkspaceCommandPalette({
                           >
                             <button
                               className="command-palette__option"
+                              data-palette-command-id={candidate.id}
+                              {...(resolvePaletteAnchor(candidate.id) === undefined
+                                ? {}
+                                : { 'data-palette-anchor': resolvePaletteAnchor(candidate.id) })}
                               onClick={() => {
                                 const original = commandsById.get(candidate.id);
                                 if (original !== undefined) {
@@ -262,4 +266,17 @@ function buildFlatIndexLookup(groups: readonly CommandGroup[]): ReadonlyMap<stri
 
 function commandElementId(commandId: string): string {
   return `workspace-command-${commandId.replace(/[^a-zA-Z0-9_-]/gu, '-')}`;
+}
+
+const paletteAnchorPattern = /^[a-z0-9][a-z0-9._:=-]*$/u;
+
+function resolvePaletteAnchor(commandId: string): string | undefined {
+  if (commandId === 'artifact:produce') return 'produce-artifact';
+  if (commandId === 'gate:register') return 'register-gate';
+  if (commandId.startsWith('dependency:require:')) return 'add-dependency';
+  if (commandId.startsWith('dependency:remove:')) return 'remove-dependency';
+  if (commandId.startsWith('gate:remove:')) return 'unregister-gate';
+  const suffix = commandId.startsWith('gate:') ? commandId.slice('gate:'.length) : commandId;
+  if (paletteAnchorPattern.test(suffix)) return suffix;
+  return undefined;
 }

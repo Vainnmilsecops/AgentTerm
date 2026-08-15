@@ -16,6 +16,11 @@ export {
   JsonFileQualityGateCatalog,
   type JsonFileQualityGateCatalogOptions,
 } from './json-quality-gate-catalog';
+export {
+  createQualityGateConfigurator,
+  type CreateQualityGateConfiguratorOptions,
+  type QualityGateConfiguratorFileSystem,
+} from './quality-gate-configurator';
 export { NodeQualityGateProcessRunner } from './quality-gate/node-quality-gate-process-runner';
 export { WindowsConPtyRuntime } from './pty/windows-conpty-runtime';
 export { SqlitePersistenceError } from './sqlite/errors';

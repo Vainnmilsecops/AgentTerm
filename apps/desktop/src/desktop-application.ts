@@ -36,6 +36,10 @@ import {
   unregisterQualityGate,
   updateApplicationSettings,
 } from '@agentterm/application';
+import type {
+  QualityGateConfiguration,
+  QualityGateConfiguratorFailure,
+} from '@agentterm/application';
 import {
   BuiltInAgentConfigurationInspector,
   GitCliTaskReviewCodeInspector,
@@ -46,6 +50,7 @@ import {
   NodeQualityGateProcessRunner,
   WindowsConPtyRuntime,
   createBuiltInAgentCatalogFromSettings,
+  createQualityGateConfigurator,
   openSqlitePersistence,
 } from '@agentterm/infrastructure';
 
@@ -90,6 +95,10 @@ export async function createProductionDesktopApplication(
     const qualityGateRunner = new NodeQualityGateProcessRunner();
     const qualityGateCatalog = new JsonFileQualityGateCatalog({
       filePath: join(dataDirectory, 'quality-gates.json'),
+    });
+    const trustRoots = resolveQualityGateConfigTrustRoots(options.environment ?? process.env);
+    const qualityGateConfigurator = createQualityGateConfigurator({
+      trustRoots,
     });
     await restoreAgentSessionsAfterRestart(persistence.sessions, clock);
 
@@ -216,6 +225,10 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return listQualityGateSummaries(qualityGateCatalog);
       },
+      loadQualityGateConfig: async (input) => {
+        requireOpen();
+        return unwrapConfiguratorResult(await qualityGateConfigurator.load(input));
+      },
       listTaskChanges: async (input) => {
         requireOpen();
         return listTaskChanges(input, persistence.tasks, persistence.worktrees, git);
@@ -290,6 +303,12 @@ export async function createProductionDesktopApplication(
         requireOpen();
         await runQualityGate({ ...input, environment, runId: newId() }, qualityGateDependencies);
       },
+      saveQualityGateConfig: async (input) => {
+        requireOpen();
+        return unwrapConfiguratorResult(
+          await qualityGateConfigurator.save(input),
+        );
+      },
       startTaskExecution: async (input): Promise<void> => {
         requireOpen();
         await startTaskExecution(
@@ -349,4 +368,22 @@ function snapshotLaunchEnvironment(input: NodeJS.ProcessEnv): Readonly<Record<st
     environment[name] = value;
   }
   return Object.freeze(environment);
+}
+
+function resolveQualityGateConfigTrustRoots(environment: NodeJS.ProcessEnv): readonly string[] {
+  const raw = environment['AT_DESKTOP_GATE_CONFIG_ROOT'];
+  if (raw === undefined) return Object.freeze([]);
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return Object.freeze([]);
+  if (trimmed.includes('\0')) {
+    throw new TypeError('AT_DESKTOP_GATE_CONFIG_ROOT contains a NUL byte.');
+  }
+  const parts = trimmed.split(/[;]/u).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  return Object.freeze(parts);
+}
+
+function unwrapConfiguratorResult(
+  result: { readonly failure: QualityGateConfiguratorFailure | undefined; readonly value: QualityGateConfiguration | undefined },
+): { readonly failure: QualityGateConfiguratorFailure | undefined; readonly value: QualityGateConfiguration | undefined } {
+  return result;
 }

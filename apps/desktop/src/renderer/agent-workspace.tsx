@@ -559,19 +559,30 @@ export function AgentWorkspaceView({
   const commands = buildWorkspaceCommands(
     {
       actionBusy: actionsBusy,
+      now: Date.now(),
       qualityGates: snapshot.qualityGates ?? [],
       selectedAgentId: snapshot.selectedAgentId,
       selectedTask:
         selected === undefined
           ? undefined
           : {
+              canProduceArtifact:
+                selected.task.phase !== 'DONE',
               canRequestReview: selected.canRequestReview,
               canRetryExecution: selected.canRetryExecution,
               canRevisePlan: selected.canRevisePlan,
               canRunQualityGate: selected.canRunQualityGate,
               canStartExecution: selected.canStartExecution,
               canStartPlanning: selected.canStartPlanning,
+              dependencies: selected.dependencies.map((dependency) => ({
+                id: dependency.id,
+                phase: dependency.phase as 'BACKLOG' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING',
+                projectId: selectedProject?.project.id ?? '',
+                title: dependency.title,
+              })),
               id: selected.task.id,
+              projectId: selectedProject?.project.id ?? '',
+              title: selected.task.title,
             },
       tasks: snapshot.overview.projects.flatMap((project) =>
         project.tasks.map(({ task }) => ({
@@ -582,7 +593,15 @@ export function AgentWorkspaceView({
       ),
     },
     {
+      addDependency: (dependencyTaskId, taskId) => {
+        onAddDependency({ dependencyTaskId, taskId });
+      },
       focus: focusTarget,
+      produceArtifact: onProduceArtifact,
+      registerQualityGate: onRegisterQualityGate,
+      removeDependency: (dependencyTaskId, taskId) => {
+        onRemoveDependency({ dependencyTaskId, taskId });
+      },
       requestReview: onRequestReview,
       retryExecution: onRetryTask,
       runQualityGate: onRunQualityGate,
@@ -592,6 +611,7 @@ export function AgentWorkspaceView({
       },
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
+      unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
     },
   );
 

@@ -21,6 +21,48 @@ const commands: readonly WorkspaceCommand[] = [
     run: () => undefined,
     shortcut: 'Alt+3',
   },
+  {
+    category: 'Task',
+    id: 'artifact:produce',
+    keywords: ['artifact'],
+    label: 'Produce artifact',
+    run: () => undefined,
+  },
+  {
+    category: 'Quality gates',
+    id: 'gate:register',
+    keywords: ['register'],
+    label: 'Register Quality Gate',
+    run: () => undefined,
+  },
+  {
+    category: 'Task',
+    id: 'dependency:require:task-1',
+    keywords: ['dependency'],
+    label: 'Require task: Foundation',
+    run: () => undefined,
+  },
+  {
+    category: 'Task',
+    id: 'dependency:remove:task-2',
+    keywords: ['dependency'],
+    label: 'Remove required task: Cleanup',
+    run: () => undefined,
+  },
+  {
+    category: 'Quality gates',
+    id: 'gate:remove:lint:eslint',
+    keywords: ['unregister'],
+    label: 'Unregister Quality Gate: lint:eslint',
+    run: () => undefined,
+  },
+  {
+    category: 'Quality gates',
+    id: 'gate:lint:eslint',
+    keywords: ['lint'],
+    label: 'Run lint:eslint',
+    run: () => undefined,
+  },
 ];
 
 describe('WorkspaceCommandPalette', () => {
@@ -54,5 +96,24 @@ describe('WorkspaceCommandPalette', () => {
     );
 
     expect(markup).toBe('');
+  });
+
+  it('attaches data-palette-anchor to workflow commands so keyboard users can rely on stable selectors', () => {
+    const markup = renderToStaticMarkup(
+      createElement(WorkspaceCommandPalette, {
+        commands,
+        onAction: vi.fn(),
+        onRun: vi.fn(),
+        recents: [],
+        state: { activeIndex: 0, open: true, query: '' },
+      }),
+    );
+
+    expect(markup).toContain('data-palette-anchor="produce-artifact"');
+    expect(markup).toContain('data-palette-anchor="register-gate"');
+    expect(markup).toContain('data-palette-anchor="add-dependency"');
+    expect(markup).toContain('data-palette-anchor="remove-dependency"');
+    expect(markup).toContain('data-palette-anchor="unregister-gate"');
+    expect(markup).toContain('data-palette-anchor="lint:eslint"');
   });
 });

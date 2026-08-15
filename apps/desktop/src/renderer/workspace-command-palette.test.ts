@@ -13,35 +13,48 @@ import {
 
 const baseContext: WorkspaceCommandContext = {
   actionBusy: false,
+  now: 1_700_000_000_000,
   qualityGates: [
     { id: 'lint', kind: 'LINT' },
     { id: 'tests', kind: 'TEST' },
   ],
   selectedAgentId: 'codex',
   selectedTask: {
+    canProduceArtifact: true,
     canRequestReview: true,
     canRetryExecution: true,
     canRevisePlan: false,
     canRunQualityGate: true,
     canStartExecution: false,
     canStartPlanning: false,
+    dependencies: [
+      { id: 'task-blocker', phase: 'RUNNING', projectId: 'project-1', title: 'Blocker' },
+    ],
     id: 'task-vietnamese',
+    projectId: 'project-1',
+    title: 'Kiểm tra tiếng Việt',
   },
   tasks: [
     { id: 'task-vietnamese', projectName: 'AgentTerm', title: 'Kiểm tra tiếng Việt' },
     { id: 'task-review', projectName: 'AgentTerm', title: 'Review flow' },
+    { id: 'task-blocker', projectName: 'AgentTerm', title: 'Blocker' },
   ],
 };
 
 function createActions() {
   return {
+    addDependency: vi.fn<WorkspaceCommandActions['addDependency']>(),
     focus: vi.fn<WorkspaceCommandActions['focus']>(),
+    produceArtifact: vi.fn<WorkspaceCommandActions['produceArtifact']>(),
+    registerQualityGate: vi.fn<WorkspaceCommandActions['registerQualityGate']>(),
+    removeDependency: vi.fn<WorkspaceCommandActions['removeDependency']>(),
     requestReview: vi.fn<WorkspaceCommandActions['requestReview']>(),
     retryExecution: vi.fn<WorkspaceCommandActions['retryExecution']>(),
     runQualityGate: vi.fn<WorkspaceCommandActions['runQualityGate']>(),
     selectTask: vi.fn<WorkspaceCommandActions['selectTask']>(),
     startExecution: vi.fn<WorkspaceCommandActions['startExecution']>(),
     startPlanning: vi.fn<WorkspaceCommandActions['startPlanning']>(),
+    unregisterQualityGate: vi.fn<WorkspaceCommandActions['unregisterQualityGate']>(),
   };
 }
 
@@ -68,6 +81,7 @@ describe('workspace command registry', () => {
     expect(commands.map(({ id }) => id)).toEqual([
       'task:task-vietnamese',
       'task:task-review',
+      'task:task-blocker',
       'execution:retry',
       'review:request',
       'focus:sidebar',
@@ -79,17 +93,89 @@ describe('workspace command registry', () => {
       'open:review',
       'gate:lint',
       'gate:tests',
+      'gate:remove:lint',
+      'gate:remove:tests',
+      'artifact:produce',
+      'dependency:require:task-review',
+      'dependency:remove:task-blocker',
+      'gate:register',
     ]);
 
     await commands.find(({ id }) => id === 'task:task-review')?.run();
     await commands.find(({ id }) => id === 'execution:retry')?.run();
     await commands.find(({ id }) => id === 'open:terminal')?.run();
     await commands.find(({ id }) => id === 'gate:lint')?.run();
+    await commands.find(({ id }) => id === 'gate:remove:tests')?.run();
+    await commands.find(({ id }) => id === 'artifact:produce')?.run();
+    await commands.find(({ id }) => id === 'dependency:require:task-review')?.run();
+    await commands.find(({ id }) => id === 'dependency:remove:task-blocker')?.run();
+    await commands.find(({ id }) => id === 'gate:register')?.run();
 
     expect(actions.selectTask).toHaveBeenCalledWith('task-review');
     expect(actions.retryExecution).toHaveBeenCalledOnce();
     expect(actions.focus).toHaveBeenCalledWith('terminal');
     expect(actions.runQualityGate).toHaveBeenCalledWith('lint');
+    expect(actions.unregisterQualityGate).toHaveBeenCalledWith('tests');
+    expect(actions.produceArtifact).toHaveBeenCalledOnce();
+    expect(actions.produceArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'execution-summary', taskId: 'task-vietnamese' }),
+    );
+    expect(actions.addDependency).toHaveBeenCalledWith('task-review', 'task-vietnamese');
+    expect(actions.removeDependency).toHaveBeenCalledWith('task-blocker', 'task-vietnamese');
+    expect(actions.focus).toHaveBeenCalledWith('checks');
+  });
+
+  it('hides Quality Gate palette entries when the Task cannot run gates or the workspace is busy', () => {
+    const actions = createActions();
+    const blockedGate = buildWorkspaceCommands(
+      {
+        ...baseContext,
+        selectedTask: { ...baseContext.selectedTask!, canRunQualityGate: false },
+      },
+      actions,
+    );
+    const busyGate = buildWorkspaceCommands(
+      {
+        ...baseContext,
+        actionBusy: true,
+      },
+      actions,
+    );
+
+    expect(blockedGate.map(({ id }) => id).some((id) => id.startsWith('gate:'))).toBe(false);
+    expect(
+      blockedGate.map(({ id }) => id).some((id) => id === 'gate:register'),
+    ).toBe(false);
+    expect(busyGate.map(({ id }) => id).some((id) => id.startsWith('gate:'))).toBe(false);
+    expect(busyGate.map(({ id }) => id)).not.toContain('artifact:produce');
+    expect(busyGate.map(({ id }) => id).some((id) => id.startsWith('dependency:'))).toBe(false);
+  });
+
+  it('hides the artifact producer when the selected Task cannot produce one', () => {
+    const actions = createActions();
+    const commands = buildWorkspaceCommands(
+      {
+        ...baseContext,
+        selectedTask: { ...baseContext.selectedTask!, canProduceArtifact: false },
+      },
+      actions,
+    );
+
+    expect(commands.map(({ id }) => id)).not.toContain('artifact:produce');
+  });
+
+  it('hides the dependency commands when none are actionable from the selected Task', () => {
+    const actions = createActions();
+    const candidateLess = buildWorkspaceCommands(
+      {
+        ...baseContext,
+        selectedTask: { ...baseContext.selectedTask!, dependencies: [] },
+        tasks: [{ id: baseContext.selectedTask!.id, projectName: 'AgentTerm', title: baseContext.selectedTask!.title }],
+      },
+      actions,
+    );
+
+    expect(candidateLess.map(({ id }) => id).some((id) => id.startsWith('dependency:'))).toBe(false);
   });
 
   it('omits unavailable mutation commands instead of duplicating business enablement', () => {
