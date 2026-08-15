@@ -90,7 +90,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
 
   public constructor(private readonly database: DatabaseSync) {
     this.readSettingsStatement = database.prepare(
-      `SELECT schema_version, revision, default_agent_id, terminal_font_size
+      `SELECT schema_version, revision, default_agent_id, terminal_font_size, mcp_server_token
        FROM application_settings WHERE singleton_id = 1`,
     );
     this.readExecutablesStatement = database.prepare(
@@ -99,7 +99,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
     );
     this.updateSettingsStatement = database.prepare(
       `UPDATE application_settings
-       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?
+       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?, mcp_server_token = ?
        WHERE singleton_id = 1 AND revision = ?`,
     );
     this.deleteExecutablesStatement = database.prepare(
@@ -124,6 +124,9 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
           executablePath: readSettingsText(executableRow.executable_path),
         })),
         defaultAgentId: readSettingsText(row.default_agent_id),
+        ...(row.mcp_server_token === null
+          ? {}
+          : { mcpServerToken: readSettingsText(row.mcp_server_token) }),
         revision: readSettingsInteger(row.revision),
         schemaVersion: readSettingsSchemaVersion(row.schema_version),
         terminalFontSize: readSettingsInteger(row.terminal_font_size),
@@ -144,6 +147,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
         settings.revision,
         settings.defaultAgentId,
         settings.terminalFontSize,
+        settings.mcpServerToken ?? null,
         expectedRevision,
       );
       if (updated.changes !== 1 && updated.changes !== 1n) {
@@ -1635,10 +1639,17 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
 
   public async insert(
     session: AgentSession,
-    expectedTaskPhase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING = TaskPhase.RUNNING,
+    expectedTaskPhase:
+      | typeof TaskPhase.BACKLOG
+      | typeof TaskPhase.PLANNING
+      | typeof TaskPhase.RUNNING = TaskPhase.RUNNING,
   ): Promise<void> {
     assertInitialSession(session);
-    if (expectedTaskPhase !== TaskPhase.PLANNING && expectedTaskPhase !== TaskPhase.RUNNING) {
+    if (
+      expectedTaskPhase !== TaskPhase.BACKLOG &&
+      expectedTaskPhase !== TaskPhase.PLANNING &&
+      expectedTaskPhase !== TaskPhase.RUNNING
+    ) {
       throw new SqlitePersistenceError('Agent Session expected Task phase is invalid.');
     }
     this.database.exec('BEGIN IMMEDIATE');

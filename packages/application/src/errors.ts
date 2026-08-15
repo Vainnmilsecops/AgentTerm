@@ -444,8 +444,12 @@ export class TaskExecutionPhaseError extends Error {
   public readonly phase: TaskPhase;
   public readonly taskId: string;
 
-  public constructor(taskId: string, phase: TaskPhase) {
-    super(`Task ${taskId} cannot start execution from ${phase}.`);
+  public constructor(
+    taskId: string,
+    phase: TaskPhase,
+    options?: ErrorOptions & { readonly activeSessionId?: string; readonly sessionId?: string },
+  ) {
+    super(`Task ${taskId} cannot start execution from ${phase}.`, options);
     this.name = 'TaskExecutionPhaseError';
     this.phase = phase;
     this.taskId = taskId;
@@ -711,5 +715,70 @@ export class InvalidQualityGateConfigurationError extends Error {
     super(message);
     this.name = 'InvalidQualityGateConfigurationError';
     this.details = Object.freeze({ ...details });
+  }
+}
+
+export class WorkflowPluginValidationError extends Error {
+  public readonly details: Readonly<Record<string, unknown>>;
+
+  public constructor(message: string, details: Readonly<Record<string, unknown>>) {
+    super(message);
+    this.name = 'WorkflowPluginValidationError';
+    this.details = Object.freeze({ ...details });
+  }
+}
+
+export class WorkflowPluginConflictError extends Error {
+  public constructor(options?: ErrorOptions) {
+    super('Workflow Plugin binding changed in another window. Reload it and try again.', options);
+    this.name = 'WorkflowPluginConflictError';
+  }
+}
+
+export class WorkflowPluginPhaseNotFoundError extends Error {
+  public constructor(
+    public readonly pluginId: string,
+    public readonly phaseId: string,
+  ) {
+    super(`Workflow Plugin '${pluginId}' does not declare phase '${phaseId}'.`);
+    this.name = 'WorkflowPluginPhaseNotFoundError';
+  }
+}
+
+export class WorkflowPluginAgentNotConfiguredError extends Error {
+  public constructor(
+    public readonly phaseId: string,
+    public readonly pluginId: string,
+  ) {
+    super(`No coding agent is configured for phase '${phaseId}' of plugin '${pluginId}'.`);
+    this.name = 'WorkflowPluginAgentNotConfiguredError';
+  }
+}
+
+export type TaskResearchPhaseFailure =
+  | 'ACTIVE_SESSION'
+  | 'ARTIFACT_INVALID'
+  | 'ARTIFACT_MISSING'
+  | 'TASK_NOT_IN_BACKLOG';
+
+export class TaskResearchPhaseError extends Error {
+  public readonly phase: TaskPhase;
+  public readonly reason: TaskResearchPhaseFailure;
+  public readonly taskId: string;
+
+  public constructor(taskId: string, phase: TaskPhase, reason: TaskResearchPhaseFailure) {
+    super(
+      reason === 'TASK_NOT_IN_BACKLOG'
+        ? `Task ${taskId} cannot enter research from phase ${phase}; it must be in BACKLOG.`
+        : reason === 'ACTIVE_SESSION'
+          ? `Task ${taskId} cannot start research while an Agent Session is still active.`
+          : reason === 'ARTIFACT_MISSING'
+            ? `Task ${taskId} has no Research artifact yet.`
+            : `Task ${taskId} Research artifact failed validation.`,
+    );
+    this.name = 'TaskResearchPhaseError';
+    this.phase = phase;
+    this.reason = reason;
+    this.taskId = taskId;
   }
 }

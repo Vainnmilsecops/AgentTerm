@@ -33,6 +33,7 @@ describe('SettingsPanel', () => {
           settings: {
             agentExecutables: [],
             defaultAgentId: 'codex',
+            mcpServerToken: undefined,
             revision: 0,
             schemaVersion: 1,
             terminalFontSize: 14,

@@ -41,7 +41,10 @@ export interface StartAgentSessionInput {
   readonly sessionId: string;
   readonly taskId: string;
   /** Defaults to RUNNING for compatibility; planning must opt in explicitly. */
-  readonly expectedTaskPhase?: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING;
+  readonly expectedTaskPhase?:
+    | typeof TaskPhase.BACKLOG
+    | typeof TaskPhase.PLANNING
+    | typeof TaskPhase.RUNNING;
   readonly workingDirectory: string;
 }
 

@@ -141,6 +141,22 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(patch_hash=878e031951042bb5a18e7fe70c08d9f2378d2b49e27dcb37a66960e0374cdb54)
 
+  packages/mcp-server:
+    dependencies:
+      '@agentterm/application':
+        specifier: workspace:*
+        version: link:../application
+      '@agentterm/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      tsup:
+        specifier: 8.5.1
+        version: 8.5.1(postcss@8.5.26)(typescript@5.9.3)
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/shared: {}
 
 packages:

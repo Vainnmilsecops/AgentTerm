@@ -47,6 +47,23 @@ export {
 } from './agent-session-ownership';
 export { TaskPhase } from './task-phase';
 export {
+  WorkflowPluginLimits,
+  WorkflowPluginPhaseKind,
+  createWorkflowPlugin,
+  isStableWorkflowPluginAgentId,
+  InvalidWorkflowPluginError,
+  type CreateWorkflowPhaseInput,
+  type CreateWorkflowPluginInput,
+  type WorkflowArtifactContract,
+  type WorkflowArtifactHeading,
+  type WorkflowPhase,
+  type WorkflowPhaseKickoffPolicy,
+  type WorkflowPhaseTransition,
+  type WorkflowPlugin,
+  type WorkflowPluginPhaseKind as WorkflowPluginPhaseKindValue,
+  type WorkflowPluginValidationReason,
+} from './workflow-plugin';
+export {
   decideTaskReview,
   InvalidTaskReviewTransitionError,
   startTaskReview,

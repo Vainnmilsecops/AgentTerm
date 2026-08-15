@@ -1,5 +1,6 @@
 export const ApplicationSettingsDefaults = Object.freeze({
   defaultAgentId: 'codex',
+  mcpServerToken: undefined,
   terminalFontSize: 14,
 });
 
@@ -11,6 +12,7 @@ export interface AgentExecutableSetting {
 export interface ApplicationSettings {
   readonly agentExecutables: readonly AgentExecutableSetting[];
   readonly defaultAgentId: string;
+  readonly mcpServerToken: string | undefined;
   readonly revision: number;
   readonly schemaVersion: 1;
   readonly terminalFontSize: number;
@@ -19,6 +21,7 @@ export interface ApplicationSettings {
 export interface CreateApplicationSettingsInput {
   readonly agentExecutables?: readonly AgentExecutableSetting[];
   readonly defaultAgentId?: string;
+  readonly mcpServerToken?: string | undefined;
   readonly revision?: number;
   readonly schemaVersion?: 1;
   readonly terminalFontSize?: number;
@@ -28,6 +31,7 @@ export type InvalidApplicationSettingsReason =
   | 'DUPLICATE_AGENT'
   | 'INVALID_AGENT_ID'
   | 'INVALID_EXECUTABLE'
+  | 'INVALID_MCP_SERVER_TOKEN'
   | 'INVALID_REVISION'
   | 'INVALID_SCHEMA_VERSION'
   | 'INVALID_TERMINAL_FONT_SIZE';
@@ -42,6 +46,8 @@ export class InvalidApplicationSettingsError extends Error {
 const stableAgentIdPattern = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const maximumAgentIdLength = 64;
 const maximumExecutableLength = 32_768;
+const minimumMcpServerTokenLength = 16;
+const maximumMcpServerTokenLength = 256;
 const minimumTerminalFontSize = 8;
 const maximumTerminalFontSize = 32;
 
@@ -69,6 +75,8 @@ export function createApplicationSettings(
     throw new InvalidApplicationSettingsError('INVALID_TERMINAL_FONT_SIZE');
   }
 
+  const mcpServerToken = normalizeMcpServerToken(input.mcpServerToken);
+
   const seenAgentIds = new Set<string>();
   const agentExecutables = (input.agentExecutables ?? [])
     .map((setting) => {
@@ -95,6 +103,7 @@ export function createApplicationSettings(
   return Object.freeze({
     agentExecutables: Object.freeze(agentExecutables),
     defaultAgentId,
+    mcpServerToken,
     revision,
     schemaVersion: 1 as const,
     terminalFontSize,
@@ -109,6 +118,22 @@ function validateAgentId(value: string): string {
   return id;
 }
 
+function normalizeMcpServerToken(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (
+    trimmed.length < minimumMcpServerTokenLength ||
+    trimmed.length > maximumMcpServerTokenLength ||
+    trimmed.includes('\0') ||
+    /\s/u.test(trimmed)
+  ) {
+    throw new InvalidApplicationSettingsError('INVALID_MCP_SERVER_TOKEN');
+  }
+  return trimmed;
+}
+
 function messageForReason(reason: InvalidApplicationSettingsReason): string {
   switch (reason) {
     case 'DUPLICATE_AGENT':
@@ -117,6 +142,8 @@ function messageForReason(reason: InvalidApplicationSettingsReason): string {
       return 'Application Settings contain an invalid stable agent identifier.';
     case 'INVALID_EXECUTABLE':
       return 'An agent executable override is invalid.';
+    case 'INVALID_MCP_SERVER_TOKEN':
+      return 'MCP server token must be 16 to 256 characters without whitespace.';
     case 'INVALID_REVISION':
       return 'Application Settings revision is invalid.';
     case 'INVALID_SCHEMA_VERSION':

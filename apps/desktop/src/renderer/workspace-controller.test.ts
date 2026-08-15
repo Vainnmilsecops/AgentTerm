@@ -235,6 +235,7 @@ function settings(
   overrides: {
     readonly agentExecutables?: ApplicationSettingsView['settings']['agentExecutables'];
     readonly defaultAgentId?: string;
+    readonly mcpServerToken?: string | undefined;
     readonly revision?: number;
     readonly terminalFontSize?: number;
   } = {},
@@ -242,6 +243,7 @@ function settings(
   return Object.freeze({
     agentExecutables: overrides.agentExecutables ?? Object.freeze([]),
     defaultAgentId: overrides.defaultAgentId ?? 'codex',
+    mcpServerToken: overrides.mcpServerToken ?? undefined,
     revision: overrides.revision ?? 0,
     schemaVersion: 1,
     terminalFontSize: overrides.terminalFontSize ?? 14,

@@ -3,6 +3,7 @@ import { TaskPhase, type TaskPhase as TaskPhaseValue } from './task-phase';
 export const ExecutionArtifactKind = Object.freeze({
   EXECUTION_SUMMARY: 'execution-summary',
   PLAN: 'plan',
+  RESEARCH: 'research',
   REVIEW: 'review',
 } as const);
 
@@ -10,7 +11,11 @@ export type ExecutionArtifactKind =
   (typeof ExecutionArtifactKind)[keyof typeof ExecutionArtifactKind];
 
 export interface ExecutionArtifact {
-  readonly canonicalName: 'planning/plan.md' | 'review/review.md' | 'running/execution-summary.md';
+  readonly canonicalName:
+    | 'planning/plan.md'
+    | 'research/research.md'
+    | 'review/review.md'
+    | 'running/execution-summary.md';
   readonly content: string;
   readonly createdAt: number;
   readonly format: 'markdown';
@@ -50,6 +55,11 @@ const contracts: Readonly<Record<ExecutionArtifactKind, ExecutionArtifactContrac
     canonicalName: 'planning/plan.md',
     heading: '# Plan',
     phase: TaskPhase.PLANNING,
+  },
+  [ExecutionArtifactKind.RESEARCH]: {
+    canonicalName: 'research/research.md',
+    heading: '# Research',
+    phase: TaskPhase.BACKLOG,
   },
   [ExecutionArtifactKind.REVIEW]: {
     canonicalName: 'review/review.md',
