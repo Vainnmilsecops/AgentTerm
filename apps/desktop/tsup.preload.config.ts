@@ -5,6 +5,7 @@ export default defineConfig({
   entry: ['src/preload.ts'],
   external: ['electron'],
   format: ['cjs'],
+  noExternal: [/@agentterm\//],
   outDir: 'dist/main',
   outExtension: () => ({ js: '.cjs' }),
   platform: 'node',

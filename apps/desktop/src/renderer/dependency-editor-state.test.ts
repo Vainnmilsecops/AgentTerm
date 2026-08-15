@@ -19,7 +19,7 @@ function task(id: string, projectId: string, title: string): Task {
   });
 }
 
-function overview(tasks: readonly Task[]): WorkspaceTaskOverview {
+function overview(): WorkspaceTaskOverview {
   return Object.freeze({
     activeSession: undefined,
     artifacts: Object.freeze([]),
@@ -118,6 +118,6 @@ describe('dependency-editor state smoke', () => {
     vi.restoreAllMocks();
   });
   it('produces an overview for fixtures', () => {
-    expect(overview([task('a', 'p1', 'A')]).task.id).toBe('task-current');
+    expect(overview().task.id).toBe('task-current');
   });
 });

@@ -7,6 +7,7 @@ import {
   type TerminalConnectionState,
   type TerminalSessionClient,
 } from './terminal-controller';
+import { WorkspaceIcon } from './workspace-icons';
 import { XtermTerminalSurface } from './xterm-terminal-surface';
 
 export interface TerminalRendererProps {
@@ -18,6 +19,7 @@ export interface TerminalRendererProps {
   readonly label?: string;
   readonly onActivate?: () => void;
   readonly onClose?: () => void;
+  readonly onConnectionStateChange?: (state: TerminalConnectionState) => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
   readonly paneId?: string;
   readonly sessionId?: string;
@@ -32,11 +34,13 @@ export function TerminalRenderer({
   label = 'Agent Session terminal',
   onActivate,
   onClose,
+  onConnectionStateChange,
   onRuntimeEvent,
   paneId = 'primary',
   sessionId,
 }: TerminalRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const connectionStateChangeRef = useRef(onConnectionStateChange);
   const controllerRef = useRef<TerminalController | undefined>(undefined);
   const runtimeEventRef = useRef(onRuntimeEvent);
   const [state, setState] = useState<TerminalConnectionState>('empty');
@@ -44,6 +48,14 @@ export function TerminalRenderer({
   useEffect(() => {
     runtimeEventRef.current = onRuntimeEvent;
   }, [onRuntimeEvent]);
+
+  useEffect(() => {
+    connectionStateChangeRef.current = onConnectionStateChange;
+  }, [onConnectionStateChange]);
+
+  useEffect(() => {
+    connectionStateChangeRef.current?.(state);
+  }, [state]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -113,26 +125,27 @@ export function TerminalRenderer({
           }
           type="button"
         >
-          {'\u00d7'}
+          <WorkspaceIcon name="close" size={14} />
         </button>
       </header>
-      <div className="terminal-panel__viewport" ref={containerRef} />
-      {state === 'empty' ? (
-        <div className="terminal-panel__empty" data-terminal-empty role="status">
-          <div className="terminal-panel__empty-card">
-            <span className="terminal-panel__empty-icon" aria-hidden="true">
-              ›_
-            </span>
-            <strong>No Agent Session attached</strong>
-            <p>Start a task or accept a plan to open its terminal in this pane.</p>
-            <div className="terminal-panel__empty-skeleton" aria-hidden="true">
-              <span className="skeleton" style={{ width: '60%', height: '0.7rem' }} />
-              <span className="skeleton" style={{ width: '80%', height: '0.7rem' }} />
-              <span className="skeleton" style={{ width: '40%', height: '0.7rem' }} />
+      <div className="terminal-panel__viewport" ref={containerRef}>
+        {state === 'empty' ? (
+          <div className="terminal-panel__empty" data-terminal-empty role="status">
+            <div className="terminal-panel__empty-card">
+              <span className="terminal-panel__empty-icon" aria-hidden="true">
+                <WorkspaceIcon name="terminal" size={24} />
+              </span>
+              <strong>No Agent Session attached</strong>
+              <p>Start a task or accept a plan to open its terminal in this pane.</p>
+              <div className="terminal-panel__empty-skeleton" aria-hidden="true">
+                <span className="skeleton" style={{ width: '60%', height: '0.7rem' }} />
+                <span className="skeleton" style={{ width: '80%', height: '0.7rem' }} />
+                <span className="skeleton" style={{ width: '40%', height: '0.7rem' }} />
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </section>
   );
 }

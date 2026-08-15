@@ -83,7 +83,21 @@ describe('JsonFileQualityGateCatalog', () => {
     const dir = mkdtempSync(join(tmpdir(), 'qg-catalog-'));
     try {
       const file = join(dir, 'gates.json');
-      writeFileSync(file, JSON.stringify({ gates: [{ id: '!!' }, { id: 'lint:eslint', kind: 'LINT', executablePath: 'C:/x/node.exe', arguments: [], timeoutMs: 1000 }] }));
+      writeFileSync(
+        file,
+        JSON.stringify({
+          gates: [
+            { id: '!!' },
+            {
+              id: 'lint:eslint',
+              kind: 'LINT',
+              executablePath: 'C:/x/node.exe',
+              arguments: [],
+              timeoutMs: 1000,
+            },
+          ],
+        }),
+      );
       const catalog = new JsonFileQualityGateCatalog({ filePath: file });
       const gates = await catalog.list();
       expect(gates).toHaveLength(1);

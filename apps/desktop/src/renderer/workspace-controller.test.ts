@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   AgentWorkspaceOverview,
   ApplicationSettingsView,
+  QualityGate,
   QualityGateSummary,
   TaskChangeSet,
   TaskPullRequestState,
@@ -29,65 +30,102 @@ import {
 type TestWorkspaceViewProps = Omit<
   AgentWorkspaceViewProps,
   | 'onAcceptPlan'
+  | 'onAddDependency'
   | 'onBeginPlanning'
   | 'onCloseWorkspacePane'
   | 'onCloseWorkspaceTab'
   | 'onCreatePullRequest'
   | 'onCreateTask'
+  | 'onProduceArtifact'
   | 'onCycleWorkspacePane'
   | 'onCycleWorkspaceTab'
   | 'onPushTaskBranch'
   | 'onOpenProject'
   | 'onRefreshPullRequest'
+  | 'onRegisterQualityGate'
+  | 'onRemoveDependency'
   | 'onRunQualityGate'
   | 'onSelectWorkspacePane'
   | 'onSelectWorkspaceTab'
   | 'onSelectTaskChange'
   | 'onSplitTerminal'
   | 'onStartPlanning'
+  | 'onUnregisterQualityGate'
 > &
   Partial<
     Pick<
       AgentWorkspaceViewProps,
       | 'onAcceptPlan'
+      | 'onAddDependency'
       | 'onBeginPlanning'
       | 'onCloseWorkspacePane'
       | 'onCloseWorkspaceTab'
       | 'onCreatePullRequest'
       | 'onCreateTask'
+      | 'onProduceArtifact'
       | 'onCycleWorkspacePane'
       | 'onCycleWorkspaceTab'
       | 'onPushTaskBranch'
       | 'onOpenProject'
       | 'onRefreshPullRequest'
+      | 'onRegisterQualityGate'
+      | 'onRemoveDependency'
       | 'onRunQualityGate'
       | 'onSelectWorkspacePane'
       | 'onSelectWorkspaceTab'
       | 'onSelectTaskChange'
       | 'onSplitTerminal'
       | 'onStartPlanning'
+      | 'onUnregisterQualityGate'
     >
   >;
 
 function AgentWorkspaceView(props: TestWorkspaceViewProps) {
   return createElement(AgentWorkspaceViewComponent, {
     onAcceptPlan: () => undefined,
+    onAddDependency: () => undefined,
     onBeginPlanning: () => undefined,
     onCloseWorkspacePane: () => undefined,
     onCloseWorkspaceTab: () => undefined,
     onCreatePullRequest: () => undefined,
     onCreateTask: async () => true,
+    onProduceArtifact: async (input) => ({
+      canonicalName:
+        input.kind === 'plan'
+          ? 'planning/plan.md'
+          : input.kind === 'review'
+            ? 'review/review.md'
+            : 'running/execution-summary.md',
+      content: input.content,
+      createdAt: input.createdAt,
+      format: 'markdown',
+      id: input.id,
+      kind: input.kind,
+      phase: input.kind === 'plan' ? 'PLANNING' : input.kind === 'review' ? 'REVIEW' : 'RUNNING',
+      schemaVersion: 1,
+      sessionId: input.sessionId,
+      taskId: input.taskId,
+      validation: 'VALID',
+    }),
     onCycleWorkspacePane: () => undefined,
     onCycleWorkspaceTab: () => undefined,
     onPushTaskBranch: () => undefined,
     onOpenProject: () => undefined,
     onRefreshPullRequest: () => undefined,
+    onRegisterQualityGate: async (input) => ({
+      command: { arguments: input.arguments, executablePath: input.executablePath },
+      id: input.id,
+      kind: input.kind,
+      timeoutMs: input.timeoutMs,
+    }),
+    onRemoveDependency: () => undefined,
     onRunQualityGate: () => undefined,
     onSelectWorkspacePane: () => undefined,
     onSelectWorkspaceTab: () => undefined,
     onSelectTaskChange: () => undefined,
     onSplitTerminal: () => undefined,
     onStartPlanning: () => undefined,
+    onUnregisterQualityGate: async () => true,
     ...props,
   });
 }
@@ -480,6 +518,14 @@ const pendingReviewOverview = Object.freeze({
 }) as AgentWorkspaceOverview;
 
 class FakeWorkspaceClient implements AgentWorkspaceClient {
+  public readonly addTaskDependency = vi.fn<AgentWorkspaceClient['addTaskDependency']>(
+    async (input) => ({
+      dependencyTaskId: input.dependencyTaskId,
+      id: `${input.taskId}:${input.dependencyTaskId}`,
+      projectId: project.id,
+      taskId: input.taskId,
+    }),
+  );
   public readonly attachTerminal = vi.fn(async () => ({
     detach: () => undefined,
     resize: async () => undefined,
@@ -487,6 +533,24 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   }));
   public readonly beginTaskPlanning = vi.fn(async () => undefined);
   public readonly createTask = vi.fn(async () => ({ taskId: planningTask.id }));
+  public readonly createArtifact = vi.fn<AgentWorkspaceClient['createArtifact']>(async (input) => ({
+    canonicalName:
+      input.kind === 'plan'
+        ? 'planning/plan.md'
+        : input.kind === 'review'
+          ? 'review/review.md'
+          : 'running/execution-summary.md',
+    content: input.content,
+    createdAt: input.createdAt,
+    format: 'markdown',
+    id: input.id,
+    kind: input.kind,
+    phase: input.kind === 'plan' ? 'PLANNING' : input.kind === 'review' ? 'REVIEW' : 'RUNNING',
+    schemaVersion: 1,
+    sessionId: input.sessionId,
+    taskId: input.taskId,
+    validation: 'VALID',
+  }));
   public readonly openProject = vi.fn(async () => 'OPENED' as const);
   public loadResults: AgentWorkspaceOverview[] = [planningOverview];
   public loadFailure: Error | undefined;
@@ -497,6 +561,13 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     truncated: false,
   });
   public readonly listTaskChanges = vi.fn(async () => Promise.resolve(this.changeSet));
+  public readonly listProjectTasks = vi.fn<AgentWorkspaceClient['listProjectTasks']>(async () =>
+    planningOverview.projects.flatMap((entry) => entry.tasks.map(({ task }) => task)),
+  );
+  public readonly listTaskDependencies = vi.fn<AgentWorkspaceClient['listTaskDependencies']>(
+    async () => [],
+  );
+  public readonly listTaskReviews = vi.fn<AgentWorkspaceClient['listTaskReviews']>(async () => []);
   public readonly getTaskFileDiff = vi.fn(
     async (input: {
       readonly area: 'COMMITTED' | 'CONFLICTED' | 'STAGED' | 'UNSTAGED' | 'UNTRACKED';
@@ -533,6 +604,15 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   ]);
   public readonly listQualityGateDetails = vi.fn(async () => this.gateDetails);
   public readonly listQualityGates = vi.fn(async () => this.gateSummaries);
+  public readonly registerQualityGate = vi.fn<AgentWorkspaceClient['registerQualityGate']>(
+    async () => undefined,
+  );
+  public readonly unregisterQualityGate = vi.fn<AgentWorkspaceClient['unregisterQualityGate']>(
+    async () => true,
+  );
+  public readonly removeTaskDependency = vi.fn<AgentWorkspaceClient['removeTaskDependency']>(
+    async () => true,
+  );
   public readonly runQualityGate = vi.fn(async () => undefined);
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
     async () => undefined,
@@ -624,6 +704,60 @@ describe('WorkspaceController', () => {
     expect(controller.snapshot).toMatchObject({
       kind: 'ready',
       selectedTaskId: planningTask.id,
+    });
+  });
+
+  it('registers a Quality Gate through the nested desktop command contract', async () => {
+    const client = new FakeWorkspaceClient();
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    const gate = await controller.registerQualityGate({
+      arguments: ['run', 'lint'],
+      executablePath: 'C:/tools/pnpm.exe',
+      id: 'workspace-lint',
+      kind: 'LINT',
+      timeoutMs: 60_000,
+    });
+
+    expect(client.registerQualityGate).toHaveBeenCalledWith({
+      command: {
+        arguments: ['run', 'lint'],
+        executablePath: 'C:/tools/pnpm.exe',
+      },
+      id: 'workspace-lint',
+      kind: 'LINT',
+      timeoutMs: 60_000,
+    });
+    expect(gate).toMatchObject({ id: 'workspace-lint', kind: 'LINT' });
+  });
+
+  it('returns the persisted artifact and preserves the selected artifact kind', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [runningStartOverview, runningStartOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    const artifact = await controller.produceArtifact({
+      content: '# Execution Summary\n\nVerified the desktop shell.',
+      createdAt: 1_800_000_000_500,
+      id: 'artifact-execution-summary',
+      kind: 'execution-summary',
+      sessionId: workingSession.id,
+      taskId: runningTask.id,
+    });
+
+    expect(client.createArtifact).toHaveBeenCalledWith({
+      content: '# Execution Summary\n\nVerified the desktop shell.',
+      createdAt: 1_800_000_000_500,
+      id: 'artifact-execution-summary',
+      kind: 'execution-summary',
+      sessionId: workingSession.id,
+      taskId: runningTask.id,
+    });
+    expect(artifact).toMatchObject({
+      id: 'artifact-execution-summary',
+      kind: 'execution-summary',
     });
   });
 
@@ -786,6 +920,7 @@ describe('WorkspaceController', () => {
     client.loadResults = [overview];
     const controller = new WorkspaceController(client);
     await controller.load();
+    client.inspectTaskPullRequest.mockClear();
 
     controller.selectTask('task-2');
     expect(controller.snapshot).toMatchObject({
@@ -798,6 +933,9 @@ describe('WorkspaceController', () => {
       },
       selectedTaskId: 'task-2',
       terminalSessionId: 'session-2',
+    });
+    await vi.waitFor(() => {
+      expect(client.inspectTaskPullRequest).toHaveBeenCalledWith({ taskId: 'task-2' });
     });
 
     controller.selectWorkspaceTab('task:task-1');
@@ -877,7 +1015,10 @@ describe('WorkspaceController', () => {
     expect(controller.snapshot).toMatchObject({
       qualityGates: [
         {
-          command: Object.freeze({ arguments: Object.freeze([]), executablePath: 'C:/tools/eslint' }),
+          command: Object.freeze({
+            arguments: Object.freeze([]),
+            executablePath: 'C:/tools/eslint',
+          }),
           id: 'lint',
           kind: 'LINT',
           timeoutMs: 60_000,
@@ -1644,7 +1785,10 @@ describe('command palette discoverability', () => {
           pullRequestInspection: { kind: 'idle' },
           qualityGates: [
             {
-              command: Object.freeze({ arguments: Object.freeze([]), executablePath: 'C:/tools/eslint' }),
+              command: Object.freeze({
+                arguments: Object.freeze([]),
+                executablePath: 'C:/tools/eslint',
+              }),
               id: 'lint',
               kind: 'LINT',
               timeoutMs: 60_000,
@@ -1730,6 +1874,85 @@ describe('command palette discoverability', () => {
 });
 
 describe('AgentWorkspaceView', () => {
+  it('renders the Task lifecycle as a Kanban board with a selected inspector and terminal dock', () => {
+    const baseTask = planningOverview.projects[0]!.tasks[0]!;
+    const boardTaskDefinitions: readonly {
+      readonly id: string;
+      readonly phase: WorkspaceTaskOverview['task']['phase'];
+      readonly title: string;
+    }[] = [
+      { id: 'task-backlog', phase: 'BACKLOG', title: 'Capture requirements' },
+      { id: 'task-planning', phase: 'PLANNING', title: 'Design the execution plan' },
+      { id: 'task-running', phase: 'RUNNING', title: 'Implement the desktop shell' },
+      { id: 'task-review', phase: 'REVIEW', title: 'Review the interaction contract' },
+      { id: 'task-done', phase: 'DONE', title: 'Ship the verified slice' },
+    ];
+    const boardTasks: readonly WorkspaceTaskOverview[] = boardTaskDefinitions.map(
+      ({ phase, id, title }) =>
+        Object.freeze({
+          ...baseTask,
+          task: Object.freeze({
+            ...baseTask.task,
+            id,
+            phase,
+            title,
+          }),
+        }),
+    );
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      ...planningOverview,
+      projects: Object.freeze([
+        Object.freeze({
+          project,
+          tasks: Object.freeze(boardTasks),
+        }),
+      ]),
+    });
+    const markup = renderToStaticMarkup(
+      AgentWorkspaceView({
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          layout: createWorkspaceLayout({ taskId: 'task-running' }),
+          overview,
+          selectedAgentId: 'codex',
+          selectedTaskId: 'task-running',
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+
+    expect(markup).toContain('aria-label="Project board"');
+    expect(markup).toContain('aria-label="Backlog Tasks"');
+    expect(markup).toContain('aria-label="Planning Tasks"');
+    expect(markup).toContain('aria-label="Running Tasks"');
+    expect(markup).toContain('aria-label="Review Tasks"');
+    expect(markup).toContain('aria-label="Done Tasks"');
+    expect(markup).toContain('Capture requirements');
+    expect(markup).toContain('Design the execution plan');
+    expect(markup).toContain('Implement the desktop shell');
+    expect(markup).toContain('Review the interaction contract');
+    expect(markup).toContain('Ship the verified slice');
+    expect(markup).toMatch(
+      /<button[^>]*aria-current="true"[^>]*data-session-status="NONE"[^>]*data-task-id="task-running"[^>]*data-task-phase="RUNNING"[^>]*tabindex="0"/u,
+    );
+    expect(markup).not.toContain('aria-pressed=');
+    expect(markup).toContain('Task phase: RUNNING');
+    expect(markup).toContain('Session: No session');
+    expect(markup).toContain('aria-label="Task inspector"');
+    expect(markup).toContain('class="workspace-console-dock"');
+  });
+
   it('renders the latest Plan and explicit Accept and Revise actions while staying PLANNING', () => {
     const plan = Object.freeze({
       canonicalName: 'planning/plan.md' as const,
@@ -2021,7 +2244,7 @@ describe('AgentWorkspaceView', () => {
 
     expect(markup).toContain('No available agent');
     expect(markup).toContain('No configured coding agent is currently available.');
-    expect(markup).toMatch(/<button class="primary-action" disabled=""/u);
+    expect(markup).toMatch(/<button[^>]*data-action-hint="start-planning"[^>]*disabled=""/u);
   });
 
   it('disables Retry when the catalog has no available agent', () => {
@@ -2055,7 +2278,7 @@ describe('AgentWorkspaceView', () => {
 
     expect(markup).toContain('No available agent');
     expect(markup).toContain('No configured coding agent is currently available.');
-    expect(markup).toMatch(/<button class="primary-action" disabled=""/u);
+    expect(markup).toMatch(/<button[^>]*data-action-hint="retry-task"[^>]*disabled=""/u);
     expect(markup).toContain('Retry execution');
   });
 
@@ -2334,7 +2557,7 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toContain('&lt;script&gt;window.pwned = true&lt;/script&gt;');
     expect(markup).not.toContain('<script>window.pwned');
     expect(markup).toContain(
-      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--running phase-running--active',
+      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--running',
     );
   });
 
@@ -2475,7 +2698,7 @@ describe('AgentWorkspaceView', () => {
     );
     expect(markup).not.toContain('<script>secret()</script>');
     expect(markup).toContain(
-      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--running phase-running--active',
+      'Task phase</span><strong class="state-value__inner"><span aria-hidden="true" class="phase-dot phase-dot--running',
     );
     expect(markup).not.toContain('output-test');
     expect(markup).not.toContain('D:\\worktrees');
@@ -2550,12 +2773,20 @@ describe('AgentWorkspaceView', () => {
       }),
     );
 
-    expect(loading).toContain('Loading workspace');
+    expect(loading).toContain('Workspace loading');
+    expect(loading).toContain('class="workspace-shell');
+    expect(loading).toContain('aria-label="AgentTerm application"');
+    expect(loading).toContain('id="workspace-main"');
+    expect(loading).toContain('aria-busy="true"');
     expect(empty).toContain('No Projects yet');
     expect(empty).toContain('Open Project');
-    expect(empty).toContain('<summary>Settings</summary>');
+    expect(empty).toContain('aria-label="Workspace settings"');
+    expect(empty).toContain('id="workspace-main"');
     expect(error).toContain('Workspace data could not be loaded.');
     expect(error).toContain('Retry');
+    expect(error).toContain('class="workspace-shell');
+    expect(error).toContain('id="workspace-main"');
+    expect(error).toContain('role="alert"');
   });
 
   it('renders keyboard-native Project, Task, and explicit planning onboarding controls', () => {
@@ -2601,10 +2832,9 @@ describe('AgentWorkspaceView', () => {
       }),
     );
 
-    expect(emptyProject).toContain('Create Task');
-    expect(emptyProject).toContain('Task title');
-    expect(emptyProject).toContain('Task brief');
-    expect(emptyProject).toContain('textarea');
+    expect(emptyProject).toContain('New Task');
+    expect(emptyProject).toContain('data-new-task-trigger="true"');
+    expect(emptyProject).not.toContain('textarea');
     expect(backlog).toContain('Begin planning');
     expect(backlog).toContain('Task brief');
     expect(backlog).toContain('Nối terminal an toàn');

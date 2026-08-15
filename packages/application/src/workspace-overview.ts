@@ -299,7 +299,7 @@ export async function loadAgentWorkspace(
   return Object.freeze({ agents: agentSummaries, projects: Object.freeze(projectOverviews) });
 }
 
-function summarizeTaskReview(review: TaskReview): TaskReviewSummary {
+export function summarizeTaskReview(review: TaskReview): TaskReviewSummary {
   return Object.freeze({
     artifacts: Object.freeze(
       review.artifacts.map((artifact) =>

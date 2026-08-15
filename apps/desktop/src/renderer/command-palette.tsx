@@ -49,6 +49,11 @@ export function WorkspaceCommandPalette({
   const flatIndexLookup = buildFlatIndexLookup(allGroups);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const action = resolveCommandPaletteKey({
       isComposing: event.nativeEvent.isComposing,
       key: event.key,

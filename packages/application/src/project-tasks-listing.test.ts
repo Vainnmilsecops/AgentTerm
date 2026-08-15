@@ -16,7 +16,10 @@ function task(id: string, projectId: string): Task {
 
 describe('listProjectTasks', () => {
   it('throws when the project does not exist', async () => {
-    const projects = { findById: vi.fn().mockResolvedValue(undefined) };
+    const projects = {
+      findById: vi.fn().mockResolvedValue(undefined),
+      insert: vi.fn(),
+    };
     const tasks = { listByProjectId: vi.fn() };
     await expect(listProjectTasks('missing', projects, tasks)).rejects.toBeInstanceOf(
       EntityNotFoundError,
@@ -24,8 +27,13 @@ describe('listProjectTasks', () => {
   });
 
   it('returns the project tasks', async () => {
-    const projects = { findById: vi.fn().mockResolvedValue({ id: 'p1', name: 'P1' }) };
-    const tasks = { listByProjectId: vi.fn().mockResolvedValue([task('t1', 'p1'), task('t2', 'p1')]) };
+    const projects = {
+      findById: vi.fn().mockResolvedValue({ id: 'p1', name: 'P1' }),
+      insert: vi.fn(),
+    };
+    const tasks = {
+      listByProjectId: vi.fn().mockResolvedValue([task('t1', 'p1'), task('t2', 'p1')]),
+    };
     const result = await listProjectTasks('p1', projects, tasks);
     expect(result.map((t) => t.id)).toEqual(['t1', 't2']);
     expect(tasks.listByProjectId).toHaveBeenCalledWith('p1');

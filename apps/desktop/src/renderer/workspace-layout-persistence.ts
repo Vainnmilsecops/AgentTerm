@@ -11,15 +11,15 @@ export interface WorkspaceLayoutState {
 export const defaultWorkspaceLayout: WorkspaceLayoutState = Object.freeze({
   sidebarCollapsed: false,
   sidebarPosition: 'left',
-  sidebarWidth: 280,
-  terminalHeight: 360,
+  sidebarWidth: 256,
+  terminalHeight: 264,
   theme: 'dark',
 });
 
-const SIDEBAR_MIN = 220;
-const SIDEBAR_MAX = 420;
-const TERMINAL_MIN = 180;
-const TERMINAL_MAX = 720;
+export const SIDEBAR_MIN_WIDTH = 224;
+export const SIDEBAR_MAX_WIDTH = 400;
+export const TERMINAL_MIN_HEIGHT = 176;
+export const TERMINAL_MAX_HEIGHT = 640;
 const STORAGE_KEY = 'agentterm-workspace-layout';
 
 export function parsePersistedLayout(raw: string | null): WorkspaceLayoutState {
@@ -38,8 +38,18 @@ export function parsePersistedLayout(raw: string | null): WorkspaceLayoutState {
   const candidate = parsed as Record<string, unknown>;
   const sidebarPosition = candidate.sidebarPosition === 'right' ? 'right' : 'left';
   const theme = candidate.theme === 'light' ? 'light' : 'dark';
-  const sidebarWidth = clampNumber(candidate.sidebarWidth, SIDEBAR_MIN, SIDEBAR_MAX, 280);
-  const terminalHeight = clampNumber(candidate.terminalHeight, TERMINAL_MIN, TERMINAL_MAX, 360);
+  const sidebarWidth = clampNumber(
+    candidate.sidebarWidth,
+    SIDEBAR_MIN_WIDTH,
+    SIDEBAR_MAX_WIDTH,
+    defaultWorkspaceLayout.sidebarWidth,
+  );
+  const terminalHeight = clampNumber(
+    candidate.terminalHeight,
+    TERMINAL_MIN_HEIGHT,
+    TERMINAL_MAX_HEIGHT,
+    defaultWorkspaceLayout.terminalHeight,
+  );
   const sidebarCollapsed = candidate.sidebarCollapsed === true;
   return Object.freeze({
     sidebarCollapsed,

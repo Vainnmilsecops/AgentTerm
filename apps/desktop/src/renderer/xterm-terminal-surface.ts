@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css';
 import type { PtyTerminalSize } from '@agentterm/application';
 
 import type { TerminalSurface } from './terminal-controller';
+import { resolveTerminalTheme } from './terminal-theme';
 
 export class XtermTerminalSurface implements TerminalSurface {
   private disposed = false;
@@ -15,20 +16,17 @@ export class XtermTerminalSurface implements TerminalSurface {
   private resizeObserver: ResizeObserver | undefined;
   private readonly subscriptions: IDisposable[];
   private readonly terminal: Terminal;
+  private themeObserver: MutationObserver | undefined;
 
   public constructor() {
     this.terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: 'bar',
-      fontFamily: "'Cascadia Mono', 'Cascadia Code', Consolas, monospace",
+      fontFamily:
+        "'JetBrains Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
       fontSize: 14,
       scrollback: 5_000,
-      theme: {
-        background: '#0b0d10',
-        cursor: '#f2c879',
-        foreground: '#e7ebef',
-        selectionBackground: '#33475c',
-      },
+      theme: readTerminalTheme(),
     });
     this.terminal.loadAddon(this.fitAddon);
     this.subscriptions = [
@@ -51,6 +49,12 @@ export class XtermTerminalSurface implements TerminalSurface {
       return;
     }
     this.terminal.open(container);
+    this.applyTheme();
+    this.themeObserver = new MutationObserver(() => this.applyTheme());
+    this.themeObserver.observe(document.documentElement, {
+      attributeFilter: ['data-theme'],
+      attributes: true,
+    });
     this.fit();
     this.resizeObserver = new ResizeObserver(() => this.scheduleFit());
     this.resizeObserver.observe(container);
@@ -111,6 +115,8 @@ export class XtermTerminalSurface implements TerminalSurface {
     }
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
+    this.themeObserver?.disconnect();
+    this.themeObserver = undefined;
     for (const subscription of this.subscriptions) {
       subscription.dispose();
     }
@@ -129,6 +135,10 @@ export class XtermTerminalSurface implements TerminalSurface {
     });
   }
 
+  private applyTheme(): void {
+    if (!this.disposed) this.terminal.options.theme = readTerminalTheme();
+  }
+
   private fit(): void {
     if (this.disposed) {
       return;
@@ -139,6 +149,17 @@ export class XtermTerminalSurface implements TerminalSurface {
     }
     this.fitAddon.fit();
   }
+}
+
+function readTerminalTheme() {
+  if (typeof document === 'undefined') {
+    return resolveTerminalTheme('dark', () => '');
+  }
+  const root = document.documentElement;
+  const styles = getComputedStyle(root);
+  return resolveTerminalTheme(root.dataset.theme === 'light' ? 'light' : 'dark', (name) =>
+    styles.getPropertyValue(name),
+  );
 }
 
 function createIdempotentDisposer(dispose: () => void): () => void {

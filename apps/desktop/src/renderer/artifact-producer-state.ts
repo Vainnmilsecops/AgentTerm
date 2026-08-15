@@ -1,8 +1,4 @@
-import {
-  ExecutionArtifactKindValue,
-  TaskPhase,
-  type Task,
-} from '@agentterm/application';
+import { ExecutionArtifactKindValue, TaskPhase, type Task } from '@agentterm/application';
 
 type ExecutionArtifactKind = ExecutionArtifactKindValue;
 type TaskPhaseValue = (typeof TaskPhase)[keyof typeof TaskPhase];
@@ -16,8 +12,7 @@ export interface ArtifactDraft {
 }
 
 export type ArtifactValidation =
-  | { readonly ok: false; readonly reason: string }
-  | { readonly ok: true };
+  { readonly ok: false; readonly reason: string } | { readonly ok: true };
 
 const artifactHeadings: Readonly<Record<ExecutionArtifactKind, string>> = Object.freeze({
   [ExecutionArtifactKindValue.EXECUTION_SUMMARY]: '# Execution Summary',

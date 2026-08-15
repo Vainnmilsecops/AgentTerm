@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultWorkspaceLayout,
   parsePersistedLayout,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
   serializeLayout,
+  TERMINAL_MAX_HEIGHT,
+  TERMINAL_MIN_HEIGHT,
   type WorkspaceLayoutState,
 } from './workspace-layout-persistence';
 
@@ -20,8 +24,16 @@ describe('parsePersistedLayout', () => {
     const result = parsePersistedLayout(
       JSON.stringify({ sidebarWidth: 9999, terminalHeight: 120 }),
     );
-    expect(result.sidebarWidth).toBeLessThanOrEqual(420);
-    expect(result.terminalHeight).toBeGreaterThanOrEqual(180);
+    expect(result.sidebarWidth).toBe(SIDEBAR_MAX_WIDTH);
+    expect(result.terminalHeight).toBe(TERMINAL_MIN_HEIGHT);
+  });
+
+  it('uses one shared range for persisted and interactive layout controls', () => {
+    const result = parsePersistedLayout(
+      JSON.stringify({ sidebarWidth: -1, terminalHeight: Number.MAX_SAFE_INTEGER }),
+    );
+    expect(result.sidebarWidth).toBe(SIDEBAR_MIN_WIDTH);
+    expect(result.terminalHeight).toBe(TERMINAL_MAX_HEIGHT);
   });
 
   it('falls back to defaults for unknown keys and keeps known keys', () => {

@@ -1,6 +1,7 @@
 import type {
   AgentWorkspaceOverview,
   ApplicationSettingsView,
+  ExecutionArtifact,
   QualityGate,
   TaskChangeSet,
   TaskFileChange,
@@ -66,6 +67,11 @@ export type WorkspaceActionKind =
   | 'start-execution'
   | 'start-planning';
 
+type SelectedWorkspaceActionKind = Exclude<
+  WorkspaceActionKind,
+  'add-dependency' | 'produce-artifact' | 'remove-dependency'
+>;
+
 export type WorkspaceAction =
   | {
       readonly dependencyTaskId: string;
@@ -76,6 +82,7 @@ export type WorkspaceAction =
       readonly content: string;
       readonly createdAt: number;
       readonly id: string;
+      readonly artifactKind: ExecutionArtifact['kind'];
       readonly kind: 'produce-artifact';
       readonly sessionId: string | undefined;
       readonly taskId: string;
@@ -220,7 +227,7 @@ export class WorkspaceController {
         terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
       }),
     );
-    void this.loadSelectedTaskChanges();
+    void this.loadSelectedTaskEvidence();
   }
 
   public selectWorkspaceTab(tabId: string): void {
@@ -467,16 +474,41 @@ export class WorkspaceController {
     readonly arguments: readonly string[];
     readonly executablePath: string;
     readonly id: string;
-    readonly kind: 'BUILD' | 'CUSTOM' | 'FORMAT' | 'LINT' | 'TEST' | 'TYPECHECK';
+    readonly kind: QualityGate['kind'];
     readonly timeoutMs: number;
-  }): Promise<void> {
-    await this.client.registerQualityGate(input);
+  }): Promise<QualityGate> {
+    await this.client.registerQualityGate({
+      command: {
+        arguments: input.arguments,
+        executablePath: input.executablePath,
+      },
+      id: input.id,
+      kind: input.kind,
+      timeoutMs: input.timeoutMs,
+    });
     await this.refreshQualityGateCatalog();
+    const persisted =
+      this.snapshot.kind === 'ready'
+        ? this.snapshot.qualityGates?.find((gate) => gate.id === input.id)
+        : undefined;
+    return (
+      persisted ??
+      Object.freeze({
+        command: Object.freeze({
+          arguments: Object.freeze([...input.arguments]),
+          executablePath: input.executablePath,
+        }),
+        id: input.id,
+        kind: input.kind,
+        timeoutMs: input.timeoutMs,
+      })
+    );
   }
 
-  public async unregisterQualityGate(gateId: string): Promise<void> {
-    await this.client.unregisterQualityGate({ gateId });
+  public async unregisterQualityGate(gateId: string): Promise<boolean> {
+    const removed = await this.client.unregisterQualityGate({ gateId });
     await this.refreshQualityGateCatalog();
+    return removed;
   }
 
   private async refreshQualityGateCatalog(): Promise<void> {
@@ -496,20 +528,34 @@ export class WorkspaceController {
     readonly content: string;
     readonly createdAt: number;
     readonly id: string;
+    readonly kind: ExecutionArtifact['kind'];
     readonly sessionId: string | undefined;
     readonly taskId: string;
-  }): Promise<void> {
+  }): Promise<ExecutionArtifact> {
     if (this.snapshot.kind !== 'ready' || !containsTask(this.snapshot.overview, input.taskId)) {
-      return Promise.resolve();
+      return Promise.reject(new Error('The selected Task is no longer available.'));
     }
-    return this.executeAction({
+    if (this.actionAttempt !== undefined) {
+      return Promise.reject(new Error('Another workspace action is already running.'));
+    }
+    const action = Object.freeze({
+      artifactKind: input.kind,
       content: input.content,
       createdAt: input.createdAt,
       id: input.id,
-      kind: 'produce-artifact',
+      kind: 'produce-artifact' as const,
       sessionId: input.sessionId,
       taskId: input.taskId,
     });
+    const attempt = this.performArtifactAction(action);
+    const actionAttempt = attempt.then(() => undefined);
+    this.actionAttempt = actionAttempt;
+    void actionAttempt
+      .finally(() => {
+        if (this.actionAttempt === actionAttempt) this.actionAttempt = undefined;
+      })
+      .catch(() => undefined);
+    return attempt;
   }
 
   public addTaskDependency(input: {
@@ -611,7 +657,7 @@ export class WorkspaceController {
     }
   }
 
-  private executeSelectedAction(kind: WorkspaceActionKind, gateId?: string): Promise<void> {
+  private executeSelectedAction(kind: SelectedWorkspaceActionKind, gateId?: string): Promise<void> {
     if (this.actionAttempt !== undefined) {
       return this.actionAttempt;
     }
@@ -666,6 +712,71 @@ export class WorkspaceController {
     return attempt;
   }
 
+  private async performArtifactAction(
+    action: Extract<WorkspaceAction, { readonly kind: 'produce-artifact' }>,
+  ): Promise<ExecutionArtifact> {
+    const current = this.snapshot;
+    if (current.kind !== 'ready') {
+      throw new Error('The workspace is not ready.');
+    }
+    this.publish(
+      Object.freeze({
+        ...current,
+        actionError: undefined,
+        activeAction: action,
+      }),
+    );
+
+    let artifact: ExecutionArtifact;
+    try {
+      artifact = await this.client.createArtifact({
+        content: action.content,
+        createdAt: action.createdAt,
+        id: action.id,
+        kind: action.artifactKind,
+        ...(action.sessionId === undefined ? {} : { sessionId: action.sessionId }),
+        taskId: action.taskId,
+      });
+    } catch {
+      if (!this.disposed) {
+        const latest = this.snapshot.kind === 'ready' ? this.snapshot : current;
+        this.publish(
+          Object.freeze({
+            ...latest,
+            actionError: 'Artifact could not be persisted. Check the content format.',
+            activeAction: undefined,
+          }),
+        );
+      }
+      throw new Error('Artifact could not be persisted. Check the content format.');
+    }
+
+    try {
+      const [overview, qualityGates] = await Promise.all([
+        this.client.loadWorkspace(),
+        this.client.listQualityGateDetails(),
+      ]);
+      if (!this.disposed) {
+        const latestSettings =
+          this.snapshot.kind === 'ready' ? this.snapshot.settings : current.settings;
+        this.publishReady(overview, qualityGates, action.taskId, latestSettings);
+        await this.loadSelectedTaskEvidence();
+      }
+    } catch {
+      if (!this.disposed) {
+        const latest = this.snapshot.kind === 'ready' ? this.snapshot : current;
+        this.publish(
+          Object.freeze({
+            ...latest,
+            actionError: 'Artifact persisted, but workspace status could not be refreshed.',
+            activeAction: undefined,
+          }),
+        );
+      }
+    }
+    return artifact;
+  }
+
   private executeAction(action: WorkspaceAction): Promise<void> {
     if (this.actionAttempt !== undefined) {
       return this.actionAttempt;
@@ -692,8 +803,8 @@ export class WorkspaceController {
             Object.freeze({
               ...latest,
               actionError: sideEffectCompleted
-                ? 'Artifact persisted, but workspace status could not be refreshed.'
-                : 'Artifact could not be persisted. Check the content format.',
+                ? refreshFailureMessage(action.kind)
+                : actionFailureMessage(action.kind),
               activeAction: undefined,
               selectedTaskId: latest.selectedTaskId ?? action.taskId,
             }),
@@ -1055,7 +1166,7 @@ async function runWorkspaceAction(
         content: action.content,
         createdAt: action.createdAt,
         id: action.id,
-        kind: 'plan',
+        kind: action.artifactKind,
         ...(action.sessionId === undefined ? {} : { sessionId: action.sessionId }),
         taskId: action.taskId,
       });
@@ -1196,6 +1307,12 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
       return 'Pull Request could not be created.';
     case 'refresh-pull-request':
       return 'Pull Request status could not be refreshed from GitHub.';
+    case 'produce-artifact':
+      return 'Artifact could not be persisted. Check the content format.';
+    case 'add-dependency':
+      return 'Task dependency could not be added.';
+    case 'remove-dependency':
+      return 'Task dependency could not be removed.';
   }
 }
 
@@ -1224,6 +1341,12 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Pull Request updated, but workspace status could not be refreshed.';
     case 'refresh-pull-request':
       return 'Pull Request refreshed, but workspace status could not be reloaded.';
+    case 'produce-artifact':
+      return 'Artifact persisted, but workspace status could not be refreshed.';
+    case 'add-dependency':
+      return 'Task dependency added, but workspace status could not be refreshed.';
+    case 'remove-dependency':
+      return 'Task dependency removed, but workspace status could not be refreshed.';
   }
 }
 

@@ -78,7 +78,10 @@ function assertSafeTimeout(timeoutMs: number): void {
 }
 
 function assertSafeCommand(command: QualityGate['command']): void {
-  if (typeof command.executablePath !== 'string' || !absoluteExecutablePathPattern.test(command.executablePath)) {
+  if (
+    typeof command.executablePath !== 'string' ||
+    !absoluteExecutablePathPattern.test(command.executablePath)
+  ) {
     throw new InvalidQualityGateConfigurationError('executablePath must be absolute', {
       executablePath: command.executablePath,
     });

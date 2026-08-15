@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   ExecutionArtifactKindValue,
   TaskPhase,
-  ExecutionArtifactKindValueValue,
   type AgentSessionSummary,
   type ExecutionArtifact,
   type Task,
@@ -26,9 +25,12 @@ const task: Task = Object.freeze({
 
 const session: AgentSessionSummary = Object.freeze({
   agentId: 'codex',
+  createdAt: 1,
+  endedAt: undefined,
+  failureCode: undefined,
   id: 'session-1',
-  startedAt: 1,
   status: 'WORKING',
+  taskId: task.id,
 });
 
 function overview(overrides: Partial<WorkspaceTaskOverview> = {}): WorkspaceTaskOverview {
@@ -90,7 +92,9 @@ describe('defaultArtifactDraft', () => {
 describe('selectArtifactKindForPhase', () => {
   it('returns the canonical kind for each phase', () => {
     expect(selectArtifactKindForPhase(TaskPhase.PLANNING)).toBe(ExecutionArtifactKindValue.PLAN);
-    expect(selectArtifactKindForPhase(TaskPhase.RUNNING)).toBe(ExecutionArtifactKindValue.EXECUTION_SUMMARY);
+    expect(selectArtifactKindForPhase(TaskPhase.RUNNING)).toBe(
+      ExecutionArtifactKindValue.EXECUTION_SUMMARY,
+    );
     expect(selectArtifactKindForPhase(TaskPhase.REVIEW)).toBe(ExecutionArtifactKindValue.REVIEW);
     expect(selectArtifactKindForPhase(TaskPhase.BACKLOG)).toBe(ExecutionArtifactKindValue.PLAN);
     expect(selectArtifactKindForPhase(TaskPhase.DONE)).toBe(ExecutionArtifactKindValue.REVIEW);

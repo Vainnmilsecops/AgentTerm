@@ -28,9 +28,7 @@ export const qualityGateKindOptions: ReadonlyArray<{
   { label: 'Lint', value: QualityGateKindValue.LINT },
   { label: 'Type-check', value: QualityGateKindValue.TYPECHECK },
   { label: 'Test', value: QualityGateKindValue.TEST },
-  { label: 'Format', value: QualityGateKindValue.FORMAT },
   { label: 'Build', value: QualityGateKindValue.BUILD },
-  { label: 'Custom', value: QualityGateKindValue.CUSTOM },
 ]);
 
 export function defaultQualityGateDraft(): QualityGateDraft {

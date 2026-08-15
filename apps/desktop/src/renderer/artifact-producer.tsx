@@ -42,7 +42,9 @@ export function ArtifactProducer({
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [lastResult, setLastResult] = useState<ExecutionArtifact | undefined>(overview.artifacts.at(0));
+  const [lastResult, setLastResult] = useState<ExecutionArtifact | undefined>(
+    overview.artifacts.at(0),
+  );
 
   const validation = useMemo(() => validateArtifactDraft(draft), [draft]);
   const kindOptions: ReadonlyArray<ExecutionArtifact['kind']> = useMemo(
@@ -117,7 +119,10 @@ export function ArtifactProducer({
                 setDraft((current) => ({
                   ...current,
                   kind: value,
-                  sessionId: value === ExecutionArtifactKindValue.REVIEW ? activeSessionId : current.sessionId,
+                  sessionId:
+                    value === ExecutionArtifactKindValue.REVIEW
+                      ? activeSessionId
+                      : current.sessionId,
                 }))
               }
               type="radio"
@@ -184,9 +189,5 @@ export function ArtifactProducer({
 }
 
 function isProducerAvailable(phase: Task['phase']): boolean {
-  return (
-    phase === 'PLANNING' ||
-    phase === 'RUNNING' ||
-    phase === 'REVIEW'
-  );
+  return phase === 'PLANNING' || phase === 'RUNNING' || phase === 'REVIEW';
 }
