@@ -66,6 +66,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => false,
       ipcMain,
       selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
     });
     const sender = new FakeSender(7);
 
@@ -93,6 +94,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
     });
     const sender = new FakeSender(3);
 
@@ -123,6 +125,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
     });
 
     await expect(
@@ -136,11 +139,13 @@ describe('desktop main IPC handlers', () => {
     const application = createApplication({ openProject: vi.fn(async () => undefined) });
     const selectedPaths: Array<string | undefined> = ['D:\\Core\\AgentTerm', undefined];
     const selectProjectDirectory = vi.fn(async () => selectedPaths.shift());
+    const selectQualityGateConfigFile = vi.fn(async () => undefined);
     registerDesktopIpcHandlers({
       application,
       authorize: () => true,
       ipcMain,
       selectProjectDirectory,
+      selectQualityGateConfigFile,
     });
     const sender = new FakeSender(5);
 
@@ -165,6 +170,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
     });
     const sender = new FakeSender(6);
 
@@ -208,6 +214,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
     });
     const owner = new FakeSender(11);
     const other = new FakeSender(12);

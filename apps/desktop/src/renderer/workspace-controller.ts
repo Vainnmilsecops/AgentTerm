@@ -553,6 +553,35 @@ export class WorkspaceController {
     return removed;
   }
 
+  public async importQualityGateConfig(): Promise<
+    import('@agentterm/application').ImportQualityGateConfigResult | undefined
+  > {
+    const selection = await this.client.selectQualityGateConfigPath();
+    if (selection.result === 'CANCELLED' || selection.path === undefined) {
+      return undefined;
+    }
+    const result = await this.client.importQualityGateConfig({ path: selection.path });
+    await this.refreshQualityGateCatalog();
+    return result;
+  }
+
+  public async exportQualityGateConfig(input: {
+    readonly configuration: import('@agentterm/application').QualityGateConfiguration;
+  }): Promise<void> {
+    const selection = await this.client.selectQualityGateConfigPath();
+    if (selection.result === 'CANCELLED' || selection.path === undefined) {
+      return;
+    }
+    await this.client.saveQualityGateConfig({
+      configuration: {
+        gates: input.configuration.gates,
+        path: selection.path,
+        revision: input.configuration.revision,
+      },
+      path: selection.path,
+    });
+  }
+
   private async refreshQualityGateCatalog(): Promise<void> {
     if (this.snapshot.kind !== 'ready') return;
     try {

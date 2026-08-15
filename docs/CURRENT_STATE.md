@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-08-14
+Updated: 2026-08-15
 
 ## Current State
 
@@ -60,6 +60,11 @@ Updated: 2026-08-14
 - The desktop loads Pull Request state lazily for the selected Task and shows repository, head/base, push readiness, PR state, review state, check summary, last successful sync, and distinct explicit Push / Create / Refresh GitHub status controls. Errors are sanitized at the controller boundary, refresh failures keep the visible last-known-good snapshot, and PR evidence never changes Task phase or Review decisions.
 - The desktop now has a searchable command palette opened by `Ctrl+Shift+P`, with accent-insensitive Vietnamese/Unicode search, wrapping arrow-key navigation, contextual Task/action commands, and explicit `Alt+1` / `Alt+2` / `Alt+3` focus shortcuts for sidebar, workspace, and terminal. `Alt+[` / `Alt+]` switch tabs and their Shift variants switch panes; ordinary terminal keys are not intercepted.
 - Application exposes only configured Quality Gate `id`/`kind` summaries plus Task-level run readiness to Presentation. Eligible palette commands dispatch the existing explicit gate workflow through the workspace client; executable, argv, environment, and run-identity policy remain outside the renderer.
+- Application now exposes `importQualityGateConfig` and `selectQualityGateConfigPath` ports. `importQualityGateConfig` loads a trusted JSON configuration through `QualityGateConfigurator`, rejects empty payloads, and registers every individual gate through the existing `registerQualityGate` use case; gates the catalog refuses are returned separately and never mutate Task or Session state.
+- The desktop composition owns the renderer- and main-side capability: native file selection lives only in the Electron main process through `dialog.showOpenDialog`, the renderer invokes it through `selectQualityGateConfigPath` and never receives an arbitrary path before user confirmation, and the resulting `path` is passed to `importQualityGateConfig` as the single argument to the trusted-root validator.
+- IPC adds the dedicated `importQualityGateConfig` and `selectQualityGateConfigPath` channels with exact payload validation in main; structured handler errors are sanitized before they reach the renderer.
+- A new `QualityGateConfigurator` renderer component renders Import / Export controls under the workspace settings panel, surfaces a trust-root hint that names `AT_DESKTOP_GATE_CONFIG_ROOT`, and reports `registered` and `rejected` gate counts. Export writes the current gate set through the existing `saveQualityGateConfig` IPC channel after the main process picks the destination file.
+- Two new palette commands, `gate:config:import` and `gate:config:export`, share the same Task-scoped visibility as existing Quality Gate palette entries: they appear only when the selected Task can run gates and the workspace is idle.
 
 ## Decisions
 
@@ -245,6 +250,12 @@ Updated: 2026-08-14
   Application readiness flags and existing controller actions, restores focus when dismissed, and moves focus
   to stable workspace landmarks for navigation commands. Only the documented global chords are intercepted in
   the capture phase, including while xterm is focused; all other keystrokes continue to the terminal.
+- The trusted Quality Gate configuration consumer stays inside the existing IPC contract. The renderer
+  requests a native file picker through `selectQualityGateConfigPath`, never types a path itself, and
+  passes the validated result to `importQualityGateConfig`. `QualityGateConfigurator` is the only IPC
+  load/save caller, the trust-root check remains in `QualityGateConfigurator`, and an import outside
+  that root never reaches the catalog. Palette entry visibility mirrors the existing Quality Gate
+  visibility so a Task that cannot run gates cannot import or export a configuration either.
 
 ## Blockers
 
@@ -271,9 +282,10 @@ into the renderer. Persisted executable overrides are read when that immutable c
 startup; changing Settings does not restart or mutate an active Session and takes effect after the next
 application composition.
 The production IPC surface covers the actions already consumed by the workspace. Artifact production
-and dependency editing still have no renderer workflow. Quality Gate IPC is wired
-through the existing use case, but the production composition intentionally exposes an empty gate catalog
-until an explicit trusted configuration consumer is introduced.
+and dependency editing still have no renderer workflow. Quality Gate IPC exposes `loadQualityGateConfig`,
+`saveQualityGateConfig`, `importQualityGateConfig`, and `selectQualityGateConfigPath`; the production
+composition still intentionally exposes an empty gate catalog until an operator seeds the first
+trusted configuration file.
 Workspace tabs and split panes are intentionally renderer-local in this foundation; their layout is
 not persisted or restored after an application restart. Closing UI detaches observers only, while a
 later reattachment cannot replay output emitted during the detached interval because terminal output
@@ -292,8 +304,7 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-Add the missing artifact-production, dependency-editing, and trusted Quality Gate
-configuration workflows through the same validated Application/IPC boundary. Preserve the current rule
-that renderer commands never receive raw filesystem, Git, database, process, PTY, or environment
-capabilities. Process reattachment, provider-native resume, terminal output replay, installed-package
-validation, and cross-process live-execution reconciliation remain later lifecycle slices.
+The remaining renderer-side gaps around trusted Quality Gate configuration import/export are
+now closed end to end. Process reattachment, provider-native resume, terminal output replay,
+installed-package validation, cross-process live-execution reconciliation, and persisting the
+renderer-local tab/pane layout across an application restart remain later lifecycle slices.

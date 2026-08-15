@@ -82,6 +82,8 @@ export interface WorkspaceCommandActions {
   startExecution(): Promise<void> | void;
   startPlanning(): Promise<void> | void;
   unregisterQualityGate(gateId: string): Promise<boolean> | boolean;
+  importQualityGateConfig(): Promise<unknown> | unknown;
+  exportQualityGateConfig(): Promise<void> | void;
 }
 
 export interface CommandPaletteState {
@@ -245,6 +247,30 @@ export function buildWorkspaceCommands(
           label: `Unregister Quality Gate: ${gate.id}`,
           run: async () => {
             await actions.unregisterQualityGate(gate.id);
+          },
+        }),
+      );
+    }
+    commands.push(
+      command({
+        category: 'Quality gates',
+        id: 'gate:config:import',
+        keywords: ['gate config import trust root json file'],
+        label: 'Import Quality Gate configuration…',
+        run: () => {
+          void actions.importQualityGateConfig();
+        },
+      }),
+    );
+    if (context.qualityGates.length > 0) {
+      commands.push(
+        command({
+          category: 'Quality gates',
+          id: 'gate:config:export',
+          keywords: ['gate config export save json file'],
+          label: 'Export Quality Gate configuration…',
+          run: () => {
+            void actions.exportQualityGateConfig();
           },
         }),
       );

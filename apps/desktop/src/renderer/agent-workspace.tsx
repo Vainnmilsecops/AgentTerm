@@ -24,6 +24,7 @@ import { ContextCard } from './context-card';
 import { ArtifactProducer } from './artifact-producer';
 import { DependencyEditor } from './dependency-editor';
 import { QualityGateConfiguration } from './quality-gate-config';
+import { QualityGateConfigurator } from './quality-gate-configurator';
 import {
   readPersistedLayout,
   SIDEBAR_MAX_WIDTH,
@@ -114,6 +115,12 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
+  readonly onImportQualityGateConfig: () => Promise<
+    import('@agentterm/application').ImportQualityGateConfigResult | undefined
+  >;
+  readonly onExportQualityGateConfig: (input: {
+    readonly configuration: import('@agentterm/application').QualityGateConfiguration;
+  }) => Promise<void>;
   readonly snapshot: WorkspaceSnapshot;
 }
 
@@ -180,6 +187,12 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onUnregisterQualityGate={(gateId) =>
         controller?.unregisterQualityGate(gateId) ?? Promise.resolve(false)
       }
+      onImportQualityGateConfig={() =>
+        controller?.importQualityGateConfig() ?? Promise.resolve(undefined as never)
+      }
+      onExportQualityGateConfig={(input) =>
+        controller?.exportQualityGateConfig(input) ?? Promise.resolve()
+      }
       snapshot={snapshot}
     />
   );
@@ -219,6 +232,8 @@ export function AgentWorkspaceView({
   onStartTask,
   onStartPlanning,
   onUnregisterQualityGate,
+  onImportQualityGateConfig,
+  onExportQualityGateConfig,
   snapshot,
 }: AgentWorkspaceViewProps) {
   const [paletteState, setPaletteState] = useState(initialCommandPaletteState);
@@ -612,6 +627,15 @@ export function AgentWorkspaceView({
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
+      importQualityGateConfig: () => onImportQualityGateConfig(),
+      exportQualityGateConfig: () =>
+        onExportQualityGateConfig({
+          configuration: {
+            gates: (snapshot.qualityGates ?? []).slice(),
+            path: '',
+            revision: `palette-${String(Date.now())}`,
+          },
+        }),
     },
   );
 
@@ -779,6 +803,13 @@ export function AgentWorkspaceView({
               gates={snapshot.qualityGates ?? []}
               onRegister={onRegisterQualityGate}
               onUnregister={onUnregisterQualityGate}
+            />
+            <QualityGateConfigurator
+              busy={snapshot.activeAction !== undefined}
+              error={undefined}
+              gates={snapshot.qualityGates ?? []}
+              onExport={onExportQualityGateConfig}
+              onImport={onImportQualityGateConfig}
             />
           </WorkspaceSettingsGear>
         }

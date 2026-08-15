@@ -130,6 +130,17 @@ function startDesktopApplication(): void {
       const path = selection.filePaths[0];
       return selection.canceled || path === undefined || path.length === 0 ? undefined : path;
     },
+    selectQualityGateConfigFile: async () => {
+      const window = mainWindow;
+      if (window === null || window.isDestroyed()) return undefined;
+      const selection = await dialog.showOpenDialog(window, {
+        filters: [{ extensions: ['json'], name: 'Quality Gate Configuration' }],
+        properties: ['openFile'],
+        title: 'Import Quality Gate Configuration',
+      });
+      const path = selection.filePaths[0];
+      return selection.canceled || path === undefined || path.length === 0 ? undefined : path;
+    },
   });
 }
 
