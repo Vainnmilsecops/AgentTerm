@@ -5,7 +5,6 @@ import type {
   AttachAgentSessionTerminalInput,
   CreateExecutionArtifactInput,
   ExecutionArtifact,
-  ExecutionArtifactKind,
   GetTaskFileDiffInput,
   PtyRuntimeEvent,
   PtyTerminalSize,
@@ -19,6 +18,10 @@ import type {
   TaskPullRequestState,
   TaskReviewSummary,
   UpdateApplicationSettingsInput,
+} from '@agentterm/application';
+import {
+  ExecutionArtifactKindValue as ExecutionArtifactKind,
+  QualityGateKindValue as QualityGateKindValueObject,
 } from '@agentterm/application';
 
 export const desktopIpcChannels = Object.freeze({
@@ -435,8 +438,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       const id = readIdentity(record.id);
       const kind = readExecutionArtifactKind(record.kind);
       const taskId = readIdentity(record.taskId);
-      const sessionId =
-        record.sessionId === undefined ? undefined : readIdentity(record.sessionId);
+      const sessionId = record.sessionId === undefined ? undefined : readIdentity(record.sessionId);
       return Object.freeze({
         content,
         createdAt,
@@ -447,12 +449,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.registerQualityGate: {
-      const record = exactRecord(input, [
-        'command',
-        'id',
-        'kind',
-        'timeoutMs',
-      ]);
+      const record = exactRecord(input, ['command', 'id', 'kind', 'timeoutMs']);
       const command = exactRecord(record.command, ['arguments', 'executablePath']);
       const argumentsList = readStringArray(command.arguments, 32);
       return Object.freeze({
@@ -681,7 +678,9 @@ function readRepositoryRelativePath(input: unknown): string {
 
 function readExecutionArtifactKind(input: unknown): CreateExecutionArtifactInput['kind'] {
   if (typeof input !== 'string') fail();
-  if (Object.values(ExecutionArtifactKind).includes(input as CreateExecutionArtifactInput['kind'])) {
+  if (
+    Object.values(ExecutionArtifactKind).includes(input as CreateExecutionArtifactInput['kind'])
+  ) {
     return input as CreateExecutionArtifactInput['kind'];
   }
   fail();
@@ -689,7 +688,7 @@ function readExecutionArtifactKind(input: unknown): CreateExecutionArtifactInput
 
 function readQualityGateKind(input: unknown): QualityGateKind {
   if (typeof input !== 'string') fail();
-  if (Object.values(QualityGateKind).includes(input as QualityGateKind)) {
+  if (Object.values(QualityGateKindValueObject).includes(input as QualityGateKind)) {
     return input as QualityGateKind;
   }
   fail();

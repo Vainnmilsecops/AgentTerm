@@ -1,9 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
-import {
-  QualityGateKind,
-  type QualityGate,
-} from '@agentterm/domain';
+import { QualityGateKind, type QualityGate } from '@agentterm/domain';
 
 import type { QualityGateCatalog } from '@agentterm/application';
 

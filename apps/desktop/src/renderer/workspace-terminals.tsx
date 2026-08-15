@@ -1,8 +1,18 @@
+import { useEffect, useState } from 'react';
+
 import type { AgentWorkspaceOverview, PtyRuntimeEvent } from '@agentterm/application';
 
 import { TerminalRenderer } from './terminal-renderer';
 import type { TerminalSessionClient } from './terminal-controller';
+import type { TerminalConnectionState } from './terminal-controller';
 import type { WorkspaceLayout, WorkspaceTerminalPane, WorkspaceTab } from './workspace-layout';
+import { WorkspaceIcon } from './workspace-icons';
+
+export interface ActiveTerminalContext {
+  readonly connectionState: TerminalConnectionState;
+  readonly sessionId?: string;
+  readonly taskId?: string;
+}
 
 export interface WorkspaceTerminalsProps {
   readonly client?: TerminalSessionClient;
@@ -10,6 +20,7 @@ export interface WorkspaceTerminalsProps {
   readonly fontSize?: number;
   readonly onActivatePane: (paneId: string) => void;
   readonly onActivateTab: (tabId: string) => void;
+  readonly onActiveConnectionStateChange?: (context: ActiveTerminalContext) => void;
   readonly onClosePane: (paneId: string) => void;
   readonly onCloseTab: (tabId: string) => void;
   readonly onRuntimeEvent: (event: PtyRuntimeEvent) => void;
@@ -23,12 +34,16 @@ export function WorkspaceTerminals({
   fontSize = 14,
   onActivatePane,
   onActivateTab,
+  onActiveConnectionStateChange,
   onClosePane,
   onCloseTab,
   onRuntimeEvent,
   onSplit,
   overview,
 }: WorkspaceTerminalsProps) {
+  const [connectionStates, setConnectionStates] = useState<
+    Readonly<Record<string, TerminalConnectionState>>
+  >({});
   const attachedSessionIds = new Set(
     layout.tabs.flatMap((tab) => tab.panes.flatMap((pane) => pane.sessionId ?? [])),
   );
@@ -38,8 +53,24 @@ export function WorkspaceTerminals({
       (task) => task.activeSession !== undefined && !attachedSessionIds.has(task.activeSession.id),
     );
   const activeTab = layout.tabs.find((tab) => tab.id === layout.activeTabId);
+  const activePane = activeTab?.panes.find((pane) => pane.id === activeTab.activePaneId);
   const canSplit =
     activeTab !== undefined && activeTab.panes.length < 2 && splitCandidate !== undefined;
+
+  useEffect(() => {
+    onActiveConnectionStateChange?.(
+      Object.freeze({
+        connectionState:
+          activePane === undefined ? 'empty' : (connectionStates[activePane.id] ?? 'empty'),
+        ...(activePane === undefined
+          ? {}
+          : {
+              ...(activePane.sessionId === undefined ? {} : { sessionId: activePane.sessionId }),
+              taskId: activePane.taskId,
+            }),
+      }),
+    );
+  }, [activePane, connectionStates, onActiveConnectionStateChange]);
 
   return (
     <section className="terminal-workspace" aria-label="Workspace terminals">
@@ -83,7 +114,7 @@ export function WorkspaceTerminals({
                   title="Close tab and detach its terminal panes without stopping Agent Sessions."
                   type="button"
                 >
-                  {'\u00d7'}
+                  <WorkspaceIcon name="close" size={14} />
                 </button>
               </div>
             );
@@ -107,7 +138,8 @@ export function WorkspaceTerminals({
             title={splitActionTitle(activeTab, splitCandidate)}
             type="button"
           >
-            + Split
+            <WorkspaceIcon name="plus" size={14} />
+            Split
           </button>
         </div>
       </header>
@@ -136,6 +168,11 @@ export function WorkspaceTerminals({
                   label={paneLabel(overview, pane, paneIndex)}
                   onActivate={() => onActivatePane(pane.id)}
                   onClose={() => onClosePane(pane.id)}
+                  onConnectionStateChange={(state) =>
+                    setConnectionStates((current) =>
+                      current[pane.id] === state ? current : { ...current, [pane.id]: state },
+                    )
+                  }
                   onRuntimeEvent={onRuntimeEvent}
                   paneId={pane.id}
                   {...(pane.sessionId === undefined ? {} : { sessionId: pane.sessionId })}

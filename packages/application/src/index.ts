@@ -59,7 +59,11 @@ export {
   getExecutionArtifact,
   listTaskExecutionArtifacts,
 } from './execution-artifacts';
-export type { CreateExecutionArtifactInput, ExecutionArtifact, ExecutionArtifactKind } from '@agentterm/domain';
+export type {
+  CreateExecutionArtifactInput,
+  ExecutionArtifact,
+  ExecutionArtifactKind,
+} from '@agentterm/domain';
 export { ExecutionArtifactKind as ExecutionArtifactKindValue } from '@agentterm/domain';
 export {
   AgentSessionCoordinator,
@@ -90,7 +94,7 @@ export {
   unregisterQualityGate,
   type QualityGateConfigInput,
 } from './quality-gate-configuration';
-export type { QualityGateKind } from '@agentterm/domain';
+export type { QualityGate, QualityGateKind, Task, TaskDependency } from '@agentterm/domain';
 export { QualityGateKind as QualityGateKindValue } from '@agentterm/domain';
 export { TaskPhase } from '@agentterm/domain';
 export { listProjectTasks } from './project-tasks-listing';
@@ -208,6 +212,7 @@ export {
 } from './task-planning-use-cases';
 export {
   loadAgentWorkspace,
+  summarizeTaskReview,
   type AgentSessionSummary,
   type AgentWorkspaceOverview,
   type QualityGateRunSummary,

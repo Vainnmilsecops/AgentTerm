@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 
 import type { WorkspaceLayoutState } from './workspace-layout-persistence';
+import {
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  TERMINAL_MAX_HEIGHT,
+  TERMINAL_MIN_HEIGHT,
+} from './workspace-layout-persistence';
 
 export interface WorkspaceSettingsProps {
   readonly layout: WorkspaceLayoutState;
@@ -42,7 +48,7 @@ export function WorkspaceSettings({ layout, onLayoutChange }: WorkspaceSettingsP
           onClick={() => onLayoutChange({ ...layout, theme: theme === 'dark' ? 'light' : 'dark' })}
           type="button"
         >
-          {theme === 'dark' ? '☾ Dark' : '☀ Light'}
+          {theme === 'dark' ? 'Dark' : 'Light'}
         </button>
       </div>
       <div className="workspace-settings__row">
@@ -50,8 +56,8 @@ export function WorkspaceSettings({ layout, onLayoutChange }: WorkspaceSettingsP
         <input
           aria-label="Sidebar width"
           data-settings-action="sidebar-width"
-          max={420}
-          min={220}
+          max={SIDEBAR_MAX_WIDTH}
+          min={SIDEBAR_MIN_WIDTH}
           onChange={(event) => {
             const next = Number(event.currentTarget.value);
             if (Number.isFinite(next)) {
@@ -68,8 +74,8 @@ export function WorkspaceSettings({ layout, onLayoutChange }: WorkspaceSettingsP
         <input
           aria-label="Terminal height"
           data-settings-action="terminal-height"
-          max={720}
-          min={180}
+          max={TERMINAL_MAX_HEIGHT}
+          min={TERMINAL_MIN_HEIGHT}
           onChange={(event) => {
             const next = Number(event.currentTarget.value);
             if (Number.isFinite(next)) {

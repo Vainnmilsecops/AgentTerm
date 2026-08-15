@@ -3,18 +3,22 @@ import type { ReactNode } from 'react';
 
 import { WorkspaceSettings } from './workspace-settings';
 import type { WorkspaceLayoutState } from './workspace-layout-persistence';
+import { WorkspaceIcon } from './workspace-icons';
 
 export interface WorkspaceSettingsGearProps {
+  readonly children?: ReactNode;
   readonly layout: WorkspaceLayoutState;
   readonly onLayoutChange: (next: WorkspaceLayoutState) => void;
 }
 
 export function WorkspaceSettingsGear({
+  children,
   layout,
   onLayoutChange,
 }: WorkspaceSettingsGearProps): ReactNode {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -29,7 +33,9 @@ export function WorkspaceSettingsGear({
     };
     const handleKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        event.preventDefault();
         setOpen(false);
+        window.requestAnimationFrame(() => triggerRef.current?.focus());
       }
     };
     document.addEventListener('pointerdown', handlePointer);
@@ -49,9 +55,10 @@ export function WorkspaceSettingsGear({
         className="workspace-settings-gear__trigger"
         data-settings-gear
         onClick={() => setOpen((current) => !current)}
+        ref={triggerRef}
         type="button"
       >
-        <span aria-hidden="true">⚙</span>
+        <WorkspaceIcon name="settings" />
       </button>
       {open ? (
         <div
@@ -60,6 +67,9 @@ export function WorkspaceSettingsGear({
           aria-label="Workspace settings"
         >
           <WorkspaceSettings layout={layout} onLayoutChange={onLayoutChange} />
+          {children === undefined ? null : (
+            <div className="workspace-settings-gear__advanced">{children}</div>
+          )}
         </div>
       ) : null}
     </div>

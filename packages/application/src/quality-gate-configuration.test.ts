@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QualityGateKind, createQualityGate } from '@agentterm/domain';
 
-import { registerQualityGate, unregisterQualityGate, type QualityGateConfigInput } from './quality-gate-configuration';
+import {
+  registerQualityGate,
+  unregisterQualityGate,
+  type QualityGateConfigInput,
+} from './quality-gate-configuration';
 
 function input(overrides: Partial<QualityGateConfigInput> = {}): QualityGateConfigInput {
   return {

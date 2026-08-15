@@ -15,6 +15,7 @@ export function createDesktopWindowOptions(preloadPath: string): BrowserWindowCo
     minWidth: 520,
     show: false,
     title: 'AgentTerm',
+    useContentSize: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

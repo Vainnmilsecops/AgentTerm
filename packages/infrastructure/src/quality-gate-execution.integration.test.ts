@@ -101,6 +101,8 @@ describe('Quality Gate execution in a real Task Worktree', () => {
           const gates: QualityGateCatalog = {
             findById: async (id) => (id === gate.id ? gate : undefined),
             list: async () => [gate],
+            register: async () => undefined,
+            unregister: async () => false,
           };
 
           const run = await runQualityGate(

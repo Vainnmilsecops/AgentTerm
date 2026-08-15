@@ -14,10 +14,8 @@ import {
   inspectTaskPullRequest,
   listQualityGateSummaries,
   listProjectTasks,
-  listQualityGateRuns,
   listTaskChanges,
   listTaskDependencies,
-  listTaskExecutionArtifacts,
   listTaskReviews,
   loadAgentWorkspace,
   loadApplicationSettings,
@@ -31,12 +29,12 @@ import {
   restoreAgentSessionsAfterRestart,
   retryTaskExecution,
   runQualityGate,
+  summarizeTaskReview,
   startTaskExecution,
   startTaskPlanning,
   transitionTask,
   unregisterQualityGate,
   updateApplicationSettings,
-  type QualityGateCatalog,
 } from '@agentterm/application';
 import {
   BuiltInAgentConfigurationInspector,
@@ -65,10 +63,6 @@ export interface ProductionDesktopApplicationOptions {
 
 const initialTerminalSize = Object.freeze({ columns: 80, rows: 24 });
 const maximumQualityGateOutputBytes = 256 * 1024;
-const emptyQualityGateCatalog: QualityGateCatalog = Object.freeze({
-  findById: async () => undefined,
-  list: async () => Object.freeze([]),
-});
 
 export async function createProductionDesktopApplication(
   options: ProductionDesktopApplicationOptions,
@@ -232,7 +226,8 @@ export async function createProductionDesktopApplication(
       },
       listTaskReviews: async (input) => {
         requireOpen();
-        return listTaskReviews(input, persistence.tasks, persistence.reviews);
+        const reviews = await listTaskReviews(input.taskId, persistence.tasks, persistence.reviews);
+        return Object.freeze(reviews.map(summarizeTaskReview));
       },
       loadSettings: async () => {
         requireOpen();
