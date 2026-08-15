@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  attachHostOwnership,
+  clearHostOwnership,
   createAgentSession,
+  createAgentSessionHostOwnership,
+  hydrateAgentSession,
   InvalidAgentSessionStatusTransitionError,
   recordAgentSessionEvent,
+  setProviderSessionId,
   type AgentSession,
   type AgentSessionStatus as AgentSessionStatusValue,
 } from './index';
@@ -298,6 +303,74 @@ describe('AgentSession', () => {
         occurredAt: createdAt + 1,
         ...invalidEvent,
       } as never),
+    ).toThrow(TypeError);
+  });
+
+  it('attaches host ownership once and ignores duplicates', () => {
+    const session = createStartingSession();
+    const ownership = createAgentSessionHostOwnership({
+      conptyInPipeName: '\\\\.\\pipe\\in',
+      conptyOutPipeName: '\\\\.\\pipe\\out',
+      hostPid: 12,
+      startedAt: 5,
+    });
+
+    const attached = attachHostOwnership(session, ownership);
+    expect(attached.hostOwnership).toEqual(ownership);
+
+    const duplicate = attachHostOwnership(attached, {
+      ...ownership,
+      hostPid: 999,
+    });
+    expect(duplicate.hostOwnership).toBe(attached.hostOwnership);
+  });
+
+  it('clears host ownership and preserves other fields', () => {
+    const ownership = createAgentSessionHostOwnership({
+      conptyInPipeName: '\\\\.\\pipe\\in',
+      conptyOutPipeName: '\\\\.\\pipe\\out',
+      hostPid: 12,
+      startedAt: 5,
+    });
+    const attached = attachHostOwnership(createStartingSession(), ownership);
+    const cleared = clearHostOwnership(attached);
+    expect(cleared.hostOwnership).toBeUndefined();
+    expect(cleared.id).toBe(attached.id);
+  });
+
+  it('stores the provider session id surfaced by the adapter', () => {
+    const withId = setProviderSessionId(createStartingSession(), 'sess_abc-123');
+    expect(withId.providerSessionId).toBe('sess_abc-123');
+  });
+
+  it('round-trips an AgentSession through hydrate', () => {
+    const ownership = createAgentSessionHostOwnership({
+      conptyInPipeName: '\\\\.\\pipe\\in',
+      conptyOutPipeName: '\\\\.\\pipe\\out',
+      hostPid: 12,
+      startedAt: 5,
+    });
+    const source = setProviderSessionId(
+      attachHostOwnership(createStartingSession(), ownership),
+      'sess_xyz',
+    );
+
+    const hydrated = hydrateAgentSession({
+      ...source,
+      history: [...source.history],
+    });
+    expect(hydrated).toEqual({
+      ...source,
+      history: source.history,
+    });
+  });
+
+  it('hydrate rejects malformed hostOwnership payloads', () => {
+    expect(() =>
+      hydrateAgentSession({
+        ...createStartingSession(),
+        hostOwnership: { hostPid: 'not-a-number' } as never,
+      }),
     ).toThrow(TypeError);
   });
 });

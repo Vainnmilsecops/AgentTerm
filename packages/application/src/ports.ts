@@ -1,4 +1,5 @@
 import type {
+  AgentSessionHostOwnership,
   ApplicationSettings,
   AgentSession,
   ExecutionArtifact,
@@ -42,6 +43,8 @@ export type AgentAvailability =
 export interface AgentLaunchRequest {
   /** The complete environment passed to the agent process. */
   readonly environment: Readonly<Record<string, string>>;
+  /** Optional opaque provider session id; only honored when the adapter advertises SESSION_RESUME. */
+  readonly resumeSessionId?: string;
   readonly workingDirectory: string;
 }
 
@@ -80,6 +83,15 @@ export interface AgentSessionRepository {
   insert(session: AgentSession, expectedTaskPhase?: 'PLANNING' | 'RUNNING'): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;
+  /** Atomically updates host ownership and provider session id only when the revision still matches. */
+  updateOwnership(
+    session: AgentSession,
+    expectedSequence: number,
+    input: {
+      hostOwnership: AgentSessionHostOwnership | undefined;
+      providerSessionId: string | undefined;
+    },
+  ): Promise<void>;
   /** Returns sessions whose status/history still indicates possible live runtime ownership. */
   listActive(): Promise<readonly AgentSession[]>;
   /** Returns session attempts from oldest to newest. */
@@ -211,6 +223,34 @@ export interface PtyRuntime {
    * Event sequence numbers are strictly increasing for the returned handle.
    */
   open(spec: PtyLaunchSpec, sink: PtyRuntimeEventSink): Promise<PtyHandle>;
+  /**
+   * Opens streams from a previously recorded host ownership record without spawning a new
+   * process. The host is not owned by the returned handle (no implicit termination on
+   * dispose). The runtime MUST fail closed if either pipe cannot be opened.
+   */
+  reattach(
+    ownership: AgentSessionHostOwnership,
+    initialSize: PtyTerminalSize,
+    sink: PtyRuntimeEventSink,
+  ): Promise<PtyHandle>;
+}
+
+/**
+ * Verifies whether a previously recorded host ownership record still refers to a live
+ * ConPTY host, without spawning anything or mutating any state. Used during startup
+ * reconciliation to decide whether to reattach the live streams or fall back to a
+ * provider-native resume.
+ */
+export type HostReattachInspection =
+  | { readonly kind: 'alive' }
+  | { readonly kind: 'dead'; readonly reason: 'PIPE_GONE' | 'PROCESS_GONE' };
+
+export interface HostReattacher {
+  /**
+   * Performs read-only checks against the host PID and named pipes; never spawns or
+   * sends commands. The returned decision drives reattach vs. resume vs. fail-closed.
+   */
+  inspect(ownership: AgentSessionHostOwnership): Promise<HostReattachInspection>;
 }
 
 export interface QualityGateCatalog {
@@ -240,11 +280,7 @@ export interface QualityGateConfiguration {
  * the structured failure so callers can map it to precise IPC errors.
  */
 export type QualityGateConfiguratorFailure =
-  | 'INVALID_FORMAT'
-  | 'INVALID_GATE'
-  | 'PATH_NOT_TRUSTED'
-  | 'PATH_UNREADABLE'
-  | 'PATH_UNWRITABLE';
+  'INVALID_FORMAT' | 'INVALID_GATE' | 'PATH_NOT_TRUSTED' | 'PATH_UNREADABLE' | 'PATH_UNWRITABLE';
 
 export interface QualityGateConfiguratorResult<T> {
   readonly failure: QualityGateConfiguratorFailure | undefined;
@@ -253,7 +289,9 @@ export interface QualityGateConfiguratorResult<T> {
 
 export interface QualityGateConfigurator {
   /** Returns the validated configuration file; failures yield a structured error. */
-  load(input: { readonly path: string }): Promise<QualityGateConfiguratorResult<QualityGateConfiguration>>;
+  load(input: {
+    readonly path: string;
+  }): Promise<QualityGateConfiguratorResult<QualityGateConfiguration>>;
   /** Persists the validated configuration atomically; failures yield a structured error. */
   save(input: {
     readonly configuration: QualityGateConfiguration;

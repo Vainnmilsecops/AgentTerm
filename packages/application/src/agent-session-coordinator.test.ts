@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AgentSessionStatus, createTask, type AgentSession, type Task } from '@agentterm/domain';
+import {
+  AgentSessionStatus,
+  createTask,
+  type AgentSession,
+  type AgentSessionHostOwnership,
+  type Task,
+} from '@agentterm/domain';
 
 import {
   AgentAdapterError,
@@ -91,6 +97,26 @@ class FakeAgentSessionRepository implements AgentSessionRepository {
     this.stored.set(session.id, session);
   }
 
+  public async updateOwnership(
+    session: AgentSession,
+    expectedSequence: number,
+    input: {
+      hostOwnership: AgentSessionHostOwnership | undefined;
+      providerSessionId: string | undefined;
+    },
+  ): Promise<void> {
+    this.operations.push(`updateOwnership:${session.id}`);
+    const current = this.stored.get(session.id);
+    if (current === undefined || current.history.length !== expectedSequence) {
+      throw new Error('stale session revision');
+    }
+    this.stored.set(session.id, {
+      ...session,
+      hostOwnership: input.hostOwnership ?? current.hostOwnership,
+      providerSessionId: input.providerSessionId ?? current.providerSessionId,
+    });
+  }
+
   public async listActive(): Promise<readonly AgentSession[]> {
     return [...this.stored.values()].filter(
       (session) => session.status !== 'EXITED' && session.status !== 'FAILED',
@@ -152,6 +178,25 @@ class FakePtyRuntime implements PtyRuntime {
     this.specs.push(spec);
     this.sink = sink;
     this.onOpen?.(sink, this.handle);
+    if (this.openFailure !== undefined) {
+      throw this.openFailure;
+    }
+    return this.handle;
+  }
+
+  public async reattach(
+    ownership: { hostPid: number },
+    initialSize: { columns: number; rows: number },
+    sink: PtyRuntimeEventSink,
+  ): Promise<PtyHandle> {
+    this.specs.push({
+      arguments: ['--reattach', String(ownership.hostPid)],
+      environment: {},
+      executablePath: 'reattached',
+      initialSize,
+      workingDirectory: 'reattached',
+    });
+    this.sink = sink;
     if (this.openFailure !== undefined) {
       throw this.openFailure;
     }

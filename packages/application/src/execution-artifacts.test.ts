@@ -207,6 +207,7 @@ function sessionRepository(session: AgentSession | undefined): AgentSessionRepos
     insert: async () => undefined,
     listActive: async () => [],
     listByTaskId: async () => (session === undefined ? [] : [session]),
+    updateOwnership: async () => undefined,
   };
 }
 

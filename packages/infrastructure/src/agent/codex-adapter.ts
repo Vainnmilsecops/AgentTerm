@@ -65,8 +65,11 @@ export class CodexAdapter implements AgentAdapter {
   public async buildLaunchCommand(request: AgentLaunchRequest): Promise<AgentLaunchCommand> {
     const invocation = await resolveAgentLaunchInvocation(this.configuredExecutable, CODEX_PACKAGE);
     const validated = await validateAgentLaunchRequest(request, invocation);
+    const baseArguments = [...invocation.prefixArguments, '--cd', validated.workingDirectory];
+    const resumeArguments =
+      validated.resumeSessionId === undefined ? [] : ['resume', validated.resumeSessionId];
     return {
-      arguments: [...invocation.prefixArguments, '--cd', validated.workingDirectory],
+      arguments: [...baseArguments, ...resumeArguments],
       environment: validated.environment,
       executablePath: invocation.executablePath,
       workingDirectory: validated.workingDirectory,

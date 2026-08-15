@@ -36,10 +36,14 @@ import {
   startTaskExecution,
   startTaskPlanning,
   transitionTask,
+  tryReattachAgentSession,
+  tryResumeAgentSession,
   unregisterQualityGate,
   updateApplicationSettings,
 } from '@agentterm/application';
 import type {
+  PtyRuntimeEventSink,
+  PtyTerminalSize,
   QualityGateConfiguration,
   QualityGateConfiguratorFailure,
 } from '@agentterm/application';
@@ -50,6 +54,7 @@ import {
   GitHubPullRequestAdapter,
   JsonFileQualityGateCatalog,
   LocalGitProjectDiscovery,
+  NodeHostReattacher,
   NodeQualityGateProcessRunner,
   WindowsConPtyRuntime,
   createBuiltInAgentCatalogFromSettings,
@@ -88,13 +93,67 @@ export async function createProductionDesktopApplication(
     const codeInspector = new GitCliTaskReviewCodeInspector();
     const pullRequestIntegration = new GitHubPullRequestAdapter();
     const projectDiscovery = new LocalGitProjectDiscovery();
+    const runtime = new WindowsConPtyRuntime();
     const sessionCoordinator = new AgentSessionCoordinator({
       agents,
       clock,
-      runtime: new WindowsConPtyRuntime(),
+      runtime,
       sessions: persistence.sessions,
       tasks: persistence.tasks,
     });
+    const hostReattacher = new NodeHostReattacher();
+    const recoveryDependencies = Object.freeze({
+      agents,
+      clock,
+      hostReattacher,
+      runtime,
+      sessions: persistence.sessions,
+    });
+    const reattachAttempt = async (
+      sessionId: string,
+      initialSize: PtyTerminalSize,
+      eventSink?: PtyRuntimeEventSink,
+    ) => {
+      const result = await tryReattachAgentSession(
+        {
+          ...(eventSink === undefined ? {} : { eventSink }),
+          initialSize,
+          sessionId,
+        },
+        recoveryDependencies,
+      );
+      if (result.kind === 'reattached') {
+        return { handle: result.handle };
+      }
+      return undefined;
+    };
+    const resumeAttempt = async (
+      sessionId: string,
+      initialSize: PtyTerminalSize,
+      eventSink: PtyRuntimeEventSink,
+    ): Promise<boolean> => {
+      const session = await persistence.sessions.findById(sessionId);
+      if (session === undefined || session.providerSessionId === undefined) {
+        return false;
+      }
+      try {
+        await tryResumeAgentSession(
+          {
+            eventSink,
+            initialSize,
+            previousSessionId: sessionId,
+            request: {
+              environment: Object.freeze({ ...environment }),
+              workingDirectory: session.taskId,
+            },
+          },
+          recoveryDependencies,
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const qualityGateRunner = new NodeQualityGateProcessRunner();
     const qualityGateCatalog = new JsonFileQualityGateCatalog({
       filePath: join(dataDirectory, 'quality-gates.json'),
@@ -103,7 +162,11 @@ export async function createProductionDesktopApplication(
     const qualityGateConfigurator = createQualityGateConfigurator({
       trustRoots,
     });
-    await restoreAgentSessionsAfterRestart(persistence.sessions, clock);
+    await restoreAgentSessionsAfterRestart(persistence.sessions, clock, {
+      reattachAttempt,
+      resumeAttempt,
+      resumeInitialSize: initialTerminalSize,
+    });
 
     const settingsDependencies = Object.freeze({
       catalog: agents,
@@ -328,9 +391,7 @@ export async function createProductionDesktopApplication(
       },
       saveQualityGateConfig: async (input) => {
         requireOpen();
-        return unwrapConfiguratorResult(
-          await qualityGateConfigurator.save(input),
-        );
+        return unwrapConfiguratorResult(await qualityGateConfigurator.save(input));
       },
       saveWorkspaceLayout: async (input) => {
         requireOpen();
@@ -412,12 +473,19 @@ function resolveQualityGateConfigTrustRoots(environment: NodeJS.ProcessEnv): rea
   if (trimmed.includes('\0')) {
     throw new TypeError('AT_DESKTOP_GATE_CONFIG_ROOT contains a NUL byte.');
   }
-  const parts = trimmed.split(/[;]/u).map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+  const parts = trimmed
+    .split(/[;]/u)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
   return Object.freeze(parts);
 }
 
-function unwrapConfiguratorResult(
-  result: { readonly failure: QualityGateConfiguratorFailure | undefined; readonly value: QualityGateConfiguration | undefined },
-): { readonly failure: QualityGateConfiguratorFailure | undefined; readonly value: QualityGateConfiguration | undefined } {
+function unwrapConfiguratorResult(result: {
+  readonly failure: QualityGateConfiguratorFailure | undefined;
+  readonly value: QualityGateConfiguration | undefined;
+}): {
+  readonly failure: QualityGateConfiguratorFailure | undefined;
+  readonly value: QualityGateConfiguration | undefined;
+} {
   return result;
 }

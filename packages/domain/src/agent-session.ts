@@ -2,6 +2,11 @@ import {
   AgentSessionStatus,
   type AgentSessionStatus as AgentSessionStatusValue,
 } from './agent-session-status';
+import {
+  createAgentSessionHostOwnership,
+  isAgentSessionHostOwnership,
+  type AgentSessionHostOwnership,
+} from './agent-session-ownership';
 
 export type AgentSessionActiveStatus = 'IDLE' | 'WAITING_INPUT' | 'WORKING';
 export type AgentSessionFailureStage =
@@ -64,7 +69,9 @@ export interface AgentSession {
   readonly createdAt: number;
   readonly endedAt: number | undefined;
   readonly history: readonly AgentSessionEvent[];
+  readonly hostOwnership: AgentSessionHostOwnership | undefined;
   readonly id: string;
+  readonly providerSessionId: string | undefined;
   readonly status: AgentSessionStatusValue;
   readonly taskId: string;
 }
@@ -165,7 +172,9 @@ export function createAgentSession(input: CreateAgentSessionInput): AgentSession
     createdAt: input.createdAt,
     endedAt: undefined,
     history: [initialEvent],
+    hostOwnership: undefined,
     id: input.id,
+    providerSessionId: undefined,
     status: AgentSessionStatus.STARTING,
     taskId: input.taskId,
   });
@@ -279,6 +288,79 @@ function appendEvent(
     endedAt,
     history: [...session.history, frozenEvent],
     status: frozenEvent.status,
+  });
+}
+
+export function attachHostOwnership(
+  session: AgentSession,
+  ownership: AgentSessionHostOwnership,
+): AgentSession {
+  if (session.hostOwnership !== undefined) {
+    return session;
+  }
+  return freezeSession({
+    ...session,
+    hostOwnership: createAgentSessionHostOwnership(ownership),
+  });
+}
+
+export function clearHostOwnership(session: AgentSession): AgentSession {
+  if (session.hostOwnership === undefined) {
+    return session;
+  }
+  return freezeSession({
+    ...session,
+    hostOwnership: undefined,
+  });
+}
+
+export function setProviderSessionId(
+  session: AgentSession,
+  providerSessionId: string,
+): AgentSession {
+  if (session.providerSessionId === providerSessionId) {
+    return session;
+  }
+  return freezeSession({
+    ...session,
+    providerSessionId,
+  });
+}
+
+export function hydrateAgentSession(value: unknown): AgentSession {
+  if (value === null || typeof value !== 'object') {
+    throw new TypeError('Agent Session record must be an object.');
+  }
+  const candidate = value as Partial<AgentSession> & { hostOwnership?: unknown };
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.taskId !== 'string' ||
+    typeof candidate.agentId !== 'string' ||
+    typeof candidate.createdAt !== 'number' ||
+    typeof candidate.status !== 'string' ||
+    !Array.isArray(candidate.history)
+  ) {
+    throw new TypeError('Agent Session record is missing required fields.');
+  }
+  const hostOwnership =
+    candidate.hostOwnership === undefined || candidate.hostOwnership === null
+      ? undefined
+      : isAgentSessionHostOwnership(candidate.hostOwnership)
+        ? createAgentSessionHostOwnership(candidate.hostOwnership)
+        : (() => {
+            throw new TypeError('Agent Session hostOwnership has an invalid shape.');
+          })();
+  return freezeSession({
+    agentId: candidate.agentId,
+    createdAt: candidate.createdAt,
+    endedAt: typeof candidate.endedAt === 'number' ? candidate.endedAt : undefined,
+    history: candidate.history as AgentSessionEvent[],
+    hostOwnership,
+    id: candidate.id,
+    providerSessionId:
+      typeof candidate.providerSessionId === 'string' ? candidate.providerSessionId : undefined,
+    status: candidate.status as AgentSessionStatusValue,
+    taskId: candidate.taskId,
   });
 }
 

@@ -71,8 +71,10 @@ export class ClaudeAdapter implements AgentAdapter {
       CLAUDE_PACKAGE,
     );
     const validated = await validateAgentLaunchRequest(request, invocation);
+    const resumeArguments =
+      validated.resumeSessionId === undefined ? [] : ['--resume', validated.resumeSessionId];
     return {
-      arguments: [...invocation.prefixArguments],
+      arguments: [...invocation.prefixArguments, ...resumeArguments],
       environment: validated.environment,
       executablePath: invocation.executablePath,
       workingDirectory: validated.workingDirectory,

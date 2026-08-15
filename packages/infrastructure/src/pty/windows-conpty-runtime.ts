@@ -5,6 +5,7 @@ import { isAbsolute } from 'node:path';
 
 import { PtyRuntimeError } from '@agentterm/application';
 import type {
+  AgentSessionHostOwnership,
   PtyHandle,
   PtyLaunchSpec,
   PtyRuntime,
@@ -371,6 +372,48 @@ export class WindowsConPtyRuntime implements PtyRuntime {
       events.failed('spawn', runtimeError.reason);
       throw runtimeError;
     }
+  }
+
+  public async reattach(
+    ownership: AgentSessionHostOwnership,
+    initialSize: PtyTerminalSize,
+    sink: PtyRuntimeEventSink,
+  ): Promise<PtyHandle> {
+    const events = new PtyEventDispatcher(sink);
+
+    try {
+      assertConPtyAvailable();
+      assertOwnershipShape(ownership);
+      assertValidTerminalSize(initialSize);
+    } catch (error) {
+      const runtimeError =
+        error instanceof PtyRuntimeError ? error : new PtyRuntimeError('spawn', 'RUNTIME_FAILURE');
+      events.failed('spawn', runtimeError.reason);
+      throw runtimeError;
+    }
+
+    // The current Windows ConPTY runtime owns the host through node-pty and does
+    // not expose named pipes that another process could open. The orchestrator
+    // must therefore fall back to provider-native resume when this surface is
+    // reached; the documented ADR records the limitation.
+    const reason: PtyRuntimeFailureReason = 'CONPTY_UNAVAILABLE';
+    events.failed('spawn', reason);
+    throw new PtyRuntimeError('spawn', reason);
+  }
+}
+
+function assertOwnershipShape(ownership: AgentSessionHostOwnership): void {
+  if (ownership.hostPid <= 0) {
+    throw new PtyRuntimeError('spawn', 'RUNTIME_FAILURE');
+  }
+  if (ownership.conptyInPipeName.length === 0 || ownership.conptyOutPipeName.length === 0) {
+    throw new PtyRuntimeError('spawn', 'RUNTIME_FAILURE');
+  }
+}
+
+function assertValidTerminalSize(size: PtyTerminalSize): void {
+  if (!isValidTerminalSize(size)) {
+    throw new PtyRuntimeError('spawn', 'INVALID_TERMINAL_SIZE');
   }
 }
 

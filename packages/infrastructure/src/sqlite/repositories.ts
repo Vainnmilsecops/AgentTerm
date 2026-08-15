@@ -44,6 +44,7 @@ import {
   TaskReviewStatus,
   transitionTask,
   type AgentSession,
+  type AgentSessionHostOwnership,
   type ApplicationSettings,
   type AgentSessionEvent,
   type ExecutionArtifact,
@@ -70,6 +71,15 @@ import {
 
 const primaryKeyConstraintCode = 1555;
 const uniqueConstraintCode = 2067;
+
+function serializeHostOwnership(ownership: AgentSessionHostOwnership): string {
+  return JSON.stringify({
+    conptyInPipeName: ownership.conptyInPipeName,
+    conptyOutPipeName: ownership.conptyOutPipeName,
+    hostPid: ownership.hostPid,
+    startedAt: ownership.startedAt,
+  });
+}
 
 export class SqliteApplicationSettingsRepository implements ApplicationSettingsRepository {
   private readonly readExecutablesStatement: StatementSync;
@@ -1497,19 +1507,23 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
   private readonly listByTaskIdStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
   private readonly taskPhaseByIdStatement: StatementSync;
+  private readonly updateOwnershipStatement: StatementSync;
 
   public constructor(database: DatabaseSync) {
     this.database = database;
     this.findByIdStatement = database.prepare(
-      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
+      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
+              host_ownership, provider_session_id
        FROM agent_sessions WHERE id = ?`,
     );
     this.listByTaskIdStatement = database.prepare(
-      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
+      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
+              host_ownership, provider_session_id
        FROM agent_sessions WHERE task_id = ? ORDER BY ordinal`,
     );
     this.listActiveStatement = database.prepare(
-      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
+      `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
+              host_ownership, provider_session_id
        FROM agent_sessions AS session
        WHERE ${unsettledAgentSessionWriterSql('session')}
        ORDER BY session.task_id, session.ordinal`,
@@ -1540,8 +1554,9 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     this.taskPhaseByIdStatement = database.prepare('SELECT phase FROM tasks WHERE id = ?');
     this.insertSessionStatement = database.prepare(
       `INSERT INTO agent_sessions (
-         id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
+         host_ownership, provider_session_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.insertEventStatement = database.prepare(
       `INSERT INTO agent_session_events (
@@ -1554,6 +1569,55 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
        SET status = ?, ended_at = ?, history_sequence = ?
        WHERE id = ? AND history_sequence = ?`,
     );
+    this.updateOwnershipStatement = database.prepare(
+      `UPDATE agent_sessions
+       SET host_ownership = ?, provider_session_id = ?
+       WHERE id = ? AND history_sequence = ?`,
+    );
+  }
+
+  public async updateOwnership(
+    session: AgentSession,
+    expectedSequence: number,
+    input: {
+      hostOwnership: AgentSessionHostOwnership | undefined;
+      providerSessionId: string | undefined;
+    },
+  ): Promise<void> {
+    if (!Number.isSafeInteger(expectedSequence) || expectedSequence <= 0) {
+      throw new SqlitePersistenceError('Agent Session ownership revision is invalid.');
+    }
+    this.database.exec('BEGIN IMMEDIATE');
+    try {
+      const storedRow = this.findByIdStatement.get(session.id);
+      if (storedRow === undefined) {
+        throw new EntityNotFoundError('AgentSession', session.id);
+      }
+      const stored = this.mapSession(storedRow);
+      if (stored.history.length !== expectedSequence) {
+        throw new SqlitePersistenceError('Agent Session ownership revision is stale.');
+      }
+      const hostOwnershipJson =
+        input.hostOwnership === undefined ? null : serializeHostOwnership(input.hostOwnership);
+      const result = this.updateOwnershipStatement.run(
+        hostOwnershipJson,
+        input.providerSessionId ?? null,
+        session.id,
+        expectedSequence,
+      );
+      if (result.changes === 0 || result.changes === 0n) {
+        throw new SqlitePersistenceError('Agent Session ownership revision is stale.');
+      }
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      if (error instanceof SqlitePersistenceError || error instanceof EntityNotFoundError) {
+        throw error;
+      }
+      throw new SqlitePersistenceError('Failed to update Agent Session ownership.', {
+        cause: error,
+      });
+    }
   }
 
   public async findById(id: string): Promise<AgentSession | undefined> {
@@ -1610,6 +1674,8 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
         session.createdAt,
         session.endedAt ?? null,
         session.history.length,
+        session.hostOwnership === undefined ? null : serializeHostOwnership(session.hostOwnership),
+        session.providerSessionId ?? null,
       );
       const initialEvent = session.history[0];
       if (initialEvent === undefined) {

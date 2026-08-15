@@ -186,6 +186,9 @@ class MemorySessions implements AgentSessionRepository {
   public async append(): Promise<never> {
     throw new Error('review flow must not mutate Agent Session history');
   }
+  public async updateOwnership(): Promise<never> {
+    throw new Error('review flow must not update Agent Session ownership');
+  }
   public async listActive(): Promise<readonly AgentSession[]> {
     return this.values.filter((session) => !isTerminal(session));
   }

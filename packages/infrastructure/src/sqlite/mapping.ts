@@ -6,6 +6,7 @@ import type {
 } from '@agentterm/application';
 import {
   createAgentSession,
+  createAgentSessionHostOwnership,
   completeQualityGateRun,
   createExecutionArtifact,
   createProject,
@@ -20,9 +21,12 @@ import {
   TaskReviewEvidenceLimits,
   transitionTask,
   decideTaskReview,
+  attachHostOwnership,
   recordAgentSessionEvent,
+  setProviderSessionId,
   type AgentSession,
   type AgentSessionEvent,
+  type AgentSessionHostOwnership,
   type ExecutionArtifact,
   type Project,
   type QualityGateRun,
@@ -161,7 +165,56 @@ export function mapAgentSessionRows(
   ) {
     throw new SqlitePersistenceError('Agent Session snapshot does not match its event history.');
   }
+
+  const providerSessionId = readNullableText(sessionRow, 'provider_session_id', 'Agent Session');
+  const hostOwnership = readOptionalHostOwnership(sessionRow);
+  if (hostOwnership !== undefined) {
+    session = attachHostOwnership(session, hostOwnership);
+  }
+  if (providerSessionId !== undefined) {
+    session = setProviderSessionId(session, providerSessionId);
+  }
   return session;
+}
+
+function readOptionalHostOwnership(sessionRow: SqliteRow): AgentSessionHostOwnership | undefined {
+  const raw = sessionRow['host_ownership'];
+  if (raw === null || raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new SqlitePersistenceError('Agent Session host ownership is malformed.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new SqlitePersistenceError('Agent Session host ownership is not valid JSON.', {
+      cause: error,
+    });
+  }
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new SqlitePersistenceError('Agent Session host ownership has an invalid shape.');
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    typeof candidate.conptyInPipeName !== 'string' ||
+    typeof candidate.conptyOutPipeName !== 'string' ||
+    typeof candidate.hostPid !== 'number' ||
+    typeof candidate.startedAt !== 'number'
+  ) {
+    throw new SqlitePersistenceError('Agent Session host ownership has an invalid shape.');
+  }
+  try {
+    return createAgentSessionHostOwnership({
+      conptyInPipeName: candidate.conptyInPipeName,
+      conptyOutPipeName: candidate.conptyOutPipeName,
+      hostPid: candidate.hostPid,
+      startedAt: candidate.startedAt,
+    });
+  } catch (error) {
+    throw new SqlitePersistenceError('Agent Session host ownership is rejected.', { cause: error });
+  }
 }
 
 export function mapQualityGateRunRow(row: SqliteRow): QualityGateRun {

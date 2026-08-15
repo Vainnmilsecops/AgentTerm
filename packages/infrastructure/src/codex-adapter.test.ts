@@ -329,6 +329,40 @@ describe('CodexAdapter launch commands', () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
+  it('appends resume <sessionId> to the launch argv when requested', async () => {
+    const root = createTemporaryDirectory('launch-resume');
+    const executablePath = createExecutable(join(root, 'Codex CLI'));
+    const workingDirectory = join(root, 'Task Worktree');
+    mkdirSync(workingDirectory);
+
+    const command = await new CodexAdapter(executablePath).buildLaunchCommand({
+      environment: { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' },
+      resumeSessionId: 'sess_abc-123',
+      workingDirectory,
+    });
+
+    expect(command.arguments).toEqual(['--cd', expect.any(String), 'resume', 'sess_abc-123']);
+    expect(command.environment).toMatchObject({ SystemRoot: expect.any(String) });
+  });
+
+  it('rejects malformed resume session ids without spawning', async () => {
+    const root = createTemporaryDirectory('launch-resume-bad');
+    const executablePath = createExecutable(join(root, 'Codex CLI'));
+    const workingDirectory = join(root, 'Task Worktree');
+    mkdirSync(workingDirectory);
+
+    const error = await new CodexAdapter(executablePath)
+      .buildLaunchCommand({
+        environment: {},
+        resumeSessionId: 'has spaces',
+        workingDirectory,
+      })
+      .catch((failure: unknown) => failure);
+
+    expectAdapterFailure(error, 'INVALID_LAUNCH_REQUEST');
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
   it('rejects a missing executable with a typed adapter failure', async () => {
     const missingExecutable = join(
       createTemporaryDirectory('launch-missing-executable'),

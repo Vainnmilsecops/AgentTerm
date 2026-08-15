@@ -337,6 +337,25 @@ export class AgentSessionRuntimeOwnershipError extends Error {
   }
 }
 
+export type AgentSessionResumeUnavailableReason =
+  | 'AGENT_NOT_CONFIGURED'
+  | 'PREVIOUS_SESSION_NOT_FOUND'
+  | 'PROVIDER_SESSION_ID_MISMATCH'
+  | 'PROVIDER_SESSION_ID_MISSING'
+  | 'RESUME_UNSUPPORTED';
+
+export class AgentSessionResumeUnavailableError extends Error {
+  public readonly reason: AgentSessionResumeUnavailableReason;
+  public readonly sessionId: string;
+
+  public constructor(sessionId: string, reason: AgentSessionResumeUnavailableReason) {
+    super(`Agent Session ${sessionId} cannot be resumed: ${reason}.`);
+    this.name = 'AgentSessionResumeUnavailableError';
+    this.reason = reason;
+    this.sessionId = sessionId;
+  }
+}
+
 export class AgentSessionTerminalAttachmentConflictError extends Error {
   public readonly sessionId: string;
 

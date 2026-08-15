@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentSessionCoordinator,
   ConfiguredAgentCatalog,
+  PtyRuntimeError,
   acceptTaskPlan,
   createTaskPlan,
   createTask,
@@ -59,6 +60,15 @@ class CapturingPtyRuntime implements PtyRuntime {
         this.writes.push(input);
       },
     };
+  }
+
+  public async reattach(
+    _ownership: { hostPid: number },
+    _initialSize: { columns: number; rows: number },
+    sink: PtyRuntimeEventSink,
+  ): Promise<PtyHandle> {
+    sink({ kind: 'failed', operation: 'spawn', reason: 'CONPTY_UNAVAILABLE', sequence: 1 });
+    throw new PtyRuntimeError('spawn', 'CONPTY_UNAVAILABLE');
   }
 
   public emit(index: number, event: PtyRuntimeEvent): void {
