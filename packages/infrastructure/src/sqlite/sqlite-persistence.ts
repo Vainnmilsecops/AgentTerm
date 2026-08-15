@@ -16,6 +16,7 @@ import type {
   TaskCatalog,
   TaskDependencyRepository,
   TaskWorktreeRepository,
+  WorkspaceLayoutRepository,
 } from '@agentterm/application';
 
 import { migrateSqliteDatabase } from './migrate';
@@ -31,6 +32,7 @@ import {
   SqliteTaskReviewRepository,
   SqliteTaskWorktreeRepository,
 } from './repositories';
+import { SqliteWorkspaceLayoutRepository } from './workspace-layout-repository';
 
 type NodeSqliteModule = typeof import('node:sqlite');
 
@@ -48,6 +50,7 @@ export interface SqlitePersistence {
   readonly taskDependencies: TaskDependencyRepository;
   readonly reviews: TaskReviewRepository;
   readonly worktrees: TaskWorktreeRepository;
+  readonly workspaceLayout: WorkspaceLayoutRepository;
   close(): void;
 }
 
@@ -71,6 +74,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let taskDependencies: TaskDependencyRepository;
   let reviews: TaskReviewRepository;
   let worktrees: TaskWorktreeRepository;
+  let workspaceLayout: WorkspaceLayoutRepository;
 
   try {
     database.exec(`
@@ -90,6 +94,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     taskDependencies = new SqliteTaskDependencyRepository(database);
     reviews = new SqliteTaskReviewRepository(database);
     worktrees = new SqliteTaskWorktreeRepository(database);
+    workspaceLayout = new SqliteWorkspaceLayoutRepository(database);
   } catch (error) {
     database.close();
     throw error;
@@ -108,6 +113,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     taskDependencies,
     reviews,
     worktrees,
+    workspaceLayout,
     close(): void {
       if (!isClosed) {
         database.close();

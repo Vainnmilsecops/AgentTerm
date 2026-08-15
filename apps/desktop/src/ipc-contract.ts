@@ -20,10 +20,13 @@ import type {
   TaskPullRequestState,
   TaskReviewSummary,
   UpdateApplicationSettingsInput,
+  WorkspaceLayoutReadModel,
+  WorkspaceLayoutRecord,
 } from '@agentterm/application';
 import {
   ExecutionArtifactKindValue as ExecutionArtifactKind,
   QualityGateKindValue as QualityGateKindValueObject,
+  validateWorkspaceLayoutRecord,
 } from '@agentterm/application';
 
 export const desktopIpcChannels = Object.freeze({
@@ -45,6 +48,7 @@ export const desktopIpcChannels = Object.freeze({
   loadQualityGateConfig: 'agentterm:quality-gates:load-config',
   loadSettings: 'agentterm:settings:load',
   loadWorkspace: 'agentterm:workspace:load',
+  loadWorkspaceLayout: 'agentterm:workspace-layout:load',
   openProject: 'agentterm:project:open',
   pushTaskBranch: 'agentterm:pull-request:push',
   refreshPullRequest: 'agentterm:pull-request:refresh',
@@ -55,6 +59,7 @@ export const desktopIpcChannels = Object.freeze({
   retryExecution: 'agentterm:execution:retry',
   runQualityGate: 'agentterm:quality-gates:run',
   saveQualityGateConfig: 'agentterm:quality-gates:save-config',
+  saveWorkspaceLayout: 'agentterm:workspace-layout:save',
   startExecution: 'agentterm:execution:start',
   startPlanning: 'agentterm:planning:start',
   terminalAttach: 'agentterm:terminal:attach',
@@ -136,6 +141,11 @@ export interface SaveQualityGateConfigResponse {
   readonly value: QualityGateConfiguration | undefined;
 }
 
+export interface SaveWorkspaceLayoutRequest {
+  readonly expectedRevision: number;
+  readonly layout: WorkspaceLayoutRecord;
+}
+
 interface CreateArtifactRequest {
   readonly content: string;
   readonly createdAt: number;
@@ -193,6 +203,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.loadQualityGateConfig]: QualityGateConfigPathRequest;
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
+  readonly [desktopIpcChannels.loadWorkspaceLayout]: EmptyRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
   readonly [desktopIpcChannels.refreshPullRequest]: PullRequestRefreshRequest;
@@ -203,6 +214,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.retryExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.runQualityGate]: QualityGateRequest;
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigRequest;
+  readonly [desktopIpcChannels.saveWorkspaceLayout]: SaveWorkspaceLayoutRequest;
   readonly [desktopIpcChannels.startExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.startPlanning]: AgentTaskRequest;
   readonly [desktopIpcChannels.terminalAttach]: TerminalAttachRequest;
@@ -232,6 +244,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.loadQualityGateConfig]: LoadQualityGateConfigResponse;
   readonly [desktopIpcChannels.loadSettings]: ApplicationSettingsView;
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
+  readonly [desktopIpcChannels.loadWorkspaceLayout]: WorkspaceLayoutReadModel | undefined;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
   readonly [desktopIpcChannels.refreshPullRequest]: null;
@@ -242,6 +255,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.retryExecution]: null;
   readonly [desktopIpcChannels.runQualityGate]: null;
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigResponse;
+  readonly [desktopIpcChannels.saveWorkspaceLayout]: WorkspaceLayoutReadModel;
   readonly [desktopIpcChannels.startExecution]: null;
   readonly [desktopIpcChannels.startPlanning]: null;
   readonly [desktopIpcChannels.terminalAttach]: null;
@@ -295,6 +309,7 @@ export interface AgentTermDesktopApi {
   loadQualityGateConfig(input: QualityGateConfigPathRequest): Promise<LoadQualityGateConfigResponse>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
+  loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
   openProject(): Promise<OpenDesktopProjectResult>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
@@ -305,6 +320,7 @@ export interface AgentTermDesktopApi {
   retryTaskExecution(input: AgentTaskRequest): Promise<void>;
   runQualityGate(input: QualityGateRequest): Promise<void>;
   saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>;
+  saveWorkspaceLayout(input: SaveWorkspaceLayoutRequest): Promise<WorkspaceLayoutReadModel>;
   startTaskExecution(input: AgentTaskRequest): Promise<void>;
   startTaskPlanning(input: AgentTaskRequest): Promise<void>;
   unregisterQualityGate(input: QualityGateIdRequest): Promise<boolean>;
@@ -338,6 +354,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.listQualityGateDetails:
     case desktopIpcChannels.listQualityGates:
     case desktopIpcChannels.openProject:
+    case desktopIpcChannels.loadWorkspaceLayout:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
     case desktopIpcChannels.createTask: {
       const record = exactRecord(input, ['brief', 'projectId', 'title']);
@@ -507,6 +524,15 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
           revision: configuration.revision,
         }),
         path,
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.saveWorkspaceLayout: {
+      const record = exactRecord(input, ['expectedRevision', 'layout']);
+      const expectedRevision = readNonnegativeSafeInteger(record.expectedRevision);
+      const layout = readWorkspaceLayoutRecord(record.layout);
+      return Object.freeze({
+        expectedRevision,
+        layout,
       }) as DesktopIpcRequestMap[C];
     }
   }
@@ -817,6 +843,14 @@ function readBoundedString(input: unknown, maximum: number): string {
     fail();
   }
   return input;
+}
+
+function readWorkspaceLayoutRecord(input: unknown): WorkspaceLayoutRecord {
+  try {
+    return validateWorkspaceLayoutRecord(input).layout;
+  } catch {
+    fail();
+  }
 }
 
 function fail(): never {

@@ -128,6 +128,39 @@ describe('desktop IPC contract validation', () => {
     ).toEqual({ taskId: 'task-1' });
   });
 
+  it('accepts a loadWorkspaceLayout empty payload and a bounded saveWorkspaceLayout payload', () => {
+    expect(validateDesktopIpcRequest(desktopIpcChannels.loadWorkspaceLayout, {})).toEqual({});
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.saveWorkspaceLayout, {
+        expectedRevision: 1,
+        layout: {
+          activeTabId: 'tab:1',
+          tabs: [
+            {
+              activePaneId: 'pane:1',
+              id: 'tab:1',
+              panes: [{ id: 'pane:1', sessionId: undefined, taskId: 'task-1' }],
+              taskId: 'task-1',
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      expectedRevision: 1,
+      layout: {
+        activeTabId: 'tab:1',
+        tabs: [
+          {
+            activePaneId: 'pane:1',
+            id: 'tab:1',
+            panes: [{ id: 'pane:1', sessionId: undefined, taskId: 'task-1' }],
+            taskId: 'task-1',
+          },
+        ],
+      },
+    });
+  });
+
   it.each([
     [desktopIpcChannels.startExecution, { agentId: 'claude', taskId: ' ', token: 'secret' }],
     [desktopIpcChannels.getTaskFileDiff, { area: 'UNSTAGED', path: '../secret', taskId: 'task-1' }],
@@ -147,6 +180,65 @@ describe('desktop IPC contract validation', () => {
     [
       desktopIpcChannels.createTask,
       { brief: 'x'.repeat(16_385), projectId: 'project-1', title: 'Task' },
+    ],
+    [desktopIpcChannels.loadWorkspaceLayout, { path: 'C:/private.json' }],
+    [
+      desktopIpcChannels.saveWorkspaceLayout,
+      {
+        expectedRevision: 0,
+        layout: { activeTabId: 'tab:1', tabs: [] },
+      },
+    ],
+    [
+      desktopIpcChannels.saveWorkspaceLayout,
+      {
+        expectedRevision: -1,
+        layout: {
+          activeTabId: 'tab:1',
+          tabs: [
+            {
+              activePaneId: 'pane:1',
+              id: 'tab:1',
+              panes: [{ id: 'pane:1', sessionId: undefined, taskId: 'task-1' }],
+              taskId: 'task-1',
+            },
+          ],
+        },
+      },
+    ],
+    [
+      desktopIpcChannels.saveWorkspaceLayout,
+      {
+        expectedRevision: 0,
+        layout: {
+          activeTabId: 'tab:2',
+          tabs: [
+            {
+              activePaneId: 'pane:1',
+              id: 'tab:1',
+              panes: [{ id: 'pane:1', sessionId: undefined, taskId: 'task-1' }],
+              taskId: 'task-1',
+            },
+          ],
+        },
+      },
+    ],
+    [
+      desktopIpcChannels.saveWorkspaceLayout,
+      {
+        expectedRevision: 0,
+        layout: {
+          activeTabId: 'tab:1',
+          tabs: [
+            {
+              activePaneId: 'pane:1',
+              id: 'tab:1',
+              panes: [{ id: 'pane:1', sessionId: 'not valid', taskId: 'task-1' }],
+              taskId: 'task-1',
+            },
+          ],
+        },
+      },
     ],
   ] as const)('rejects malformed or over-capability payloads for %s', (channel, payload) => {
     expect(() => validateDesktopIpcRequest(channel, payload)).toThrow(

@@ -8,6 +8,7 @@ import type {
   TaskFileDiff,
   TaskPullRequestState,
   UpdateApplicationSettingsInput,
+  WorkspaceLayoutRecord,
 } from '@agentterm/application';
 
 import type { AgentTermDesktopApi } from '../ipc-contract';
@@ -16,7 +17,6 @@ import {
   activateWorkspaceTab,
   closeWorkspacePane,
   closeWorkspaceTab,
-  createWorkspaceLayout,
   cycleWorkspacePane,
   cycleWorkspaceTab,
   findActiveWorkspacePane,
@@ -120,6 +120,7 @@ export type WorkspaceSnapshot =
       readonly changeInspection?: WorkspaceChangeInspection;
       readonly kind: 'ready';
       readonly layout: WorkspaceLayout;
+      readonly layoutPersistenceError?: string | undefined;
       readonly onboardingBusy?: boolean;
       readonly overview: AgentWorkspaceOverview;
       readonly qualityGates?: readonly QualityGate[];
@@ -142,6 +143,10 @@ export class WorkspaceController {
   private actionAttempt: Promise<void> | undefined;
   private onboardingAttempt: Promise<boolean> | undefined;
   private settingsAttempt: Promise<void> | undefined;
+  private layoutRevision = 0;
+  private layoutSaveAttempt: Promise<void> | undefined;
+  private layoutSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  private layoutSaveQueued = false;
   public snapshot: WorkspaceSnapshot = Object.freeze({ kind: 'loading' });
 
   public constructor(client: AgentWorkspaceClient, sink?: (snapshot: WorkspaceSnapshot) => void) {
@@ -153,15 +158,21 @@ export class WorkspaceController {
     const generation = ++this.loadGeneration;
     this.publish(Object.freeze({ kind: 'loading' }));
     try {
-      const [overview, qualityGates, settings] = await Promise.all([
+      const [overview, qualityGates, settings, persistedLayout] = await Promise.all([
         this.client.loadWorkspace(),
         this.client.listQualityGateDetails(),
         this.client.loadSettings(),
+        this.client.loadWorkspaceLayout(),
       ]);
       if (this.disposed || generation !== this.loadGeneration) {
         return;
       }
-      this.publishReady(overview, qualityGates, undefined, settings);
+      if (persistedLayout !== undefined) {
+        this.layoutRevision = persistedLayout.revision;
+      } else {
+        this.layoutRevision = 0;
+      }
+      this.publishReady(overview, qualityGates, undefined, settings, persistedLayout?.layout);
       await this.loadSelectedTaskEvidence();
     } catch {
       if (!this.disposed && generation === this.loadGeneration) {
@@ -177,15 +188,19 @@ export class WorkspaceController {
     const requestedTaskId =
       this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : undefined;
     try {
-      const [overview, qualityGates, settings] = await Promise.all([
+      const [overview, qualityGates, settings, persistedLayout] = await Promise.all([
         this.client.loadWorkspace(),
         this.client.listQualityGateDetails(),
         this.client.loadSettings(),
+        this.client.loadWorkspaceLayout(),
       ]);
       if (!this.disposed && generation === this.loadGeneration) {
+        if (persistedLayout !== undefined && persistedLayout.revision > this.layoutRevision) {
+          this.layoutRevision = persistedLayout.revision;
+        }
         const preferredTaskId =
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : requestedTaskId;
-        this.publishReady(overview, qualityGates, preferredTaskId, settings);
+        this.publishReady(overview, qualityGates, preferredTaskId, settings, undefined);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -227,6 +242,7 @@ export class WorkspaceController {
         terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
       }),
     );
+    this.schedulePersistLayout(layout);
     void this.loadSelectedTaskEvidence();
   }
 
@@ -785,7 +801,7 @@ export class WorkspaceController {
       if (!this.disposed) {
         const latestSettings =
           this.snapshot.kind === 'ready' ? this.snapshot.settings : current.settings;
-        this.publishReady(overview, qualityGates, action.taskId, latestSettings);
+        this.publishReady(overview, qualityGates, action.taskId, latestSettings, undefined);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -854,6 +870,10 @@ export class WorkspaceController {
     this.loadGeneration += 1;
     this.changeGeneration += 1;
     this.pullRequestGeneration += 1;
+    if (this.layoutSaveTimer !== undefined) {
+      clearTimeout(this.layoutSaveTimer);
+      this.layoutSaveTimer = undefined;
+    }
   }
 
   private async performAction(
@@ -885,7 +905,7 @@ export class WorkspaceController {
           this.snapshot.kind === 'ready' ? this.snapshot.selectedTaskId : action.taskId;
         const latestSettings =
           this.snapshot.kind === 'ready' ? this.snapshot.settings : current.settings;
-        this.publishReady(overview, qualityGates, preferredTaskId, latestSettings);
+        this.publishReady(overview, qualityGates, preferredTaskId, latestSettings, undefined);
         await this.loadSelectedTaskEvidence();
       }
     } catch {
@@ -906,13 +926,17 @@ export class WorkspaceController {
   }
 
   private async reloadAfterOnboarding(preferredTaskId: string | undefined): Promise<void> {
-    const [overview, qualityGates, settings] = await Promise.all([
+    const [overview, qualityGates, settings, persistedLayout] = await Promise.all([
       this.client.loadWorkspace(),
       this.client.listQualityGateDetails(),
       this.client.loadSettings(),
+      this.client.loadWorkspaceLayout(),
     ]);
     if (this.disposed) return;
-    this.publishReady(overview, qualityGates, preferredTaskId, settings);
+    if (persistedLayout !== undefined) {
+      this.layoutRevision = persistedLayout.revision;
+    }
+    this.publishReady(overview, qualityGates, preferredTaskId, settings, persistedLayout?.layout);
     await this.loadSelectedTaskEvidence();
   }
 
@@ -921,6 +945,7 @@ export class WorkspaceController {
     qualityGates: readonly QualityGate[],
     preferredTaskId: string | undefined,
     settings: ApplicationSettingsView | undefined,
+    persistedLayout: WorkspaceLayoutRecord | undefined,
   ): void {
     const currentSettings = this.snapshot.kind === 'ready' ? this.snapshot.settings : undefined;
     const effectiveSettings =
@@ -934,20 +959,19 @@ export class WorkspaceController {
         ? this.snapshot.selectedAgentId
         : effectiveSettings?.settings.defaultAgentId;
     const selectedAgentId = selectAvailableAgentId(overview, preferredAgentId);
+    const reconciledFromPersisted =
+      persistedLayout !== undefined ? hydrateWorkspaceLayout(persistedLayout) : undefined;
     let layout =
       this.snapshot.kind === 'ready'
         ? reconcileWorkspaceLayout(this.snapshot.layout, workspaceTaskSessionContexts(overview))
-        : undefined;
+        : reconciledFromPersisted;
+    if (layout === undefined) {
+      layout = Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) });
+    }
     if (preferredAvailableTaskId !== undefined) {
       const preferredTask = findTask(overview, preferredAvailableTaskId);
       layout = openWorkspaceTab(
-        layout ??
-          createWorkspaceLayout({
-            taskId: preferredAvailableTaskId,
-            ...(preferredTask?.activeSession?.id === undefined
-              ? {}
-              : { sessionId: preferredTask.activeSession.id }),
-          }),
+        layout,
         {
           taskId: preferredAvailableTaskId,
           ...(preferredTask?.activeSession?.id === undefined
@@ -956,7 +980,10 @@ export class WorkspaceController {
         },
       );
     }
-    layout ??= Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) });
+    layout = reconcileWorkspaceLayout(layout, workspaceTaskSessionContexts(overview));
+    if (layout.tabs.length === 0) {
+      layout = Object.freeze({ activeTabId: undefined, tabs: Object.freeze([]) });
+    }
     const selectedTaskId = findActiveWorkspaceTab(layout)?.taskId;
     this.publish(
       Object.freeze({
@@ -1007,8 +1034,71 @@ export class WorkspaceController {
         terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
       }),
     );
+    this.schedulePersistLayout(layout);
     if (taskChanged) {
       void this.loadSelectedTaskEvidence();
+    }
+  }
+
+  private schedulePersistLayout(layout: WorkspaceLayout): void {
+    this.layoutSaveQueued = true;
+    if (this.layoutSaveTimer !== undefined) {
+      clearTimeout(this.layoutSaveTimer);
+    }
+    this.layoutSaveTimer = setTimeout(() => {
+      this.layoutSaveTimer = undefined;
+      void this.persistLayout(layout);
+    }, 250);
+  }
+
+  private async persistLayout(layout: WorkspaceLayout): Promise<void> {
+    const expectedRevision = this.layoutRevision;
+    const attempt = this.layoutSaveAttempt ?? Promise.resolve();
+    const next = attempt
+      .catch(() => undefined)
+      .then(() => this.runPersistLayout(layout, expectedRevision));
+    this.layoutSaveAttempt = next;
+    await next.catch(() => undefined);
+    if (this.layoutSaveAttempt === next) {
+      this.layoutSaveAttempt = undefined;
+    }
+  }
+
+  private async runPersistLayout(layout: WorkspaceLayout, expectedRevision: number): Promise<void> {
+    if (!this.layoutSaveQueued) return;
+    this.layoutSaveQueued = false;
+    const serialized = serializeWorkspaceLayout(layout);
+    if (serialized === undefined) {
+      this.layoutSaveQueued = true;
+      return;
+    }
+    try {
+      const result = await this.client.saveWorkspaceLayout({
+        expectedRevision,
+        layout: serialized,
+      });
+      if (this.disposed) return;
+      this.layoutRevision = result.revision;
+      if (this.snapshot.kind === 'ready' && this.snapshot.layoutPersistenceError !== undefined) {
+        this.publish(
+          Object.freeze({
+            ...this.snapshot,
+            layoutPersistenceError: undefined,
+          }),
+        );
+      }
+    } catch (error) {
+      if (this.disposed) return;
+      const message =
+        error instanceof Error ? error.message : 'Workspace layout could not be persisted.';
+      if (this.snapshot.kind === 'ready') {
+        this.publish(
+          Object.freeze({
+            ...this.snapshot,
+            layoutPersistenceError: message,
+          }),
+        );
+      }
     }
   }
 
@@ -1457,4 +1547,36 @@ function sameFileChange(left: TaskFileChange, right: TaskFileChange): boolean {
     left.path === right.path &&
     left.previousPath === right.previousPath
   );
+}
+
+function serializeWorkspaceLayout(layout: WorkspaceLayout): WorkspaceLayoutRecord | undefined {
+  try {
+    return JSON.parse(JSON.stringify(layout)) as WorkspaceLayoutRecord;
+  } catch {
+    return undefined;
+  }
+}
+
+function hydrateWorkspaceLayout(record: WorkspaceLayoutRecord): WorkspaceLayout {
+  return Object.freeze({
+    activeTabId: record.activeTabId,
+    tabs: Object.freeze(
+      record.tabs.map((tab) =>
+        Object.freeze({
+          activePaneId: tab.activePaneId,
+          id: tab.id,
+          panes: Object.freeze(
+            tab.panes.map((pane) =>
+              Object.freeze({
+                id: pane.id,
+                sessionId: pane.sessionId,
+                taskId: pane.taskId,
+              }),
+            ),
+          ),
+          taskId: tab.taskId,
+        }),
+      ),
+    ),
+  });
 }

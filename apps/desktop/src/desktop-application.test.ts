@@ -7,6 +7,20 @@ import { describe, expect, it } from 'vitest';
 
 import { createProductionDesktopApplication } from './desktop-application';
 
+const sampleLayout = () => ({
+  activeTabId: 'tab:task-1',
+  tabs: [
+    {
+      activePaneId: 'pane:task-1:main',
+      id: 'tab:task-1',
+      panes: [
+        { id: 'pane:task-1:main', sessionId: undefined, taskId: 'task-1' },
+      ],
+      taskId: 'task-1',
+    },
+  ],
+});
+
 describe('production desktop Application composition', () => {
   it('loads persisted workspace/settings through Application use cases without renderer infrastructure access', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'agentterm-desktop-application-'));
@@ -84,4 +98,29 @@ describe('production desktop Application composition', () => {
       rmSync(directory, { force: true, recursive: true });
     }
   }, 15_000);
+
+  it('round-trips Workspace Layout through SQLite persistence without exposing the desktop API', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agentterm-desktop-layout-'));
+    const application = await createProductionDesktopApplication({
+      clock: () => 1_800_000_000_000,
+      dataDirectory: directory,
+      environment: { PATH: process.env.PATH ?? '' },
+    });
+
+    try {
+      expect(await application.loadWorkspaceLayout()).toBeUndefined();
+      const saved = await application.saveWorkspaceLayout({
+        expectedRevision: 0,
+        layout: sampleLayout(),
+      });
+      expect(saved.revision).toBe(1);
+
+      const loaded = await application.loadWorkspaceLayout();
+      expect(loaded).toMatchObject({ revision: 1 });
+      expect(loaded?.layout).toEqual(sampleLayout());
+    } finally {
+      application.dispose();
+      rmSync(directory, { force: true, recursive: true });
+    }
+  });
 });

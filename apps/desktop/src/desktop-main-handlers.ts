@@ -186,6 +186,12 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.saveQualityGateConfig(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.saveQualityGateConfig],
         );
+      case desktopIpcChannels.loadWorkspaceLayout:
+        return application.loadWorkspaceLayout();
+      case desktopIpcChannels.saveWorkspaceLayout:
+        return application.saveWorkspaceLayout(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.saveWorkspaceLayout],
+        );
       case desktopIpcChannels.startPlanning:
         await application.startTaskPlanning(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.startPlanning],
