@@ -9,6 +9,8 @@ import type {
   PtyRuntimeEvent,
   PtyTerminalSize,
   QualityGate,
+  QualityGateConfiguration,
+  QualityGateConfiguratorFailure,
   QualityGateKind,
   QualityGateSummary,
   Task,
@@ -40,6 +42,7 @@ export const desktopIpcChannels = Object.freeze({
   listTaskChanges: 'agentterm:changes:list',
   listTaskDependencies: 'agentterm:task-dependency:list',
   listTaskReviews: 'agentterm:review:list',
+  loadQualityGateConfig: 'agentterm:quality-gates:load-config',
   loadSettings: 'agentterm:settings:load',
   loadWorkspace: 'agentterm:workspace:load',
   openProject: 'agentterm:project:open',
@@ -51,6 +54,7 @@ export const desktopIpcChannels = Object.freeze({
   requestReview: 'agentterm:review:request',
   retryExecution: 'agentterm:execution:retry',
   runQualityGate: 'agentterm:quality-gates:run',
+  saveQualityGateConfig: 'agentterm:quality-gates:save-config',
   startExecution: 'agentterm:execution:start',
   startPlanning: 'agentterm:planning:start',
   terminalAttach: 'agentterm:terminal:attach',
@@ -113,6 +117,25 @@ interface QualityGateRegistrationRequest {
   readonly timeoutMs: number;
 }
 
+export interface QualityGateConfigPathRequest {
+  readonly path: string;
+}
+
+export interface LoadQualityGateConfigResponse {
+  readonly failure: QualityGateConfiguratorFailure | undefined;
+  readonly value: QualityGateConfiguration | undefined;
+}
+
+export interface SaveQualityGateConfigRequest {
+  readonly configuration: QualityGateConfiguration;
+  readonly path: string;
+}
+
+export interface SaveQualityGateConfigResponse {
+  readonly failure: QualityGateConfiguratorFailure | undefined;
+  readonly value: QualityGateConfiguration | undefined;
+}
+
 interface CreateArtifactRequest {
   readonly content: string;
   readonly createdAt: number;
@@ -167,6 +190,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.listTaskChanges]: TaskRequest;
   readonly [desktopIpcChannels.listTaskDependencies]: TaskRequest;
   readonly [desktopIpcChannels.listTaskReviews]: TaskRequest;
+  readonly [desktopIpcChannels.loadQualityGateConfig]: QualityGateConfigPathRequest;
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
@@ -178,6 +202,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.requestReview]: TaskRequest;
   readonly [desktopIpcChannels.retryExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.runQualityGate]: QualityGateRequest;
+  readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigRequest;
   readonly [desktopIpcChannels.startExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.startPlanning]: AgentTaskRequest;
   readonly [desktopIpcChannels.terminalAttach]: TerminalAttachRequest;
@@ -204,6 +229,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.listTaskChanges]: TaskChangeSet;
   readonly [desktopIpcChannels.listTaskDependencies]: readonly TaskDependency[];
   readonly [desktopIpcChannels.listTaskReviews]: readonly TaskReviewSummary[];
+  readonly [desktopIpcChannels.loadQualityGateConfig]: LoadQualityGateConfigResponse;
   readonly [desktopIpcChannels.loadSettings]: ApplicationSettingsView;
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
@@ -215,6 +241,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.requestReview]: null;
   readonly [desktopIpcChannels.retryExecution]: null;
   readonly [desktopIpcChannels.runQualityGate]: null;
+  readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigResponse;
   readonly [desktopIpcChannels.startExecution]: null;
   readonly [desktopIpcChannels.startPlanning]: null;
   readonly [desktopIpcChannels.terminalAttach]: null;
@@ -265,6 +292,7 @@ export interface AgentTermDesktopApi {
   listTaskChanges(input: TaskRequest): Promise<TaskChangeSet>;
   listTaskDependencies(input: TaskRequest): Promise<readonly TaskDependency[]>;
   listTaskReviews(input: TaskRequest): Promise<readonly TaskReviewSummary[]>;
+  loadQualityGateConfig(input: QualityGateConfigPathRequest): Promise<LoadQualityGateConfigResponse>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   openProject(): Promise<OpenDesktopProjectResult>;
@@ -276,6 +304,7 @@ export interface AgentTermDesktopApi {
   requestTaskReview(input: TaskRequest): Promise<void>;
   retryTaskExecution(input: AgentTaskRequest): Promise<void>;
   runQualityGate(input: QualityGateRequest): Promise<void>;
+  saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>;
   startTaskExecution(input: AgentTaskRequest): Promise<void>;
   startTaskPlanning(input: AgentTaskRequest): Promise<void>;
   unregisterQualityGate(input: QualityGateIdRequest): Promise<boolean>;
@@ -460,6 +489,24 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
         id: readIdentity(record.id),
         kind: readQualityGateKind(record.kind),
         timeoutMs: readNonnegativeSafeInteger(record.timeoutMs),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.loadQualityGateConfig: {
+      const record = exactRecord(input, ['path']);
+      return Object.freeze({
+        path: readBoundedString(record.path, 32_768),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.saveQualityGateConfig: {
+      const record = exactRecord(input, ['configuration', 'path']);
+      const path = readBoundedString(record.path, 32_768);
+      const configuration = readQualityGateConfiguration(record.configuration);
+      return Object.freeze({
+        configuration: Object.freeze({
+          gates: Object.freeze([...configuration.gates]),
+          revision: configuration.revision,
+        }),
+        path,
       }) as DesktopIpcRequestMap[C];
     }
   }
@@ -661,6 +708,47 @@ function readSubscriptionId(input: unknown): string {
 function readRepositoryPart(input: unknown): string {
   if (typeof input !== 'string' || !repositoryPartPattern.test(input)) fail();
   return input;
+}
+
+function readQualityGateConfiguration(input: unknown): {
+  readonly gates: readonly QualityGate[];
+  readonly revision: string;
+} {
+  const record = readRecord(input);
+  assertExactKeys(Object.keys(record), ['gates', 'revision']);
+  if (!Array.isArray(record.gates)) fail();
+  if (record.gates.length > 32) fail();
+  const gates: QualityGate[] = [];
+  for (const candidate of record.gates) {
+    gates.push(readQualityGateForConfig(candidate));
+  }
+  const revision = readBoundedString(record.revision, 128);
+  if (!/^[a-zA-Z0-9._:-]+$/u.test(revision)) fail();
+  return Object.freeze({ gates: Object.freeze(gates), revision });
+}
+
+function readQualityGateForConfig(input: unknown): QualityGate {
+  const record = readRecord(input);
+  assertExactKeys(Object.keys(record), ['command', 'id', 'kind', 'timeoutMs']);
+  const id = readIdentity(record.id);
+  if (!/^[a-z0-9]+(?:[._:=-][a-z0-9]+)*$/u.test(id)) fail();
+  const kind = readQualityGateKind(record.kind);
+  const timeoutMs = readNonnegativeSafeInteger(record.timeoutMs);
+  if (timeoutMs < 1 || timeoutMs > 7_200_000) fail();
+  const command = readRecord(record.command);
+  assertExactKeys(Object.keys(command), ['arguments', 'executablePath']);
+  const executablePath = readBoundedString(command.executablePath, 32_768);
+  if (!/^(?:[A-Za-z]:[\\/]|\\\\|\/)/u.test(executablePath)) fail();
+  const argumentsList = readStringArray(command.arguments, 32);
+  return Object.freeze({
+    command: Object.freeze({
+      arguments: Object.freeze([...argumentsList]),
+      executablePath,
+    }),
+    id,
+    kind,
+    timeoutMs,
+  });
 }
 
 function readRepositoryRelativePath(input: unknown): string {

@@ -1,6 +1,15 @@
 export type WorkspaceFocusTarget =
   'artifacts' | 'changes' | 'checks' | 'review' | 'sidebar' | 'terminal' | 'workspace';
 
+export type WorkspaceCommandArtifactKind = 'execution-summary' | 'plan' | 'review';
+export type WorkspaceCommandQualityGateKind = 'BUILD' | 'LINT' | 'TEST' | 'TYPECHECK';
+export type WorkspaceCommandTaskPhase =
+  | 'BACKLOG'
+  | 'DONE'
+  | 'PLANNING'
+  | 'REVIEW'
+  | 'RUNNING';
+
 export interface WorkspaceCommand {
   readonly category: 'Navigate' | 'Quality gates' | 'Task';
   readonly id: string;
@@ -10,21 +19,33 @@ export interface WorkspaceCommand {
   readonly shortcut?: string;
 }
 
+export interface WorkspaceCommandDependency {
+  readonly id: string;
+  readonly phase: WorkspaceCommandTaskPhase;
+  readonly projectId: string;
+  readonly title: string;
+}
+
 export interface WorkspaceCommandTask {
+  readonly canProduceArtifact: boolean;
   readonly canRequestReview: boolean;
   readonly canRetryExecution: boolean;
   readonly canRevisePlan: boolean;
   readonly canRunQualityGate: boolean;
   readonly canStartExecution: boolean;
   readonly canStartPlanning: boolean;
+  readonly dependencies: readonly WorkspaceCommandDependency[];
   readonly id: string;
+  readonly projectId: string;
+  readonly title: string;
 }
 
 export interface WorkspaceCommandContext {
   readonly actionBusy: boolean;
+  readonly now: number;
   readonly qualityGates: readonly {
     readonly id: string;
-    readonly kind: 'BUILD' | 'LINT' | 'TEST' | 'TYPECHECK';
+    readonly kind: WorkspaceCommandQualityGateKind;
   }[];
   readonly selectedAgentId: string | undefined;
   readonly selectedTask: WorkspaceCommandTask | undefined;
@@ -36,13 +57,31 @@ export interface WorkspaceCommandContext {
 }
 
 export interface WorkspaceCommandActions {
+  addDependency(dependencyTaskId: string, taskId: string): Promise<void> | void;
   focus(target: WorkspaceFocusTarget): void;
+  produceArtifact(input: {
+    readonly content: string;
+    readonly createdAt: number;
+    readonly id: string;
+    readonly kind: WorkspaceCommandArtifactKind;
+    readonly sessionId: string | undefined;
+    readonly taskId: string;
+  }): Promise<unknown> | unknown;
+  registerQualityGate(input: {
+    readonly arguments: readonly string[];
+    readonly executablePath: string;
+    readonly id: string;
+    readonly kind: WorkspaceCommandQualityGateKind;
+    readonly timeoutMs: number;
+  }): Promise<unknown> | unknown;
+  removeDependency(dependencyTaskId: string, taskId: string): Promise<void> | void;
   requestReview(): Promise<void> | void;
   retryExecution(): Promise<void> | void;
   runQualityGate(gateId: string): Promise<void> | void;
   selectTask(taskId: string): void;
   startExecution(): Promise<void> | void;
   startPlanning(): Promise<void> | void;
+  unregisterQualityGate(gateId: string): Promise<boolean> | boolean;
 }
 
 export interface CommandPaletteState {
@@ -197,6 +236,90 @@ export function buildWorkspaceCommands(
         }),
       );
     }
+    for (const gate of context.qualityGates) {
+      commands.push(
+        command({
+          category: 'Quality gates',
+          id: `gate:remove:${gate.id}`,
+          keywords: [gate.id, gate.kind, 'unregister remove delete disable'],
+          label: `Unregister Quality Gate: ${gate.id}`,
+          run: async () => {
+            await actions.unregisterQualityGate(gate.id);
+          },
+        }),
+      );
+    }
+  }
+
+  if (!context.actionBusy && selected.canProduceArtifact) {
+    commands.push(
+      command({
+        category: 'Task',
+        id: 'artifact:produce',
+        keywords: ['artifact produce capture summary plan review'],
+        label: 'Produce artifact',
+        run: () => {
+          void actions.produceArtifact({
+            content: '',
+            createdAt: context.now,
+            id: `palette-${String(context.now)}`,
+            kind: 'execution-summary',
+            sessionId: undefined,
+            taskId: selected.id,
+          });
+        },
+      }),
+    );
+  }
+
+  if (!context.actionBusy) {
+    const requiredCandidates = context.tasks.filter((task) => task.id !== selected.id);
+    const firstUnmet = requiredCandidates.find(
+      (task) => !selected.dependencies.some((dependency) => dependency.id === task.id),
+    );
+    if (firstUnmet !== undefined) {
+      commands.push(
+        command({
+          category: 'Task',
+          id: `dependency:require:${firstUnmet.id}`,
+          keywords: [
+            firstUnmet.id,
+            firstUnmet.title,
+            'dependency require block chain',
+          ],
+          label: `Require task: ${firstUnmet.title}`,
+          run: () => void actions.addDependency(firstUnmet.id, selected.id),
+        }),
+      );
+    }
+    if (selected.dependencies.length > 0) {
+      const firstMet = selected.dependencies[0]!;
+      commands.push(
+        command({
+          category: 'Task',
+          id: `dependency:remove:${firstMet.id}`,
+          keywords: [
+            firstMet.id,
+            firstMet.title,
+            'dependency remove unrequire release',
+          ],
+          label: `Remove required task: ${firstMet.title}`,
+          run: () => void actions.removeDependency(firstMet.id, selected.id),
+        }),
+      );
+    }
+  }
+
+  if (!context.actionBusy && selected.canRunQualityGate) {
+    commands.push(
+      command({
+        category: 'Quality gates',
+        id: 'gate:register',
+        keywords: ['register add create new quality gate check validation'],
+        label: 'Register Quality Gate',
+        run: () => actions.focus('checks'),
+      }),
+    );
   }
 
   return Object.freeze(commands);

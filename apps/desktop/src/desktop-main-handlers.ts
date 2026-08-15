@@ -178,6 +178,14 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.listQualityGateDetails();
       case desktopIpcChannels.listQualityGates:
         return application.listQualityGates();
+      case desktopIpcChannels.loadQualityGateConfig:
+        return application.loadQualityGateConfig(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.loadQualityGateConfig],
+        );
+      case desktopIpcChannels.saveQualityGateConfig:
+        return application.saveQualityGateConfig(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.saveQualityGateConfig],
+        );
       case desktopIpcChannels.startPlanning:
         await application.startTaskPlanning(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.startPlanning],

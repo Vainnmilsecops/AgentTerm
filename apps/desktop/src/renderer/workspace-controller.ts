@@ -470,6 +470,32 @@ export class WorkspaceController {
     return this.executeSelectedAction('run-quality-gate', gateId);
   }
 
+  public static canProduceArtifact(
+    phase: AgentWorkspaceOverview['projects'][number]['tasks'][number]['task']['phase'],
+  ): boolean {
+    return phase !== 'DONE';
+  }
+
+  public static canEditDependencies(
+    phase: AgentWorkspaceOverview['projects'][number]['tasks'][number]['task']['phase'],
+  ): boolean {
+    return phase !== 'DONE';
+  }
+
+  public getSelectedTask():
+    | AgentWorkspaceOverview['projects'][number]['tasks'][number]
+    | undefined {
+    if (this.snapshot.kind !== 'ready') return undefined;
+    return findTask(this.snapshot.overview, this.snapshot.selectedTaskId);
+  }
+
+  public getTaskDependencies():
+    | AgentWorkspaceOverview['projects'][number]['tasks'][number]['dependencies']
+    | undefined {
+    const selected = this.getSelectedTask();
+    return selected?.dependencies;
+  }
+
   public async registerQualityGate(input: {
     readonly arguments: readonly string[];
     readonly executablePath: string;

@@ -148,6 +148,34 @@ describe('desktop IPC workflow-gaps contract', () => {
     expect(desktopApplication).toContain('listQualityGateDetails:');
   });
 
+  it('exposes loadQualityGateConfig and saveQualityGateConfig for trusted file exchange', () => {
+    expect(ipcContract).toContain(
+      "loadQualityGateConfig: 'agentterm:quality-gates:load-config'",
+    );
+    expect(ipcContract).toContain(
+      "saveQualityGateConfig: 'agentterm:quality-gates:save-config'",
+    );
+    expect(ipcContract).toContain(
+      'loadQualityGateConfig(input: QualityGateConfigPathRequest): Promise<LoadQualityGateConfigResponse>',
+    );
+    expect(ipcContract).toContain(
+      'saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>',
+    );
+    expect(desktopBridge).toContain(
+      'loadQualityGateConfig: (input) => invoke(desktopIpcChannels.loadQualityGateConfig, input)',
+    );
+    expect(desktopBridge).toContain(
+      'saveQualityGateConfig: (input) => invoke(desktopIpcChannels.saveQualityGateConfig, input)',
+    );
+    expect(desktopMainHandlers).toContain('case desktopIpcChannels.loadQualityGateConfig:');
+    expect(desktopMainHandlers).toContain('case desktopIpcChannels.saveQualityGateConfig:');
+    expect(desktopApplication).toContain('loadQualityGateConfig:');
+    expect(desktopApplication).toContain('saveQualityGateConfig:');
+    expect(desktopApplication).toContain('createQualityGateConfigurator');
+    expect(desktopApplication).toContain('AT_DESKTOP_GATE_CONFIG_ROOT');
+    expect(infrastructureIndex).toContain('createQualityGateConfigurator');
+  });
+
   it('routes register/unregister through the controller and QualityGateConfiguration form', () => {
     expect(workspaceController).toContain('registerQualityGate');
     expect(workspaceController).toContain('unregisterQualityGate');

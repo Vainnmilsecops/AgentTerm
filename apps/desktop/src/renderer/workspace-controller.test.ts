@@ -604,6 +604,12 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   ]);
   public readonly listQualityGateDetails = vi.fn(async () => this.gateDetails);
   public readonly listQualityGates = vi.fn(async () => this.gateSummaries);
+  public readonly loadQualityGateConfig = vi.fn<
+    AgentWorkspaceClient['loadQualityGateConfig']
+  >(async () => Object.freeze({ failure: undefined, value: undefined }));
+  public readonly saveQualityGateConfig = vi.fn<
+    AgentWorkspaceClient['saveQualityGateConfig']
+  >(async () => Object.freeze({ failure: undefined, value: undefined }));
   public readonly registerQualityGate = vi.fn<AgentWorkspaceClient['registerQualityGate']>(
     async () => undefined,
   );
@@ -1760,6 +1766,42 @@ describe('WorkspaceController', () => {
       activeSession: undefined,
       latestSession: { status: 'EXITED' },
     });
+  });
+});
+
+describe('WorkspaceController readiness helpers', () => {
+  it('rejects artifact production only when the selected Task is DONE', () => {
+    expect(WorkspaceController.canProduceArtifact('BACKLOG')).toBe(true);
+    expect(WorkspaceController.canProduceArtifact('PLANNING')).toBe(true);
+    expect(WorkspaceController.canProduceArtifact('RUNNING')).toBe(true);
+    expect(WorkspaceController.canProduceArtifact('REVIEW')).toBe(true);
+    expect(WorkspaceController.canProduceArtifact('DONE')).toBe(false);
+  });
+
+  it('rejects dependency edits only when the selected Task is DONE', () => {
+    expect(WorkspaceController.canEditDependencies('BACKLOG')).toBe(true);
+    expect(WorkspaceController.canEditDependencies('PLANNING')).toBe(true);
+    expect(WorkspaceController.canEditDependencies('RUNNING')).toBe(true);
+    expect(WorkspaceController.canEditDependencies('REVIEW')).toBe(true);
+    expect(WorkspaceController.canEditDependencies('DONE')).toBe(false);
+  });
+
+  it('returns the currently selected Task and its dependencies', async () => {
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [runningStartOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    expect(controller.getSelectedTask()?.task.id).toBe(runningTask.id);
+    expect(controller.getTaskDependencies()).toEqual([]);
+  });
+
+  it('returns undefined for selectedTask and dependencies when the workspace is loading', () => {
+    const client = new FakeWorkspaceClient();
+    const controller = new WorkspaceController(client);
+
+    expect(controller.getSelectedTask()).toBeUndefined();
+    expect(controller.getTaskDependencies()).toBeUndefined();
   });
 });
 

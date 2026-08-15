@@ -224,6 +224,43 @@ export interface QualityGateCatalog {
   unregister(id: string): Promise<boolean>;
 }
 
+/**
+ * Single trusted Quality Gate configuration file exchanged by Composition.
+ * Implementations own validation, parsing, and trust-root enforcement; Application
+ * and Presentation only ever hold the validated view record returned by load.
+ */
+export interface QualityGateConfiguration {
+  readonly gates: readonly QualityGate[];
+  readonly path: string;
+  readonly revision: string;
+}
+
+/**
+ * Reason a {@link QualityGateConfigurator} refuses a path. The contract surfaces
+ * the structured failure so callers can map it to precise IPC errors.
+ */
+export type QualityGateConfiguratorFailure =
+  | 'INVALID_FORMAT'
+  | 'INVALID_GATE'
+  | 'PATH_NOT_TRUSTED'
+  | 'PATH_UNREADABLE'
+  | 'PATH_UNWRITABLE';
+
+export interface QualityGateConfiguratorResult<T> {
+  readonly failure: QualityGateConfiguratorFailure | undefined;
+  readonly value: T | undefined;
+}
+
+export interface QualityGateConfigurator {
+  /** Returns the validated configuration file; failures yield a structured error. */
+  load(input: { readonly path: string }): Promise<QualityGateConfiguratorResult<QualityGateConfiguration>>;
+  /** Persists the validated configuration atomically; failures yield a structured error. */
+  save(input: {
+    readonly configuration: QualityGateConfiguration;
+    readonly path: string;
+  }): Promise<QualityGateConfiguratorResult<QualityGateConfiguration>>;
+}
+
 export interface QualityGateRunRepository {
   findById(id: string): Promise<QualityGateRun | undefined>;
   /** Inserts one RUNNING evidence record and must never replace an existing run. */
