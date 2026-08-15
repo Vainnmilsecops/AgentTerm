@@ -421,7 +421,7 @@ export function mapExecutionArtifactRow(row: SqliteRow): ExecutionArtifact {
     );
   }
   const kind = readText(row, 'kind', 'Execution Artifact');
-  if (!['execution-summary', 'plan', 'review'].includes(kind)) {
+  if (!['execution-summary', 'plan', 'research', 'review'].includes(kind)) {
     throw new SqlitePersistenceError(`Execution Artifact row contains an invalid kind: ${kind}.`);
   }
 

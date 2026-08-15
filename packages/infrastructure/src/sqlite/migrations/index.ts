@@ -12,6 +12,9 @@ import { pullRequestSyncMigration } from './0011-pull-request-sync';
 import { taskBriefsMigration } from './0012-task-briefs';
 import { workspaceLayoutMigration } from './0013-workspace-layout';
 import { agentSessionHostOwnershipMigration } from './0014-agent-session-host-ownership';
+import { workflowPluginBindingsMigration } from './0015-workflow-plugin-bindings';
+import { executionArtifactResearchKindMigration } from './0016-execution-artifact-research-kind';
+import { applicationSettingsMcpTokenMigration } from './0017-application-settings-mcp-token';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -34,4 +37,7 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   taskBriefsMigration,
   workspaceLayoutMigration,
   agentSessionHostOwnershipMigration,
+  workflowPluginBindingsMigration,
+  executionArtifactResearchKindMigration,
+  applicationSettingsMcpTokenMigration,
 ];

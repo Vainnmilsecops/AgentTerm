@@ -13,12 +13,14 @@ describe('Application Settings', () => {
     expect(settings).toEqual({
       agentExecutables: [],
       defaultAgentId: 'codex',
+      mcpServerToken: undefined,
       revision: 0,
       schemaVersion: 1,
       terminalFontSize: 14,
     });
     expect(ApplicationSettingsDefaults).toEqual({
       defaultAgentId: 'codex',
+      mcpServerToken: undefined,
       terminalFontSize: 14,
     });
     expect(JSON.stringify(settings)).not.toMatch(/token|credential|shell|git/i);
@@ -34,6 +36,7 @@ describe('Application Settings', () => {
     const settings = createApplicationSettings({
       agentExecutables: source,
       defaultAgentId: 'gemini',
+      mcpServerToken: 'a'.repeat(24),
       revision: 4,
       terminalFontSize: 16,
     });
@@ -45,6 +48,7 @@ describe('Application Settings', () => {
         { agentId: 'gemini', executablePath: 'C:\\Tools\\gemini.cmd' },
       ],
       defaultAgentId: 'gemini',
+      mcpServerToken: 'a'.repeat(24),
       revision: 4,
       schemaVersion: 1,
       terminalFontSize: 16,

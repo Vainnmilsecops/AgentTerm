@@ -320,6 +320,7 @@ function createArtifactEvidence(
 const artifactPhase: Readonly<Record<ExecutionArtifactKindValue, TaskPhaseValue>> = {
   [ExecutionArtifactKind.EXECUTION_SUMMARY]: TaskPhase.RUNNING,
   [ExecutionArtifactKind.PLAN]: TaskPhase.PLANNING,
+  [ExecutionArtifactKind.RESEARCH]: TaskPhase.BACKLOG,
   [ExecutionArtifactKind.REVIEW]: TaskPhase.REVIEW,
 };
 

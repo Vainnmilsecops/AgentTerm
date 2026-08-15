@@ -4,7 +4,6 @@ import {
   attachHostOwnership,
   createAgentSession,
   createAgentSessionHostOwnership,
-  recordAgentSessionEvent,
   setProviderSessionId,
   type AgentSession,
 } from '@agentterm/domain';
@@ -18,8 +17,6 @@ import type {
   HostReattacher,
   PtyHandle,
   PtyRuntime,
-  PtyRuntimeEvent,
-  PtyRuntimeEventSink,
   PtyTerminalSize,
 } from './ports';
 import { tryReattachAgentSession, tryResumeAgentSession } from './agent-session-recovery';

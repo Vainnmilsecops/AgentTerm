@@ -17,11 +17,12 @@ export type ArtifactValidation =
 const artifactHeadings: Readonly<Record<ExecutionArtifactKind, string>> = Object.freeze({
   [ExecutionArtifactKindValue.EXECUTION_SUMMARY]: '# Execution Summary',
   [ExecutionArtifactKindValue.PLAN]: '# Plan',
+  [ExecutionArtifactKindValue.RESEARCH]: '# Research',
   [ExecutionArtifactKindValue.REVIEW]: '# Review',
 });
 
 const phaseToKind: Readonly<Record<TaskPhaseValue, ExecutionArtifactKind>> = Object.freeze({
-  [TaskPhase.BACKLOG]: ExecutionArtifactKindValue.PLAN,
+  [TaskPhase.BACKLOG]: ExecutionArtifactKindValue.RESEARCH,
   [TaskPhase.DONE]: ExecutionArtifactKindValue.REVIEW,
   [TaskPhase.PLANNING]: ExecutionArtifactKindValue.PLAN,
   [TaskPhase.REVIEW]: ExecutionArtifactKindValue.REVIEW,

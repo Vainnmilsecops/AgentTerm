@@ -12,7 +12,10 @@ import { taskWorktreesMigration } from './sqlite/migrations/0003-task-worktrees'
 import { agentSessionsMigration } from './sqlite/migrations/0004-agent-sessions';
 import { executionArtifactsMigration } from './sqlite/migrations/0005-execution-artifacts';
 import { qualityGateRunsMigration } from './sqlite/migrations/0006-quality-gate-runs';
+import { taskReviewsMigration } from './sqlite/migrations/0007-task-reviews';
+import { taskDependenciesMigration } from './sqlite/migrations/0008-task-dependencies';
 import { pullRequestsMigration } from './sqlite/migrations/0009-pull-requests';
+import { applicationSettingsMigration } from './sqlite/migrations/0010-application-settings';
 import { migrateSqliteDatabase } from './sqlite/migrate';
 
 async function withTemporaryDatabase(run: (databasePath: string) => Promise<void>): Promise<void> {
@@ -121,12 +124,13 @@ describe('SQLite migrations', () => {
                  'task_reviews_one_pending_per_task_index',
                  'task_reviews_task_ordinal_index',
                  'task_dependencies_project_index',
-                 'task_pull_request_sync_history_task_index',
-                 'task_pull_requests_task_updated_index',
-                 'tasks_identity_project_index',
-                 'tasks_project_id_index',
-                 'project_roots_recent_index'
-               )
+'task_pull_request_sync_history_task_index',
+                'task_pull_requests_task_updated_index',
+                'tasks_identity_project_index',
+                'tasks_project_id_index',
+                'project_roots_recent_index',
+                'workflow_plugin_bindings_plugin_idx'
+              )
              ORDER BY name`,
           )
           .all();
@@ -150,6 +154,7 @@ describe('SQLite migrations', () => {
           'task_reviews',
           'task_worktrees',
           'tasks',
+          'workflow_plugin_bindings',
           'workspace_layout',
         ]);
         expect(migrations).toEqual([
@@ -166,6 +171,10 @@ describe('SQLite migrations', () => {
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
           { name: 'workspace-layout', version: 13 },
+          { name: 'agent-session-host-ownership', version: 14 },
+          { name: 'workflow-plugin-bindings', version: 15 },
+          { name: 'execution-artifact-research-kind', version: 16 },
+          { name: 'application-settings-mcp-token', version: 17 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -183,6 +192,7 @@ describe('SQLite migrations', () => {
           { name: 'task_reviews_task_ordinal_index' },
           { name: 'tasks_identity_project_index' },
           { name: 'tasks_project_id_index' },
+          { name: 'workflow_plugin_bindings_plugin_idx' },
         ]);
       } finally {
         database.close();
@@ -389,6 +399,10 @@ describe('SQLite migrations', () => {
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
           { name: 'workspace-layout', version: 13 },
+          { name: 'agent-session-host-ownership', version: 14 },
+          { name: 'workflow-plugin-bindings', version: 15 },
+          { name: 'execution-artifact-research-kind', version: 16 },
+          { name: 'application-settings-mcp-token', version: 17 },
         ]);
       } finally {
         migrated.close();
@@ -466,6 +480,10 @@ describe('SQLite migrations', () => {
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
           { name: 'workspace-layout', version: 13 },
+          { name: 'agent-session-host-ownership', version: 14 },
+          { name: 'workflow-plugin-bindings', version: 15 },
+          { name: 'execution-artifact-research-kind', version: 16 },
+          { name: 'application-settings-mcp-token', version: 17 },
         ]);
       } finally {
         migrated.close();
@@ -562,6 +580,10 @@ describe('SQLite migrations', () => {
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
           { name: 'workspace-layout', version: 13 },
+          { name: 'agent-session-host-ownership', version: 14 },
+          { name: 'workflow-plugin-bindings', version: 15 },
+          { name: 'execution-artifact-research-kind', version: 16 },
+          { name: 'application-settings-mcp-token', version: 17 },
         ]);
       } finally {
         migrated.close();
@@ -629,6 +651,10 @@ describe('SQLite migrations', () => {
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
           { name: 'workspace-layout', version: 13 },
+          { name: 'agent-session-host-ownership', version: 14 },
+          { name: 'workflow-plugin-bindings', version: 15 },
+          { name: 'execution-artifact-research-kind', version: 16 },
+          { name: 'application-settings-mcp-token', version: 17 },
         ]);
       } finally {
         migrated.close();
@@ -647,7 +673,15 @@ describe('SQLite migrations', () => {
             applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
           ) STRICT;
           ${projectsAndTasksMigration.sql}
+          ${projectRootsMigration.sql}
+          ${taskWorktreesMigration.sql}
+          ${agentSessionsMigration.sql}
+          ${executionArtifactsMigration.sql}
+          ${qualityGateRunsMigration.sql}
+          ${taskReviewsMigration.sql}
+          ${taskDependenciesMigration.sql}
           ${pullRequestsMigration.sql}
+          ${applicationSettingsMigration.sql}
           INSERT INTO _agentterm_migrations (version, name) VALUES
             (1, 'projects-and-tasks'), (2, 'project-roots'), (3, 'task-worktrees'),
             (4, 'agent-sessions'), (5, 'execution-artifacts'), (6, 'quality-gate-runs'),
@@ -738,6 +772,10 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'pull-request-sync', version: 11 }),
           expect.objectContaining({ name: 'task-briefs', version: 12 }),
           expect.objectContaining({ name: 'workspace-layout', version: 13 }),
+          expect.objectContaining({ name: 'agent-session-host-ownership', version: 14 }),
+          expect.objectContaining({ name: 'workflow-plugin-bindings', version: 15 }),
+          expect.objectContaining({ name: 'execution-artifact-research-kind', version: 16 }),
+          expect.objectContaining({ name: 'application-settings-mcp-token', version: 17 }),
         ]);
       } finally {
         migrated.close();

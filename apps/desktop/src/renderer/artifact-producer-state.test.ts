@@ -96,7 +96,9 @@ describe('selectArtifactKindForPhase', () => {
       ExecutionArtifactKindValue.EXECUTION_SUMMARY,
     );
     expect(selectArtifactKindForPhase(TaskPhase.REVIEW)).toBe(ExecutionArtifactKindValue.REVIEW);
-    expect(selectArtifactKindForPhase(TaskPhase.BACKLOG)).toBe(ExecutionArtifactKindValue.PLAN);
+    expect(selectArtifactKindForPhase(TaskPhase.BACKLOG)).toBe(
+      ExecutionArtifactKindValue.RESEARCH,
+    );
     expect(selectArtifactKindForPhase(TaskPhase.DONE)).toBe(ExecutionArtifactKindValue.REVIEW);
   });
 });

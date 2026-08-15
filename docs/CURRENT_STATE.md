@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-08-15
+Updated: 2026-08-16
 
 ## Current State
 
@@ -311,9 +311,18 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-The remaining renderer-side gaps around trusted Quality Gate configuration import/export are
-now closed end to end. Process reattachment and provider-native resume are wired into startup
-reconciliation; the runtime owner of the Windows ConPTY host must migrate to named pipes before
-the reattach path returns ALIVE for production sessions. Terminal output replay, cross-process
-live-execution reconciliation, installed-package validation, and persisting the renderer-local
-tab/pane layout across an application restart remain later lifecycle slices.
+ADR-009 Port agtx concepts into AgentTerm now drives the next milestones; M1
+(Spec-driven WorkflowPlugin Domain + Application + Infrastructure + built-in
+`void` / `agtx` plugins) is now in place with no behavior change to existing
+flows. Migration 15 appends `workflow_plugin_bindings` (TaskId PK + FK to
+`tasks`, plugin identity, source path, active phase, revision, installed_at)
+and a `plugin_id` index. Domain owns the plugin value (`WorkflowPlugin`,
+`WorkflowPhase`, `WorkflowArtifactContract`) and a fail-closed
+`createWorkflowPlugin` factory. Application exposes `bindPhaseAgent`,
+`selectPhaseArtifactContract`, and `installWorkflowPluginForTask`, plus the
+`WorkflowPluginConfigurator` and `WorkflowPluginBindingRepository` ports.
+Infrastructure ships the JSON file configurator with trust-root enforcement
+via `AT_DESKTOP_PLUGIN_ROOT`, a SQLite binding repository with compare-and-set
+upserts, and the two built-in plugins. The M1 desktop composition intentionally
+adds no IPC handlers; renderer workflow and Settings entry point are deferred
+to M2.

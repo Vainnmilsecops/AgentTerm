@@ -73,10 +73,13 @@ class RecordingPtyRuntime implements PtyRuntime {
   }
 
   public async reattach(
-    _ownership: { hostPid: number },
-    _initialSize: { columns: number; rows: number },
-    _sink: PtyRuntimeEventSink,
+    ownershipPty: { hostPid: number },
+    initialSizePty: { columns: number; rows: number },
+    sinkPty: PtyRuntimeEventSink,
   ): Promise<PtyHandle> {
+    void ownershipPty;
+    void initialSizePty;
+    void sinkPty;
     throw new PtyRuntimeError('spawn', 'CONPTY_UNAVAILABLE');
   }
 }

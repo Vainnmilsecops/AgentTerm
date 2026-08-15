@@ -12,7 +12,10 @@ import type {
   TaskReviewArtifactEvidence,
   TaskReviewCodeState,
   TaskReviewQualityGateEvidence,
-} from '@agentterm/domain';
+  WorkflowPlugin,
+} from "@agentterm/domain";
+
+import type { AgentSessionSummary } from './workspace-overview';
 
 export interface AgentVersion {
   readonly major: number;
@@ -26,18 +29,18 @@ export interface AgentIdentity {
   readonly id: string;
 }
 
-export type AgentCapability = 'SESSION_RESUME';
+export type AgentCapability = "SESSION_RESUME";
 
 export type AgentAvailability =
   | {
       readonly capabilities: readonly AgentCapability[];
       readonly executablePath: string;
-      readonly kind: 'available';
+      readonly kind: "available";
       readonly version?: AgentVersion;
     }
   | {
-      readonly kind: 'unavailable';
-      readonly reason: 'EXECUTABLE_NOT_FOUND' | 'INSPECTION_FAILED';
+      readonly kind: "unavailable";
+      readonly reason: "EXECUTABLE_NOT_FOUND" | "INSPECTION_FAILED";
     };
 
 export interface AgentLaunchRequest {
@@ -74,13 +77,19 @@ export interface AgentConfigurationInspector {
 export interface ApplicationSettingsRepository {
   get(): Promise<ApplicationSettings>;
   /** Atomically replaces the singleton settings row when its revision matches. */
-  update(settings: ApplicationSettings, expectedRevision: number): Promise<void>;
+  update(
+    settings: ApplicationSettings,
+    expectedRevision: number,
+  ): Promise<void>;
 }
 
 export interface AgentSessionRepository {
   findById(id: string): Promise<AgentSession | undefined>;
   /** Inserts one new attempt and must never replace history or admit a second active attempt for its Task. */
-  insert(session: AgentSession, expectedTaskPhase?: 'PLANNING' | 'RUNNING'): Promise<void>;
+  insert(
+    session: AgentSession,
+    expectedTaskPhase?: "BACKLOG" | "PLANNING" | "RUNNING",
+  ): Promise<void>;
   /** Atomically appends the new history suffix when the stored revision matches. */
   append(session: AgentSession, expectedSequence: number): Promise<void>;
   /** Atomically updates host ownership and provider session id only when the revision still matches. */
@@ -106,7 +115,7 @@ export interface TaskReviewArtifactEvidenceSnapshot {
 
 export type TaskReviewQualityGateEvidenceSource = Omit<
   TaskReviewQualityGateEvidence,
-  'association'
+  "association"
 >;
 
 export interface TaskReviewQualityGateEvidenceSnapshot {
@@ -118,12 +127,23 @@ export interface TaskReviewQualityGateEvidenceSnapshot {
 
 export interface ExecutionArtifactRepository {
   findById(id: string): Promise<ExecutionArtifact | undefined>;
+  /** Returns the newest immutable artifact of this kind for exact readiness decisions. */
+  findLatestByTaskIdAndKind(
+    taskId: string,
+    kind: ExecutionArtifact["kind"],
+  ): Promise<ExecutionArtifact | undefined>;
   /** Inserts one immutable artifact and must never replace an existing identity. */
-  insert(artifact: ExecutionArtifact, expectedTaskPhase?: Task['phase']): Promise<void>;
+  insert(
+    artifact: ExecutionArtifact,
+    expectedTaskPhase?: Task["phase"],
+  ): Promise<void>;
   /** Returns Task artifact history from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]>;
   /** Returns at most `limit` newest artifacts, still ordered from oldest to newest. */
-  listRecentByTaskId(taskId: string, limit: number): Promise<readonly ExecutionArtifact[]>;
+  listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly ExecutionArtifact[]>;
   /** Reads content-free review evidence only when the full history fits the admission limit. */
   readReviewEvidenceByTaskId(
     taskId: string,
@@ -135,7 +155,7 @@ export interface TaskPlanningArtifactRepository extends ExecutionArtifactReposit
   /** Returns the newest immutable artifact of this kind for exact readiness decisions. */
   findLatestByTaskIdAndKind(
     taskId: string,
-    kind: ExecutionArtifact['kind'],
+    kind: ExecutionArtifact["kind"],
   ): Promise<ExecutionArtifact | undefined>;
 }
 
@@ -168,40 +188,40 @@ export interface PtyLaunchSpec {
 }
 
 export type PtyRuntimeOperation =
-  'spawn' | 'write' | 'resize' | 'runtime' | 'terminate' | 'cleanup';
+  "spawn" | "write" | "resize" | "runtime" | "terminate" | "cleanup";
 
 export type PtyRuntimeFailureReason =
-  | 'INVALID_EXECUTABLE'
-  | 'INVALID_ARGUMENT'
-  | 'INVALID_WORKING_DIRECTORY'
-  | 'INVALID_ENVIRONMENT'
-  | 'INVALID_TERMINAL_SIZE'
-  | 'INVALID_INPUT'
-  | 'NOT_RUNNING'
-  | 'UNSUPPORTED_PLATFORM'
-  | 'CONPTY_UNAVAILABLE'
-  | 'RUNTIME_FAILURE';
+  | "INVALID_EXECUTABLE"
+  | "INVALID_ARGUMENT"
+  | "INVALID_WORKING_DIRECTORY"
+  | "INVALID_ENVIRONMENT"
+  | "INVALID_TERMINAL_SIZE"
+  | "INVALID_INPUT"
+  | "NOT_RUNNING"
+  | "UNSUPPORTED_PLATFORM"
+  | "CONPTY_UNAVAILABLE"
+  | "RUNTIME_FAILURE";
 
 export type PtyRuntimeEvent =
   | {
       /** The runtime accepted the launch and its listeners are active; target startup may still fail asynchronously. */
-      readonly kind: 'started';
+      readonly kind: "started";
       readonly sequence: number;
     }
   | {
       readonly data: string;
-      readonly kind: 'output';
+      readonly kind: "output";
       readonly sequence: number;
     }
   | {
-      readonly kind: 'failed';
+      readonly kind: "failed";
       readonly operation: PtyRuntimeOperation;
       readonly reason: PtyRuntimeFailureReason;
       readonly sequence: number;
     }
   | {
       readonly exitCode: number;
-      readonly kind: 'exited';
+      readonly kind: "exited";
       readonly sequence: number;
       readonly signal?: number;
     };
@@ -242,15 +262,40 @@ export interface PtyRuntime {
  * provider-native resume.
  */
 export type HostReattachInspection =
-  | { readonly kind: 'alive' }
-  | { readonly kind: 'dead'; readonly reason: 'PIPE_GONE' | 'PROCESS_GONE' };
+  | { readonly kind: "alive" }
+  | { readonly kind: "dead"; readonly reason: "PIPE_GONE" | "PROCESS_GONE" };
 
 export interface HostReattacher {
   /**
    * Performs read-only checks against the host PID and named pipes; never spawns or
    * sends commands. The returned decision drives reattach vs. resume vs. fail-closed.
    */
-  inspect(ownership: AgentSessionHostOwnership): Promise<HostReattachInspection>;
+  inspect(
+    ownership: AgentSessionHostOwnership,
+  ): Promise<HostReattachInspection>;
+}
+
+export interface AgentPaneSnapshot {
+  readonly boundedLines: readonly string[];
+  readonly capturedAt: number;
+  readonly sessionId: string;
+  readonly truncated: boolean;
+}
+
+export interface AgentPaneSnapshotProvider {
+  /**
+   * Returns the bounded buffer for an Agent Session's terminal pane. The
+   * snapshot is read-only and must never send input or restart the session.
+   */
+  readSnapshot(input: {
+    readonly maximumLines: number;
+    readonly sessionId: string;
+  }): Promise<AgentPaneSnapshot | undefined>;
+}
+
+export interface AgentSessionSummaryReader {
+  /** Lists Agent Session summaries scoped to the supplied Task id. */
+  listByTaskId(taskId: string): Promise<readonly AgentSessionSummary[]>;
 }
 
 export interface QualityGateCatalog {
@@ -280,7 +325,11 @@ export interface QualityGateConfiguration {
  * the structured failure so callers can map it to precise IPC errors.
  */
 export type QualityGateConfiguratorFailure =
-  'INVALID_FORMAT' | 'INVALID_GATE' | 'PATH_NOT_TRUSTED' | 'PATH_UNREADABLE' | 'PATH_UNWRITABLE';
+  | "INVALID_FORMAT"
+  | "INVALID_GATE"
+  | "PATH_NOT_TRUSTED"
+  | "PATH_UNREADABLE"
+  | "PATH_UNWRITABLE";
 
 export interface QualityGateConfiguratorResult<T> {
   readonly failure: QualityGateConfiguratorFailure | undefined;
@@ -304,11 +353,14 @@ export interface QualityGateRunRepository {
   /** Inserts one RUNNING evidence record and must never replace an existing run. */
   insert(run: QualityGateRun): Promise<void>;
   /** Finalizes exactly one RUNNING record using compare-and-set semantics. */
-  finalize(run: QualityGateRun, expectedStatus: 'RUNNING'): Promise<void>;
+  finalize(run: QualityGateRun, expectedStatus: "RUNNING"): Promise<void>;
   /** Returns every run for the Task from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly QualityGateRun[]>;
   /** Returns at most `limit` newest runs, still ordered from oldest to newest. */
-  listRecentByTaskId(taskId: string, limit: number): Promise<readonly QualityGateRun[]>;
+  listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly QualityGateRun[]>;
   /** Reads output/command/path-free review evidence only when history fits the admission limit. */
   readReviewEvidenceByTaskId(
     taskId: string,
@@ -331,19 +383,22 @@ export interface TaskReviewRepository {
   /** Returns immutable Review attempts from oldest to newest. */
   listByTaskId(taskId: string): Promise<readonly TaskReview[]>;
   /** Returns at most `limit` newest attempts, still ordered from oldest to newest. */
-  listRecentByTaskId(taskId: string, limit: number): Promise<readonly TaskReview[]>;
+  listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly TaskReview[]>;
   /** Atomically inserts a PENDING Review only if the captured Session history is still exact. */
   begin(
     review: TaskReview,
-    expectedTaskPhase: 'REVIEW' | 'RUNNING',
+    expectedTaskPhase: "REVIEW" | "RUNNING",
     nextTask: Task,
     expectedSessionRevisions: readonly TaskReviewSessionRevision[],
   ): Promise<void>;
   /** Atomically finalizes a PENDING Review and applies the explicit user decision. */
   decide(
     review: TaskReview,
-    expectedStatus: 'PENDING',
-    expectedTaskPhase: 'REVIEW',
+    expectedStatus: "PENDING",
+    expectedTaskPhase: "REVIEW",
     nextTask: Task,
   ): Promise<void>;
 }
@@ -362,26 +417,27 @@ export interface QualityGateProcessRequest {
 export type QualityGateProcessResult =
   | {
       readonly exitCode: number;
-      readonly kind: 'exited';
+      readonly kind: "exited";
       readonly output: string;
       readonly truncated: boolean;
     }
   | {
-      readonly kind: 'timed-out';
+      readonly kind: "timed-out";
       readonly output: string;
       readonly terminationFailed: boolean;
       readonly truncated: boolean;
     }
   | {
-      readonly kind: 'launch-error';
-      readonly output: '';
-      readonly reason: 'EXECUTABLE_NOT_FOUND' | 'INVALID_REQUEST' | 'SPAWN_FAILED';
+      readonly kind: "launch-error";
+      readonly output: "";
+      readonly reason:
+        "EXECUTABLE_NOT_FOUND" | "INVALID_REQUEST" | "SPAWN_FAILED";
       readonly truncated: false;
     }
   | {
-      readonly kind: 'infrastructure-error';
+      readonly kind: "infrastructure-error";
       readonly output: string;
-      readonly reason: 'PROCESS_PROTOCOL_ERROR' | 'TERMINATION_FAILED';
+      readonly reason: "PROCESS_PROTOCOL_ERROR" | "TERMINATION_FAILED";
       readonly truncated: boolean;
     };
 
@@ -393,21 +449,22 @@ export type GitHead =
   | {
       readonly branchName: string;
       readonly commitId: string;
-      readonly kind: 'attached';
+      readonly kind: "attached";
     }
   | {
       readonly commitId: string;
-      readonly kind: 'detached';
+      readonly kind: "detached";
     }
   | {
       readonly branchName: string;
-      readonly kind: 'unborn';
+      readonly kind: "unborn";
     };
 
 export interface GitBaseBranch {
   readonly name: string;
   readonly refName: string;
-  readonly source: 'current-branch' | 'local-main' | 'local-master' | 'remote-head';
+  readonly source:
+    "current-branch" | "local-main" | "local-master" | "remote-head";
 }
 
 export interface GitWorkingTreeStatus {
@@ -427,10 +484,10 @@ export interface GitRepositorySnapshot {
 
 export type GitRepositoryInspection =
   | {
-      readonly kind: 'not-working-tree';
+      readonly kind: "not-working-tree";
     }
   | {
-      readonly kind: 'repository';
+      readonly kind: "repository";
       readonly repository: GitRepositorySnapshot;
     };
 
@@ -453,7 +510,8 @@ export interface LocalProjectLocator {
   findLocalById(id: string): Promise<LocalProject | undefined>;
 }
 
-export type TaskWorktreeLifecycleState = 'PRESENT' | 'PROVISIONING' | 'REMOVED' | 'REMOVING';
+export type TaskWorktreeLifecycleState =
+  "PRESENT" | "PROVISIONING" | "REMOVED" | "REMOVING";
 
 export interface TaskWorktree {
   readonly baseCommitId: string;
@@ -475,11 +533,11 @@ export interface TaskWorktreeStatus extends GitWorkingTreeStatus {
 
 export type TaskWorktreeInspection =
   | {
-      readonly kind: 'missing';
+      readonly kind: "missing";
       readonly worktree: TaskWorktree;
     }
   | {
-      readonly kind: 'stale-registration';
+      readonly kind: "stale-registration";
       readonly recoveryPath: string;
       readonly status: TaskWorktreeStatus;
       readonly worktree: TaskWorktree;
@@ -487,7 +545,7 @@ export type TaskWorktreeInspection =
   | {
       /** Attached HEAD observed in the verified Worktree at inspection time. */
       readonly headCommitId: string;
-      readonly kind: 'present';
+      readonly kind: "present";
       readonly status: TaskWorktreeStatus;
       readonly worktree: TaskWorktree;
     };
@@ -499,13 +557,13 @@ export interface InspectGitTaskWorktreeInput {
 }
 
 export interface TaskWorktreeEnsureResult {
-  readonly kind: 'created' | 'reused';
+  readonly kind: "created" | "reused";
   readonly status: TaskWorktreeStatus;
   readonly worktree: TaskWorktree;
 }
 
 export interface TaskWorktreeCleanupResult {
-  readonly kind: 'already-missing' | 'removed';
+  readonly kind: "already-missing" | "removed";
   readonly worktree: TaskWorktree;
 }
 
@@ -516,10 +574,17 @@ export interface GitTaskWorktreeLifecycle {
   inspect(input: InspectGitTaskWorktreeInput): Promise<TaskWorktreeInspection>;
 }
 
-export type TaskChangeArea = 'COMMITTED' | 'CONFLICTED' | 'STAGED' | 'UNSTAGED' | 'UNTRACKED';
+export type TaskChangeArea =
+  "COMMITTED" | "CONFLICTED" | "STAGED" | "UNSTAGED" | "UNTRACKED";
 
 export type TaskFileChangeKind =
-  'ADDED' | 'COPIED' | 'DELETED' | 'MODIFIED' | 'RENAMED' | 'UNMERGED' | 'UNTRACKED';
+  | "ADDED"
+  | "COPIED"
+  | "DELETED"
+  | "MODIFIED"
+  | "RENAMED"
+  | "UNMERGED"
+  | "UNTRACKED";
 
 export interface TaskFileChange {
   readonly area: TaskChangeArea;
@@ -544,7 +609,7 @@ export interface TaskFileDiff extends TaskFileChange {
   readonly additions: number | undefined;
   readonly binary: boolean | undefined;
   readonly deletions: number | undefined;
-  readonly omittedReason?: 'BINARY' | 'TOO_LARGE' | 'UNSUPPORTED';
+  readonly omittedReason?: "BINARY" | "TOO_LARGE" | "UNSUPPORTED";
   readonly patch?:
     | {
         readonly text: string;
@@ -557,15 +622,19 @@ export interface TaskChangeInspector {
   /** Reads a bounded, deterministic list from the exact verified primary Task Worktree. */
   listChanges(worktree: TaskWorktreeRecord): Promise<TaskChangeSet>;
   /** Reads one bounded patch only when the requested identity is still a current change. */
-  getFileDiff(worktree: TaskWorktreeRecord, request: TaskFileDiffRequest): Promise<TaskFileDiff>;
+  getFileDiff(
+    worktree: TaskWorktreeRecord,
+    request: TaskFileDiffRequest,
+  ): Promise<TaskFileDiff>;
 }
 
-export type PullRequestStatus = 'CLOSED' | 'MERGED' | 'OPEN';
+export type PullRequestStatus = "CLOSED" | "MERGED" | "OPEN";
 
 export type PullRequestReviewState =
-  'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'NONE' | 'UNKNOWN';
+  "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "NONE" | "UNKNOWN";
 
-export type PullRequestCheckState = 'FAILURE' | 'NONE' | 'PENDING' | 'SUCCESS' | 'UNKNOWN';
+export type PullRequestCheckState =
+  "FAILURE" | "NONE" | "PENDING" | "SUCCESS" | "UNKNOWN";
 
 export interface PullRequestCheckSummary {
   readonly failureCount: number;
@@ -585,7 +654,7 @@ export interface TaskPullRequest {
   /** Local observation time for the last complete, successful GitHub metadata snapshot. */
   readonly lastSyncedAt: number | undefined;
   readonly number: number;
-  readonly provider: 'github';
+  readonly provider: "github";
   readonly repositoryName: string;
   readonly repositoryOwner: string;
   readonly reviewState: PullRequestReviewState;
@@ -597,18 +666,18 @@ export interface TaskPullRequest {
 }
 
 export type PullRequestBranchReadinessFailure =
-  | 'BRANCH_MISMATCH'
-  | 'DETACHED_HEAD'
-  | 'GITHUB_REMOTE_NOT_FOUND'
-  | 'INSPECTION_FAILED'
-  | 'INVALID_BASE_BRANCH'
-  | 'NO_COMMITS_AHEAD'
-  | 'UNCOMMITTED_CHANGES'
-  | 'WORKTREE_NOT_READY';
+  | "BRANCH_MISMATCH"
+  | "DETACHED_HEAD"
+  | "GITHUB_REMOTE_NOT_FOUND"
+  | "INSPECTION_FAILED"
+  | "INVALID_BASE_BRANCH"
+  | "NO_COMMITS_AHEAD"
+  | "UNCOMMITTED_CHANGES"
+  | "WORKTREE_NOT_READY";
 
 export type PullRequestBranchInspection =
   | {
-      readonly kind: 'blocked';
+      readonly kind: "blocked";
       readonly reason: PullRequestBranchReadinessFailure;
     }
   | {
@@ -617,8 +686,8 @@ export type PullRequestBranchInspection =
       readonly githubCliAvailable: boolean;
       readonly headBranch: string;
       readonly headCommitId: string;
-      readonly kind: 'ready';
-      readonly provider: 'github';
+      readonly kind: "ready";
+      readonly provider: "github";
       readonly pullRequest: TaskPullRequest | undefined;
       readonly remoteHeadCommitId: string | undefined;
       readonly remoteName: string;
@@ -690,7 +759,7 @@ export interface TaskRepository {
   /** Inserts a new Task and must not replace an existing identity. */
   insert(task: Task): Promise<void>;
   /** Replaces an existing Task only while its persisted phase still matches the caller's read. */
-  update(task: Task, expectedPhase: Task['phase']): Promise<void>;
+  update(task: Task, expectedPhase: Task["phase"]): Promise<void>;
 }
 
 export interface TaskCatalog {
@@ -703,4 +772,56 @@ export interface TaskDependencyRepository {
   listByProjectId(projectId: string): Promise<readonly TaskDependency[]>;
   listByTaskId(taskId: string): Promise<readonly TaskDependency[]>;
   remove(dependency: TaskDependency): Promise<boolean>;
+}
+
+export type WorkflowPluginLoadFailure =
+  "INVALID_FORMAT" | "PATH_NOT_TRUSTED" | "PATH_UNREADABLE" | "UNKNOWN_PLUGIN";
+
+export interface WorkflowPluginConfiguratorResult<T> {
+  readonly failure: WorkflowPluginLoadFailure | undefined;
+  readonly value: T | undefined;
+}
+
+export interface WorkflowPluginConfiguration {
+  readonly path: string;
+  readonly plugin: WorkflowPlugin;
+  readonly revision: string;
+}
+
+/**
+ * Single trusted Workflow Plugin file exchanged by Composition.
+ * Implementations own validation, parsing, and trust-root enforcement; Application
+ * and Presentation only ever hold the validated Domain value returned by load.
+ */
+export interface WorkflowPluginConfigurator {
+  load(input: {
+    readonly path: string;
+  }): Promise<WorkflowPluginConfiguratorResult<WorkflowPluginConfiguration>>;
+}
+
+export interface WorkflowPluginBindingRepository {
+  /** Reads the persisted plugin + phase binding for one Task, or undefined. */
+  findByTaskId(
+    taskId: string,
+  ): Promise<WorkflowPluginBindingRecord | undefined>;
+  /**
+   * Atomically inserts or replaces the plugin/phase binding for one Task.
+   * `expectedRevision` is the previously observed binding revision (or `0`
+   * for the first install); concurrent writers must retry with the new value.
+   */
+  upsert(
+    record: WorkflowPluginBindingRecord,
+    expectedRevision: number,
+  ): Promise<void>;
+  /** Removes the binding for one Task. Returns `false` when nothing matched. */
+  removeByTaskId(taskId: string): Promise<boolean>;
+}
+
+export interface WorkflowPluginBindingRecord {
+  readonly activePhaseId: string;
+  readonly installedAt: number;
+  readonly pluginId: string;
+  readonly revision: number;
+  readonly sourcePath: string;
+  readonly taskId: string;
 }

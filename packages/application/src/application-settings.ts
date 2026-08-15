@@ -46,6 +46,7 @@ export interface UpdateApplicationSettingsInput {
   readonly agentExecutables: readonly AgentExecutableSetting[];
   readonly defaultAgentId: string;
   readonly expectedRevision: number;
+  readonly mcpServerToken?: string | undefined;
   readonly terminalFontSize: number;
 }
 
@@ -70,6 +71,11 @@ export async function updateApplicationSettings(
     next = createApplicationSettings({
       agentExecutables: input.agentExecutables,
       defaultAgentId: input.defaultAgentId,
+      ...(input.mcpServerToken === undefined
+        ? current.mcpServerToken === undefined
+          ? {}
+          : { mcpServerToken: current.mcpServerToken }
+        : { mcpServerToken: input.mcpServerToken }),
       revision: current.revision + 1,
       terminalFontSize: input.terminalFontSize,
     });

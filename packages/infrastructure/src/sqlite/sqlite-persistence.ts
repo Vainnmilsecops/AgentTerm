@@ -16,6 +16,7 @@ import type {
   TaskCatalog,
   TaskDependencyRepository,
   TaskWorktreeRepository,
+  WorkflowPluginBindingRepository,
   WorkspaceLayoutRepository,
 } from '@agentterm/application';
 
@@ -32,6 +33,7 @@ import {
   SqliteTaskReviewRepository,
   SqliteTaskWorktreeRepository,
 } from './repositories';
+import { SqliteWorkflowPluginBindingRepository } from './workflow-plugin-bindings';
 import { SqliteWorkspaceLayoutRepository } from './workspace-layout-repository';
 
 type NodeSqliteModule = typeof import('node:sqlite');
@@ -51,6 +53,7 @@ export interface SqlitePersistence {
   readonly reviews: TaskReviewRepository;
   readonly worktrees: TaskWorktreeRepository;
   readonly workspaceLayout: WorkspaceLayoutRepository;
+  readonly workflowPluginBindings: WorkflowPluginBindingRepository;
   close(): void;
 }
 
@@ -75,6 +78,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let reviews: TaskReviewRepository;
   let worktrees: TaskWorktreeRepository;
   let workspaceLayout: WorkspaceLayoutRepository;
+  let workflowPluginBindings: WorkflowPluginBindingRepository;
 
   try {
     database.exec(`
@@ -95,6 +99,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     reviews = new SqliteTaskReviewRepository(database);
     worktrees = new SqliteTaskWorktreeRepository(database);
     workspaceLayout = new SqliteWorkspaceLayoutRepository(database);
+    workflowPluginBindings = new SqliteWorkflowPluginBindingRepository(database);
   } catch (error) {
     database.close();
     throw error;
@@ -114,6 +119,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     reviews,
     worktrees,
     workspaceLayout,
+    workflowPluginBindings,
     close(): void {
       if (!isClosed) {
         database.close();
