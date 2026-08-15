@@ -271,8 +271,15 @@ for untrusted repositories is deferred; current inspection must follow an explic
 Worktree checkout can likewise execute configured clean/smudge/process filters even though hooks are
 disabled for AgentTerm's mutating commands. The in-process Agent Session coordinator owns PTY
 handles, and startup can now reconcile persisted sessions that no longer have ownership.
-Reattaching to an old process, provider-native resume, automatic retry policy, and exclusive Worktree-cleanup
-coordination remain deferred; another writer could otherwise race the final dirty/ignored-file inspection.
+Reattachment ports (`HostReattacher`, `PtyRuntime.reattach`) and provider-native resume
+(`AgentLaunchRequest.resumeSessionId`, adapter-owned argv) are now wired end to end through
+`restoreAgentSessionsAfterRestart`. The reattach path reads only Win32 named pipes that the host
+exposes; until the Windows ConPTY runtime migrates from `node-pty` to a named-pipe host, the
+inspector deterministically reports `PIPE_GONE` and the coordinator falls back to provider-native
+resume. Resume appends a fresh `AgentSession` row with the persisted provider session id and the
+previous attempt stays untouched for immutable history. Cross-process live-execution reconciliation
+and terminal output replay remain deferred; another writer could otherwise race the final
+dirty/ignored-file inspection.
 The unpacked packaged-desktop layout has not been introduced, so native loading has been verified in
 Electron 43 development runtime but not yet from an installed artifact. The Infrastructure build
 copies its PTY host asset beside the bundle; future packaging must retain that asset and the complete
@@ -305,6 +312,8 @@ trusted-repository limitation around configured clean/process filters.
 ## Next Step
 
 The remaining renderer-side gaps around trusted Quality Gate configuration import/export are
-now closed end to end. Process reattachment, provider-native resume, terminal output replay,
-installed-package validation, cross-process live-execution reconciliation, and persisting the
-renderer-local tab/pane layout across an application restart remain later lifecycle slices.
+now closed end to end. Process reattachment and provider-native resume are wired into startup
+reconciliation; the runtime owner of the Windows ConPTY host must migrate to named pipes before
+the reattach path returns ALIVE for production sessions. Terminal output replay, cross-process
+live-execution reconciliation, installed-package validation, and persisting the renderer-local
+tab/pane layout across an application restart remain later lifecycle slices.

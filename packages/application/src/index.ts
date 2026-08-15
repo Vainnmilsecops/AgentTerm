@@ -7,6 +7,8 @@ export {
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
   AgentSessionRuntimeOwnershipError,
+  AgentSessionResumeUnavailableError,
+  type AgentSessionResumeUnavailableReason,
   AgentSessionTerminalAttachmentConflictError,
   EntityAlreadyExistsError,
   EntityNotFoundError,
@@ -65,6 +67,11 @@ export type {
   ExecutionArtifactKind,
 } from '@agentterm/domain';
 export { ExecutionArtifactKind as ExecutionArtifactKindValue } from '@agentterm/domain';
+export type {
+  AgentSessionHostOwnership,
+  CreateAgentSessionHostOwnershipInput,
+} from '@agentterm/domain';
+export { createAgentSessionHostOwnership, isValidProviderSessionId } from '@agentterm/domain';
 export {
   AgentSessionCoordinator,
   type AgentSessionTerminalAttachment,
@@ -77,8 +84,19 @@ export {
 export {
   restoreAgentWorkspaceAfterRestart,
   restoreAgentSessionsAfterRestart,
+  type RestoreAgentSessionsOptions,
   type RestoreAgentSessionsResult,
 } from './agent-session-restore';
+export {
+  tryReattachAgentSession,
+  tryResumeAgentSession,
+  type AgentSessionRecoveryDependencies,
+  type TryReattachAgentSessionInput,
+  type TryReattachAgentSessionResult,
+  type TryReattachSkipReason,
+  type TryResumeAgentSessionInput,
+  type TryResumeAgentSessionResult,
+} from './agent-session-recovery';
 export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
 export { ConfiguredAgentCatalog, listAgentSummaries, type AgentSummary } from './agent-catalog';
 export {
@@ -147,6 +165,8 @@ export type {
   PtyRuntimeFailureReason,
   PtyRuntimeOperation,
   PtyTerminalSize,
+  HostReattacher,
+  HostReattachInspection,
   QualityGateCatalog,
   QualityGateConfigurator,
   QualityGateConfiguratorFailure,

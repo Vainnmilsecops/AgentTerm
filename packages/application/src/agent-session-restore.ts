@@ -5,7 +5,12 @@ import { AgentSessionPersistenceError } from './errors';
 import type {
   AgentCatalog,
   AgentSessionRepository,
+  HostReattacher,
   ProjectCatalog,
+  PtyHandle,
+  PtyRuntime,
+  PtyRuntimeEventSink,
+  PtyTerminalSize,
   QualityGateRunRepository,
   TaskCatalog,
   TaskDependencyRepository,
@@ -18,12 +23,30 @@ export interface RestoreAgentSessionsResult {
   readonly reconciledSessions: readonly AgentSession[];
 }
 
+export interface RestoreAgentSessionsOptions {
+  readonly hostReattacher?: HostReattacher;
+  readonly reattachAttempt?: (
+    sessionId: string,
+    initialSize: PtyTerminalSize,
+    eventSink?: PtyRuntimeEventSink,
+  ) => Promise<{ readonly handle: PtyHandle } | undefined>;
+  readonly resumeAttempt?: (
+    sessionId: string,
+    initialSize: PtyTerminalSize,
+    eventSink: PtyRuntimeEventSink,
+  ) => Promise<boolean>;
+  readonly resumeInitialSize?: PtyTerminalSize;
+  readonly runtime?: PtyRuntime;
+  readonly reattachEventSink?: PtyRuntimeEventSink;
+}
+
 const runtimeOwnershipLostCode = 'RUNTIME_OWNERSHIP_LOST';
 
 /** Run once during process startup, before this process can own or launch any PTY runtime. */
 export async function restoreAgentSessionsAfterRestart(
   sessions: AgentSessionRepository,
   clock: () => number,
+  options: RestoreAgentSessionsOptions = {},
 ): Promise<RestoreAgentSessionsResult> {
   const activeSessions = await sessions.listActive();
   const reconciledSessions: AgentSession[] = [];
@@ -36,6 +59,13 @@ export async function restoreAgentSessionsAfterRestart(
     if (lastEvent === undefined) {
       throw new AgentSessionPersistenceError(current.id);
     }
+
+    const recovered = await tryRecoverSession(current, options);
+    if (recovered !== undefined) {
+      reconciledSessions.push(recovered);
+      continue;
+    }
+
     const failed = recordAgentSessionEvent(current, {
       code: runtimeOwnershipLostCode,
       fatal: true,
@@ -58,6 +88,35 @@ export async function restoreAgentSessionsAfterRestart(
   }
 
   return Object.freeze({ reconciledSessions: Object.freeze(reconciledSessions) });
+}
+
+async function tryRecoverSession(
+  current: AgentSession,
+  options: RestoreAgentSessionsOptions,
+): Promise<AgentSession | undefined> {
+  if (
+    options.reattachAttempt === undefined ||
+    options.resumeAttempt === undefined ||
+    options.resumeInitialSize === undefined
+  ) {
+    return undefined;
+  }
+
+  const recovery = await options.reattachAttempt(
+    current.id,
+    options.resumeInitialSize,
+    options.reattachEventSink,
+  );
+  if (recovery === undefined) {
+    return undefined;
+  }
+
+  const resumed = await options.resumeAttempt(
+    current.id,
+    options.resumeInitialSize,
+    options.reattachEventSink ?? (() => undefined),
+  );
+  return resumed ? current : undefined;
 }
 
 export async function restoreAgentWorkspaceAfterRestart(

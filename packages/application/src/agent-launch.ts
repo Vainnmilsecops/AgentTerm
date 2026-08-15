@@ -24,6 +24,7 @@ export async function launchAgent(
 ): Promise<PtyHandle> {
   const command = await adapter.buildLaunchCommand({
     environment: input.environment,
+    ...(input.resumeSessionId === undefined ? {} : { resumeSessionId: input.resumeSessionId }),
     workingDirectory: input.workingDirectory,
   });
 

@@ -258,6 +258,7 @@ class MemoryTaskRepository implements TaskRepository {
 class MemorySessionRepository implements AgentSessionRepository {
   public constructor(public readonly values: AgentSession[]) {}
   public async append(): Promise<void> {}
+  public async updateOwnership(): Promise<void> {}
   public async findById(id: string): Promise<AgentSession | undefined> {
     return this.values.find((session) => session.id === id);
   }

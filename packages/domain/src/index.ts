@@ -19,8 +19,12 @@ export { AgentSessionStatus } from './agent-session-status';
 export type { AgentSessionStatus as AgentSessionStatusValue } from './agent-session-status';
 export {
   createAgentSession,
+  attachHostOwnership,
+  clearHostOwnership,
+  hydrateAgentSession,
   InvalidAgentSessionStatusTransitionError,
   recordAgentSessionEvent,
+  setProviderSessionId,
   type AgentSession,
   type AgentSessionActiveStatus,
   type AgentSessionEvent,
@@ -33,6 +37,14 @@ export {
   type CreateAgentSessionInput,
   type RecordAgentSessionEventInput,
 } from './agent-session';
+export {
+  createAgentSessionHostOwnership,
+  InvalidAgentSessionHostOwnershipError,
+  isAgentSessionHostOwnership,
+  isValidProviderSessionId,
+  type AgentSessionHostOwnership,
+  type CreateAgentSessionHostOwnershipInput,
+} from './agent-session-ownership';
 export { TaskPhase } from './task-phase';
 export {
   decideTaskReview,

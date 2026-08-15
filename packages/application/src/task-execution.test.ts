@@ -9,6 +9,7 @@ import {
   recordAgentSessionEvent,
   transitionTask,
   type AgentSession,
+  type AgentSessionHostOwnership,
   type Task,
   type TaskDependency,
   type TaskPhase as TaskPhaseValue,
@@ -252,6 +253,25 @@ class MemoryAgentSessionRepository implements AgentSessionRepository {
     this.stored.set(session.id, session);
   }
 
+  public async updateOwnership(
+    session: AgentSession,
+    expectedSequence: number,
+    input: {
+      hostOwnership: AgentSessionHostOwnership | undefined;
+      providerSessionId: string | undefined;
+    },
+  ): Promise<void> {
+    const current = this.stored.get(session.id);
+    if (current === undefined || current.history.length !== expectedSequence) {
+      throw new Error('stale Session revision');
+    }
+    this.stored.set(session.id, {
+      ...session,
+      hostOwnership: input.hostOwnership ?? current.hostOwnership,
+      providerSessionId: input.providerSessionId ?? current.providerSessionId,
+    });
+  }
+
   public async listActive(): Promise<readonly AgentSession[]> {
     return [...this.stored.values()].filter(
       (session) => session.status !== 'EXITED' && session.status !== 'FAILED',
@@ -318,6 +338,24 @@ class FakePtyRuntime implements PtyRuntime {
       sink({ kind: 'failed', operation: 'spawn', reason: this.failure.reason, sequence: 1 });
       throw this.failure;
     }
+    const handle = new FakePtyHandle();
+    this.handles.push(handle);
+    sink({ kind: 'started', sequence: 1 });
+    return handle;
+  }
+
+  public async reattach(
+    ownership: AgentSessionHostOwnership,
+    initialSize: { columns: number; rows: number },
+    sink: PtyRuntimeEventSink,
+  ): Promise<PtyHandle> {
+    this.events.push(`reattach:${ownership.hostPid}`);
+    this.sinks.push(sink);
+    if (this.failure !== undefined) {
+      sink({ kind: 'failed', operation: 'spawn', reason: this.failure.reason, sequence: 1 });
+      throw this.failure;
+    }
+    void initialSize;
     const handle = new FakePtyHandle();
     this.handles.push(handle);
     sink({ kind: 'started', sequence: 1 });

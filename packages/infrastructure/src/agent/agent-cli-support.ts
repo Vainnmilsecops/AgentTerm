@@ -60,7 +60,18 @@ export interface AgentCliProbeResult {
 
 export interface ValidatedAgentLaunchRequest {
   readonly environment: Readonly<Record<string, string>>;
+  readonly resumeSessionId?: string;
   readonly workingDirectory: string;
+}
+
+export function validateResumeSessionId(value: string): string {
+  // Defensive: any opaque provider session id passed to the adapter must match a
+  // narrow alphanumeric shape. Provider IDs are stable opaque tokens; they never
+  // contain whitespace, shell metacharacters, or path separators.
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._-]{4,128}$/u.test(value)) {
+    throw new AgentAdapterError('INVALID_LAUNCH_REQUEST');
+  }
+  return value;
 }
 
 export async function resolveAgentCliInvocation(
@@ -136,7 +147,15 @@ export async function validateAgentLaunchRequest(
     if (invocation.usesNodeRuntime && containsNodeInjection(environment)) {
       throw new AgentAdapterError('INVALID_LAUNCH_REQUEST');
     }
-    return Object.freeze({ environment, workingDirectory });
+    const resumeSessionId =
+      request.resumeSessionId === undefined
+        ? undefined
+        : validateResumeSessionId(request.resumeSessionId);
+    return Object.freeze({
+      environment,
+      ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
+      workingDirectory,
+    });
   } catch (error) {
     if (error instanceof AgentAdapterError) {
       throw error;

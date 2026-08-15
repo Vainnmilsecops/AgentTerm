@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { createAgentSession, recordAgentSessionEvent, type AgentSession } from '@agentterm/domain';
+import {
+  createAgentSession,
+  recordAgentSessionEvent,
+  type AgentSession,
+  type AgentSessionHostOwnership,
+} from '@agentterm/domain';
 
 import {
   AgentSessionPersistenceError,
@@ -56,6 +61,25 @@ class MemoryAgentSessionRepository implements AgentSessionRepository {
       throw new Error('stale session revision');
     }
     this.stored.set(session.id, session);
+  }
+
+  public async updateOwnership(
+    session: AgentSession,
+    expectedSequence: number,
+    input: {
+      hostOwnership: AgentSessionHostOwnership | undefined;
+      providerSessionId: string | undefined;
+    },
+  ): Promise<void> {
+    const current = this.stored.get(session.id);
+    if (current === undefined || current.history.length !== expectedSequence) {
+      throw new Error('stale session revision');
+    }
+    this.stored.set(session.id, {
+      ...session,
+      hostOwnership: input.hostOwnership ?? current.hostOwnership,
+      providerSessionId: input.providerSessionId ?? current.providerSessionId,
+    });
   }
 
   public async listActive(): Promise<readonly AgentSession[]> {

@@ -71,6 +71,14 @@ class RecordingPtyRuntime implements PtyRuntime {
 
     return this.handle;
   }
+
+  public async reattach(
+    _ownership: { hostPid: number },
+    _initialSize: { columns: number; rows: number },
+    _sink: PtyRuntimeEventSink,
+  ): Promise<PtyHandle> {
+    throw new PtyRuntimeError('spawn', 'CONPTY_UNAVAILABLE');
+  }
 }
 
 const codexVersion: AgentVersion = Object.freeze({

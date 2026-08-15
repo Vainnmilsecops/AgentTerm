@@ -22,6 +22,7 @@ export {
   type QualityGateConfiguratorFileSystem,
 } from './quality-gate-configurator';
 export { NodeQualityGateProcessRunner } from './quality-gate/node-quality-gate-process-runner';
+export { NodeHostReattacher } from './process/windows-host-reattacher';
 export { WindowsConPtyRuntime } from './pty/windows-conpty-runtime';
 export { SqlitePersistenceError } from './sqlite/errors';
 export { openSqlitePersistence, type SqlitePersistence } from './sqlite/sqlite-persistence';

@@ -75,8 +75,10 @@ export class GeminiAdapter implements AgentAdapter {
     if (Object.keys(validated.environment).some((name) => name.toUpperCase().startsWith('CI_'))) {
       throw new AgentAdapterError('INVALID_LAUNCH_REQUEST');
     }
+    const resumeArguments =
+      validated.resumeSessionId === undefined ? [] : ['--resume', validated.resumeSessionId];
     return {
-      arguments: [...invocation.prefixArguments],
+      arguments: [...invocation.prefixArguments, ...resumeArguments],
       environment: validated.environment,
       executablePath: invocation.executablePath,
       workingDirectory: validated.workingDirectory,

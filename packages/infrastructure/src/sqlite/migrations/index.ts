@@ -11,6 +11,7 @@ import { applicationSettingsMigration } from './0010-application-settings';
 import { pullRequestSyncMigration } from './0011-pull-request-sync';
 import { taskBriefsMigration } from './0012-task-briefs';
 import { workspaceLayoutMigration } from './0013-workspace-layout';
+import { agentSessionHostOwnershipMigration } from './0014-agent-session-host-ownership';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -32,4 +33,5 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   pullRequestSyncMigration,
   taskBriefsMigration,
   workspaceLayoutMigration,
+  agentSessionHostOwnershipMigration,
 ];

@@ -136,6 +136,10 @@ class FakeSessionRepository implements AgentSessionRepository {
     throw new Error('append is not used by the workspace overview');
   }
 
+  public async updateOwnership(): Promise<never> {
+    throw new Error('updateOwnership is not used by the workspace overview');
+  }
+
   public async listActive(): Promise<readonly AgentSession[]> {
     return this.sessions.filter(
       (session) => session.status !== 'EXITED' && session.status !== 'FAILED',
