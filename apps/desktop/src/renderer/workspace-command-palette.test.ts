@@ -55,6 +55,8 @@ function createActions() {
     startExecution: vi.fn<WorkspaceCommandActions['startExecution']>(),
     startPlanning: vi.fn<WorkspaceCommandActions['startPlanning']>(),
     unregisterQualityGate: vi.fn<WorkspaceCommandActions['unregisterQualityGate']>(),
+    importQualityGateConfig: vi.fn<WorkspaceCommandActions['importQualityGateConfig']>(),
+    exportQualityGateConfig: vi.fn<WorkspaceCommandActions['exportQualityGateConfig']>(),
   };
 }
 
@@ -95,6 +97,8 @@ describe('workspace command registry', () => {
       'gate:tests',
       'gate:remove:lint',
       'gate:remove:tests',
+      'gate:config:import',
+      'gate:config:export',
       'artifact:produce',
       'dependency:require:task-review',
       'dependency:remove:task-blocker',

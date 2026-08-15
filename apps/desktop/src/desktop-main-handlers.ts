@@ -49,6 +49,7 @@ interface RegisterDesktopIpcHandlersInput {
   readonly authorize: (event: DesktopIpcMainEvent) => boolean;
   readonly ipcMain: DesktopIpcMain;
   readonly selectProjectDirectory: () => Promise<string | undefined>;
+  readonly selectQualityGateConfigFile: () => Promise<string | undefined>;
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -74,6 +75,7 @@ const expectedApplicationErrors = new Set([
   'ApplicationSettingsValidationError',
   'ArtifactProvenanceError',
   'GitRepositoryInspectionError',
+  'ImportQualityGateConfiguratorError',
   'ProjectOpenError',
   'PtyRuntimeError',
   'QualityGateExecutionError',
@@ -186,6 +188,17 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.saveQualityGateConfig(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.saveQualityGateConfig],
         );
+      case desktopIpcChannels.importQualityGateConfig:
+        return application.importQualityGateConfig(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.importQualityGateConfig],
+        );
+      case desktopIpcChannels.selectQualityGateConfigPath: {
+        const path = await input.selectQualityGateConfigFile();
+        if (path === undefined) {
+          return Object.freeze({ path: undefined, result: 'CANCELLED' as const });
+        }
+        return Object.freeze({ path, result: 'SELECTED' as const });
+      }
       case desktopIpcChannels.loadWorkspaceLayout:
         return application.loadWorkspaceLayout();
       case desktopIpcChannels.saveWorkspaceLayout:

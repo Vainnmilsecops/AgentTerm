@@ -94,6 +94,14 @@ export {
   unregisterQualityGate,
   type QualityGateConfigInput,
 } from './quality-gate-configuration';
+export {
+  importQualityGateConfig,
+  ImportQualityGateConfiguratorError,
+  type ImportQualityGateConfigDependencies,
+  type ImportQualityGateConfigFailure,
+  type ImportQualityGateConfigInput,
+  type ImportQualityGateConfigResult,
+} from './import-quality-gate-config';
 export type { QualityGate, QualityGateKind, Task, TaskDependency } from '@agentterm/domain';
 export { QualityGateKind as QualityGateKindValue } from '@agentterm/domain';
 export { TaskPhase } from '@agentterm/domain';

@@ -11,6 +11,7 @@ import {
   createExecutionArtifact,
   createTaskPullRequest,
   getTaskFileDiff,
+  importQualityGateConfig,
   inspectTaskPullRequest,
   listQualityGateSummaries,
   listProjectTasks,
@@ -235,6 +236,18 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return unwrapConfiguratorResult(await qualityGateConfigurator.load(input));
       },
+      importQualityGateConfig: async (input) => {
+        requireOpen();
+        const result = await importQualityGateConfig(input, {
+          catalog: qualityGateCatalog,
+          configurator: qualityGateConfigurator,
+        });
+        return Object.freeze({
+          configuration: result.configuration,
+          registered: Object.freeze([...result.registered]),
+          rejected: Object.freeze([...result.rejected]),
+        });
+      },
       listTaskChanges: async (input) => {
         requireOpen();
         return listTaskChanges(input, persistence.tasks, persistence.worktrees, git);
@@ -322,6 +335,13 @@ export async function createProductionDesktopApplication(
       saveWorkspaceLayout: async (input) => {
         requireOpen();
         return saveWorkspaceLayout(input, workspaceLayoutDependencies);
+      },
+      selectQualityGateConfigPath: async () => {
+        // The native file picker runs in the main process only; this stub keeps
+        // the production composition's public surface aligned with the typed
+        // desktop IPC bridge but never actually opens a dialog.
+        requireOpen();
+        return Object.freeze({ path: undefined, result: 'CANCELLED' as const });
       },
       startTaskExecution: async (input): Promise<void> => {
         requireOpen();

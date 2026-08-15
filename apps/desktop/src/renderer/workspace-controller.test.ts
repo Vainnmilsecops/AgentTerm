@@ -51,6 +51,8 @@ type TestWorkspaceViewProps = Omit<
   | 'onSplitTerminal'
   | 'onStartPlanning'
   | 'onUnregisterQualityGate'
+  | 'onImportQualityGateConfig'
+  | 'onExportQualityGateConfig'
 > &
   Partial<
     Pick<
@@ -77,6 +79,8 @@ type TestWorkspaceViewProps = Omit<
       | 'onSplitTerminal'
       | 'onStartPlanning'
       | 'onUnregisterQualityGate'
+      | 'onImportQualityGateConfig'
+      | 'onExportQualityGateConfig'
     >
   >;
 
@@ -126,6 +130,8 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onSplitTerminal: () => undefined,
     onStartPlanning: () => undefined,
     onUnregisterQualityGate: async () => true,
+    onImportQualityGateConfig: async () => undefined as never,
+    onExportQualityGateConfig: async () => undefined,
     ...props,
   });
 }
@@ -607,9 +613,25 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly loadQualityGateConfig = vi.fn<
     AgentWorkspaceClient['loadQualityGateConfig']
   >(async () => Object.freeze({ failure: undefined, value: undefined }));
+  public readonly importQualityGateConfig = vi.fn<
+    AgentWorkspaceClient['importQualityGateConfig']
+  >(async () =>
+    Object.freeze({
+      configuration: {
+        gates: [],
+        path: 'C:\\fixtures\\quality-gates.json',
+        revision: 'rev-1',
+      },
+      registered: [],
+      rejected: [],
+    }),
+  );
   public readonly saveQualityGateConfig = vi.fn<
     AgentWorkspaceClient['saveQualityGateConfig']
   >(async () => Object.freeze({ failure: undefined, value: undefined }));
+  public readonly selectQualityGateConfigPath = vi.fn<
+    AgentWorkspaceClient['selectQualityGateConfigPath']
+  >(async () => Object.freeze({ path: undefined, result: 'CANCELLED' as const }));
   public readonly registerQualityGate = vi.fn<AgentWorkspaceClient['registerQualityGate']>(
     async () => undefined,
   );

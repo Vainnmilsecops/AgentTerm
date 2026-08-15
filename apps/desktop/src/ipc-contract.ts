@@ -38,6 +38,7 @@ export const desktopIpcChannels = Object.freeze({
   createTask: 'agentterm:task:create',
   createPullRequest: 'agentterm:pull-request:create',
   getTaskFileDiff: 'agentterm:changes:diff',
+  importQualityGateConfig: 'agentterm:quality-gates:import-config',
   inspectPullRequest: 'agentterm:pull-request:inspect',
   listProjectTasks: 'agentterm:project-tasks:list',
   listQualityGateDetails: 'agentterm:quality-gates:list-details',
@@ -60,6 +61,7 @@ export const desktopIpcChannels = Object.freeze({
   runQualityGate: 'agentterm:quality-gates:run',
   saveQualityGateConfig: 'agentterm:quality-gates:save-config',
   saveWorkspaceLayout: 'agentterm:workspace-layout:save',
+  selectQualityGateConfigPath: 'agentterm:quality-gates:select-config-path',
   startExecution: 'agentterm:execution:start',
   startPlanning: 'agentterm:planning:start',
   terminalAttach: 'agentterm:terminal:attach',
@@ -141,6 +143,19 @@ export interface SaveQualityGateConfigResponse {
   readonly value: QualityGateConfiguration | undefined;
 }
 
+export type SelectQualityGateConfigPathResult = 'CANCELLED' | 'SELECTED';
+
+export interface SelectQualityGateConfigPathResponse {
+  readonly path: string | undefined;
+  readonly result: SelectQualityGateConfigPathResult;
+}
+
+export interface ImportQualityGateConfigResponse {
+  readonly configuration: QualityGateConfiguration;
+  readonly registered: readonly QualityGate[];
+  readonly rejected: readonly QualityGate[];
+}
+
 export interface SaveWorkspaceLayoutRequest {
   readonly expectedRevision: number;
   readonly layout: WorkspaceLayoutRecord;
@@ -193,6 +208,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.createTask]: CreateTaskRequest;
   readonly [desktopIpcChannels.createPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.getTaskFileDiff]: GetTaskFileDiffInput;
+  readonly [desktopIpcChannels.importQualityGateConfig]: QualityGateConfigPathRequest;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.listProjectTasks]: ProjectTasksRequest;
   readonly [desktopIpcChannels.listQualityGateDetails]: EmptyRequest;
@@ -215,6 +231,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.runQualityGate]: QualityGateRequest;
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigRequest;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: SaveWorkspaceLayoutRequest;
+  readonly [desktopIpcChannels.selectQualityGateConfigPath]: EmptyRequest;
   readonly [desktopIpcChannels.startExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.startPlanning]: AgentTaskRequest;
   readonly [desktopIpcChannels.terminalAttach]: TerminalAttachRequest;
@@ -234,6 +251,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.createTask]: CreateDesktopTaskResult;
   readonly [desktopIpcChannels.createPullRequest]: null;
   readonly [desktopIpcChannels.getTaskFileDiff]: TaskFileDiff;
+  readonly [desktopIpcChannels.importQualityGateConfig]: ImportQualityGateConfigResponse;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskPullRequestState;
   readonly [desktopIpcChannels.listProjectTasks]: readonly Task[];
   readonly [desktopIpcChannels.listQualityGateDetails]: readonly QualityGate[];
@@ -256,6 +274,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.runQualityGate]: null;
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigResponse;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: WorkspaceLayoutReadModel;
+  readonly [desktopIpcChannels.selectQualityGateConfigPath]: SelectQualityGateConfigPathResponse;
   readonly [desktopIpcChannels.startExecution]: null;
   readonly [desktopIpcChannels.startPlanning]: null;
   readonly [desktopIpcChannels.terminalAttach]: null;
@@ -299,6 +318,7 @@ export interface AgentTermDesktopApi {
   createTask(input: CreateTaskRequest): Promise<CreateDesktopTaskResult>;
   createTaskPullRequest(input: TaskRequest): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
+  importQualityGateConfig(input: QualityGateConfigPathRequest): Promise<ImportQualityGateConfigResponse>;
   inspectTaskPullRequest(input: TaskRequest): Promise<TaskPullRequestState>;
   listProjectTasks(input: ProjectTasksRequest): Promise<readonly Task[]>;
   listQualityGateDetails(): Promise<readonly QualityGate[]>;
@@ -321,6 +341,7 @@ export interface AgentTermDesktopApi {
   runQualityGate(input: QualityGateRequest): Promise<void>;
   saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>;
   saveWorkspaceLayout(input: SaveWorkspaceLayoutRequest): Promise<WorkspaceLayoutReadModel>;
+  selectQualityGateConfigPath(): Promise<SelectQualityGateConfigPathResponse>;
   startTaskExecution(input: AgentTaskRequest): Promise<void>;
   startTaskPlanning(input: AgentTaskRequest): Promise<void>;
   unregisterQualityGate(input: QualityGateIdRequest): Promise<boolean>;
@@ -355,6 +376,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.listQualityGates:
     case desktopIpcChannels.openProject:
     case desktopIpcChannels.loadWorkspaceLayout:
+    case desktopIpcChannels.selectQualityGateConfigPath:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
     case desktopIpcChannels.createTask: {
       const record = exactRecord(input, ['brief', 'projectId', 'title']);
@@ -508,7 +530,8 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
         timeoutMs: readNonnegativeSafeInteger(record.timeoutMs),
       }) as DesktopIpcRequestMap[C];
     }
-    case desktopIpcChannels.loadQualityGateConfig: {
+    case desktopIpcChannels.loadQualityGateConfig:
+    case desktopIpcChannels.importQualityGateConfig: {
       const record = exactRecord(input, ['path']);
       return Object.freeze({
         path: readBoundedString(record.path, 32_768),
