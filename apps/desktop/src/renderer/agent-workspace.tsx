@@ -732,6 +732,15 @@ export function AgentWorkspaceView({
           ? 'Workspace ready.'
           : `${snapshot.activeAction.kind.replaceAll('-', ' ')} in progress.`}
       </p>
+      {snapshot.layoutPersistenceError === undefined ? null : (
+        <p
+          className="inline-error workspace-persistence-error"
+          role="status"
+          aria-live="polite"
+        >
+          Workspace layout could not be saved: {snapshot.layoutPersistenceError}
+        </p>
+      )}
       <WorkspaceTopbar
         backgroundInert={narrowViewport && navigatorOpen}
         layout={layout}

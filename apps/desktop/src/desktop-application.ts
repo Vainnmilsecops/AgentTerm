@@ -19,6 +19,7 @@ import {
   listTaskReviews,
   loadAgentWorkspace,
   loadApplicationSettings,
+  loadWorkspaceLayout,
   openProject as openApplicationProject,
   pushTaskBranch,
   refreshTaskPullRequest,
@@ -29,6 +30,7 @@ import {
   restoreAgentSessionsAfterRestart,
   retryTaskExecution,
   runQualityGate,
+  saveWorkspaceLayout,
   summarizeTaskReview,
   startTaskExecution,
   startTaskPlanning,
@@ -150,6 +152,10 @@ export async function createProductionDesktopApplication(
       tasks: persistence.tasks,
       worktrees: persistence.worktrees,
     });
+    const workspaceLayoutDependencies = Object.freeze({
+      clock,
+      repository: persistence.workspaceLayout,
+    });
     let disposed = false;
     const requireOpen = (): void => {
       if (disposed) throw new Error('The desktop Application composition is closed.');
@@ -259,6 +265,10 @@ export async function createProductionDesktopApplication(
           persistence.taskDependencies,
         );
       },
+      loadWorkspaceLayout: async () => {
+        requireOpen();
+        return loadWorkspaceLayout(workspaceLayoutDependencies);
+      },
       openProject: async (input): Promise<void> => {
         requireOpen();
         await openApplicationProject(input, projectDiscovery, persistence.projects);
@@ -308,6 +318,10 @@ export async function createProductionDesktopApplication(
         return unwrapConfiguratorResult(
           await qualityGateConfigurator.save(input),
         );
+      },
+      saveWorkspaceLayout: async (input) => {
+        requireOpen();
+        return saveWorkspaceLayout(input, workspaceLayoutDependencies);
       },
       startTaskExecution: async (input): Promise<void> => {
         requireOpen();

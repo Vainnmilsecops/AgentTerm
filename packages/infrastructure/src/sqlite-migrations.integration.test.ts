@@ -150,6 +150,7 @@ describe('SQLite migrations', () => {
           'task_reviews',
           'task_worktrees',
           'tasks',
+          'workspace_layout',
         ]);
         expect(migrations).toEqual([
           { name: 'projects-and-tasks', version: 1 },
@@ -164,6 +165,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
+          { name: 'workspace-layout', version: 13 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -386,6 +388,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
+          { name: 'workspace-layout', version: 13 },
         ]);
       } finally {
         migrated.close();
@@ -462,6 +465,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
+          { name: 'workspace-layout', version: 13 },
         ]);
       } finally {
         migrated.close();
@@ -557,6 +561,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
+          { name: 'workspace-layout', version: 13 },
         ]);
       } finally {
         migrated.close();
@@ -623,6 +628,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings', version: 10 },
           { name: 'pull-request-sync', version: 11 },
           { name: 'task-briefs', version: 12 },
+          { name: 'workspace-layout', version: 13 },
         ]);
       } finally {
         migrated.close();
@@ -731,6 +737,7 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'application-settings', version: 10 }),
           expect.objectContaining({ name: 'pull-request-sync', version: 11 }),
           expect.objectContaining({ name: 'task-briefs', version: 12 }),
+          expect.objectContaining({ name: 'workspace-layout', version: 13 }),
         ]);
       } finally {
         migrated.close();

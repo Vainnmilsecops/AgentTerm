@@ -641,6 +641,12 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly requestTaskChanges = vi.fn<AgentWorkspaceClient['requestTaskChanges']>(
     async () => undefined,
   );
+  public readonly loadWorkspaceLayout = vi.fn<AgentWorkspaceClient['loadWorkspaceLayout']>(
+    async () => undefined,
+  );
+  public readonly saveWorkspaceLayout = vi.fn<AgentWorkspaceClient['saveWorkspaceLayout']>(
+    async () => ({ layout: { activeTabId: undefined, tabs: [] }, revision: 1, updatedAt: 1 }),
+  );
   public settingsView: ApplicationSettingsView = defaultSettingsView;
   public readonly loadSettings = vi.fn(async () => this.settingsView);
   public readonly updateSettings = vi.fn<AgentWorkspaceClient['updateSettings']>(async (input) => {
