@@ -16,12 +16,15 @@ export interface TerminalSessionClient {
 export interface TerminalSurface {
   dispose(): void;
   focus(): void;
+  getSelection(): string;
   getSize(): PtyTerminalSize;
   onInput(sink: (data: string) => void): () => void;
   onResize(sink: (size: PtyTerminalSize) => void): () => void;
   open(container: HTMLElement): void;
+  paste(text: string): void;
   refresh(): void;
   reset(): void;
+  selectAll(): void;
   setFontSize(fontSize: number): void;
   write(data: string): void;
 }
@@ -31,6 +34,24 @@ interface ActiveAttachment {
   readonly generation: number;
 }
 
+export interface TerminalConnectionFailure {
+  readonly operation: 'paste' | 'write';
+  readonly sessionId: string;
+}
+
+export interface TerminalPasteRequest {
+  readonly byteLength: number;
+  readonly lineCount: number;
+  readonly sessionId: string;
+  readonly taskId: string;
+  readonly text: string;
+}
+
+export interface TerminalPasteOutcome {
+  readonly failure: TerminalConnectionFailure | undefined;
+  readonly status: 'accepted' | 'confirmed' | 'paste-unavailable' | 'rejected';
+}
+
 export class TerminalController {
   private active: ActiveAttachment | undefined;
   private disposed = false;
@@ -38,18 +59,23 @@ export class TerminalController {
   private inputSubscription: (() => void) | undefined;
   private resizeSubscription: (() => void) | undefined;
   private readonly eventObserver: ((event: PtyRuntimeEvent) => void) | undefined;
+  private readonly failureSink: ((failure: TerminalConnectionFailure) => void) | undefined;
   private readonly stateSink: ((state: TerminalConnectionState) => void) | undefined;
   private readonly surface: TerminalSurface;
+  private writeQueue: Promise<void> = Promise.resolve();
+  public inputUnavailable = false;
   public state: TerminalConnectionState = 'empty';
 
   public constructor(
     surface: TerminalSurface,
     stateSink?: (state: TerminalConnectionState) => void,
     eventObserver?: (event: PtyRuntimeEvent) => void,
+    failureSink?: (failure: TerminalConnectionFailure) => void,
   ) {
     this.surface = surface;
     this.stateSink = stateSink;
     this.eventObserver = eventObserver;
+    this.failureSink = failureSink;
   }
 
   public mount(container: HTMLElement): void {
@@ -58,15 +84,7 @@ export class TerminalController {
     }
     this.surface.open(container);
     this.inputSubscription = this.surface.onInput((data) => {
-      const current = this.active;
-      if (
-        current === undefined ||
-        current.generation !== this.generation ||
-        this.state !== 'connected'
-      ) {
-        return;
-      }
-      void current.attachment.write(data).catch(() => undefined);
+      this.enqueueWrite(data, 'write');
     });
     this.resizeSubscription = this.surface.onResize((size) => {
       const current = this.active;
@@ -79,6 +97,74 @@ export class TerminalController {
       }
       void current.attachment.resize(size).catch(() => undefined);
     });
+  }
+
+  /**
+   * Paste text through xterm's bracketed-paste / line-ending normalization.
+   *
+   * The caller is responsible for any confirmation step; this method only sends
+   * when the controller is attached and accepting input. Failures during the
+   * underlying PTY write are surfaced via the configured failure sink and the
+   * {@link TerminalConnectionState} becomes `failed`.
+   */
+  public pasteText(input: TerminalPasteRequest): TerminalPasteOutcome {
+    return this.sendText(input.text, input);
+  }
+
+  /**
+   * Send raw bytes (Ctrl+C / ETX) through the serialized write queue. Used by
+   * the keyboard controller when the user requests an interrupt without a
+   * selection.
+   */
+  public sendBytes(bytes: string): TerminalPasteOutcome {
+    return this.sendText(bytes, undefined);
+  }
+
+  private sendText(text: string, paste: TerminalPasteRequest | undefined): TerminalPasteOutcome {
+    const current = this.active;
+    if (
+      current === undefined ||
+      current.generation !== this.generation ||
+      this.state !== 'connected' ||
+      this.inputUnavailable
+    ) {
+      this.failureSink?.({
+        operation: paste === undefined ? 'write' : 'paste',
+        sessionId: current?.attachment === undefined ? 'no-session' : 'unknown',
+      });
+      return { failure: undefined, status: 'paste-unavailable' };
+    }
+    if (paste !== undefined) {
+      this.surface.paste(text);
+    } else {
+      this.enqueueWrite(text, 'write');
+    }
+    return {
+      failure: undefined,
+      status: paste === undefined ? 'accepted' : 'confirmed',
+    };
+  }
+
+  private enqueueWrite(data: string, operation: 'paste' | 'write'): void {
+    const current = this.active;
+    if (
+      current === undefined ||
+      current.generation !== this.generation ||
+      this.state !== 'connected'
+    ) {
+      return;
+    }
+    const attachment = current.attachment;
+    const sessionId = 'unknown';
+    const next = this.writeQueue
+      .then(() => attachment.write(data))
+      .catch((error) => {
+        this.inputUnavailable = true;
+        this.updateState('failed');
+        this.failureSink?.({ operation, sessionId });
+        throw error;
+      });
+    this.writeQueue = next.catch(() => undefined);
   }
 
   public async setSession(
@@ -185,6 +271,28 @@ export class TerminalController {
     this.resizeSubscription?.();
     this.resizeSubscription = undefined;
     this.surface.dispose();
+  }
+
+  /** Read-only access to the surface for the render layer. */
+  public getSurface(): TerminalSurface {
+    return this.surface;
+  }
+
+  /**
+   * Test seam — awaits the serialized write queue. Production callers should
+   * not depend on this; it exists so renderer tests can observe FIFO order
+   * and post-failure state without polling internal state.
+   */
+  public async flushInputQueue(): Promise<void> {
+    for (;;) {
+      const observed = this.writeQueue;
+      try {
+        await observed;
+      } catch {
+        // Rejected tail is captured via the failure sink; tests assert that.
+      }
+      if (observed === this.writeQueue) return;
+    }
   }
 
   private detachActive(): void {

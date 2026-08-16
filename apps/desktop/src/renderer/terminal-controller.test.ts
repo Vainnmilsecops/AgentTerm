@@ -13,16 +13,23 @@ class FakeTerminalSurface implements TerminalSurface {
   public readonly dispose = vi.fn();
   public readonly focus = vi.fn();
   public readonly open = vi.fn();
+  public readonly paste = vi.fn();
   public readonly refresh = vi.fn();
   public readonly reset = vi.fn();
+  public readonly selectAll = vi.fn();
   public readonly setFontSize = vi.fn();
   public readonly write = vi.fn();
+  public selectionText = '';
   public size: PtyTerminalSize = { columns: 80, rows: 24 };
   private inputSink: ((data: string) => void) | undefined;
   private resizeSink: ((size: PtyTerminalSize) => void) | undefined;
 
   public getSize(): PtyTerminalSize {
     return this.size;
+  }
+
+  public getSelection(): string {
+    return this.selectionText;
   }
 
   public onInput(sink: (data: string) => void): () => void {
@@ -285,5 +292,137 @@ describe('TerminalController', () => {
     expect(attachment.write).not.toHaveBeenCalled();
     expect(attachment.resize).not.toHaveBeenCalled();
     expect(surface.dispose).toHaveBeenCalledOnce();
+  });
+});
+
+describe('TerminalController — serialized input queue', () => {
+  interface Deferred<T> {
+    promise: Promise<T>;
+    reject: (reason: unknown) => void;
+    resolve: (value: T) => void;
+  }
+
+  function deferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, reject, resolve };
+  }
+
+  it('sends writes in FIFO order through the attachment', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    surface.emitInput('a');
+    surface.emitInput('b');
+    surface.emitInput('c');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(client.attachment.write.mock.calls.map((call) => call[0])).toEqual(['a', 'b', 'c']);
+  });
+
+  it('marks state failed and surfaces a failure event when a write rejects', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const failures: TerminalConnectionFailure[] = [];
+    let stateChanges: string[] = [];
+    const controller = new TerminalController(
+      surface,
+      (state) => stateChanges.push(state),
+      undefined,
+      (failure) => failures.push(failure),
+    );
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    const error = new Error('terminal is gone');
+    client.attachment.write
+      .mockImplementationOnce(async () => undefined)
+      .mockImplementationOnce(async () => {
+        throw error;
+      });
+    surface.emitInput('first');
+    surface.emitInput('second');
+    await controller.flushInputQueue();
+
+    expect(stateChanges).toContain('failed');
+    expect(failures).toContainEqual({ operation: 'write', sessionId: 'unknown' });
+    expect(controller.inputUnavailable).toBe(true);
+  });
+
+  it('pasteText routes through surface.paste instead of attachment.write', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.pasteText({
+      byteLength: 4,
+      lineCount: 1,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'hi',
+    });
+    expect(surface.paste).toHaveBeenCalledWith('hi');
+    expect(client.attachment.write).not.toHaveBeenCalled();
+  });
+
+  it('sendBytes routes through the FIFO queue', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.sendBytes('\u0003');
+    await controller.flushInputQueue();
+
+    expect(client.attachment.write).toHaveBeenCalledWith('\u0003');
+  });
+
+  it('rejects pasteText with paste-unavailable when input is unavailable', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.inputUnavailable = true;
+    const outcome = controller.pasteText({
+      byteLength: 4,
+      lineCount: 1,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'hi',
+    });
+    expect(outcome.status).toBe('paste-unavailable');
+    expect(surface.paste).not.toHaveBeenCalled();
+  });
+
+  it('keeps FIFO order even when writes resolve out of order', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    const first = deferred<void>();
+    client.attachment.write
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(async () => undefined);
+
+    surface.emitInput('a');
+    surface.emitInput('b');
+    first.resolve();
+    await controller.flushInputQueue();
+    expect(client.attachment.write.mock.calls.map((call) => call[0])).toEqual(['a', 'b']);
   });
 });
