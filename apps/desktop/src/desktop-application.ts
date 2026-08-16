@@ -251,7 +251,11 @@ export async function createProductionDesktopApplication(
       },
       beginTaskPlanning: async (input): Promise<void> => {
         requireOpen();
-        await transitionTask({ taskId: input.taskId, to: 'PLANNING' }, persistence.tasks);
+        await transitionTask(
+          { taskId: input.taskId, to: 'PLANNING' },
+          persistence.tasks,
+          persistence.artifacts,
+        );
       },
       createArtifact: async (input) => {
         requireOpen();

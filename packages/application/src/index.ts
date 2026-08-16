@@ -318,6 +318,13 @@ export {
   type TransitionTaskInput,
 } from "./task-use-cases";
 export {
+  assertCanEnterPlanning,
+  canEnterPlanning,
+  type CanEnterPlanningFailure,
+  type CanEnterPlanningInput,
+  type CanEnterPlanningResult,
+} from "./can-enter-planning";
+export {
   approveTaskReview,
   listTaskReviews,
   requestTaskChanges,
