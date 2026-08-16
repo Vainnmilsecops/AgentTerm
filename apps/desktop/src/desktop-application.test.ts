@@ -86,6 +86,15 @@ describe('production desktop Application composition', () => {
         },
       });
 
+      const researchArtifactInput = {
+        content: '# Research\n\nSpike findings recorded before planning.',
+        createdAt: 1_800_000_000_000,
+        id: 'artifact-research-1',
+        kind: 'research',
+        taskId: created.taskId,
+      } as const;
+      await application.createArtifact(researchArtifactInput);
+
       await application.beginTaskPlanning({ taskId: created.taskId });
       const planning = await application.loadWorkspace();
       expect(planning.projects[0]?.tasks[0]).toMatchObject({

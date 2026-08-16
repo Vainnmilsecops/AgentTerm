@@ -153,6 +153,7 @@ export function createDesktopBridge(
     loadSettings: () => invoke(desktopIpcChannels.loadSettings, {}),
     loadWorkspace: () => invoke(desktopIpcChannels.loadWorkspace, {}),
     loadWorkspaceLayout: () => invoke(desktopIpcChannels.loadWorkspaceLayout, {}),
+    openBoardWindow: () => invokeVoid(desktopIpcChannels.openBoardWindow, {}),
     openProject: () => invoke(desktopIpcChannels.openProject, {}),
     pushTaskBranch: (input) => invokeVoid(desktopIpcChannels.pushTaskBranch, input),
     refreshTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.refreshPullRequest, input),

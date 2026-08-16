@@ -84,6 +84,7 @@ export interface WorkspaceCommandActions {
   unregisterQualityGate(gateId: string): Promise<boolean> | boolean;
   importQualityGateConfig(): Promise<unknown> | unknown;
   exportQualityGateConfig(): Promise<void> | void;
+  openBoardWindow(): Promise<void> | void;
 }
 
 export interface CommandPaletteState {
@@ -104,6 +105,7 @@ export type WorkspaceGlobalShortcut =
   | 'focus-workspace'
   | 'next-pane'
   | 'next-tab'
+  | 'open-board'
   | 'open-palette'
   | 'previous-pane'
   | 'previous-tab';
@@ -348,6 +350,19 @@ export function buildWorkspaceCommands(
     );
   }
 
+  commands.push(
+    command({
+      category: 'Navigate',
+      id: 'view:open-board',
+      keywords: ['view board kanban columns phases open window'],
+      label: 'View: Board',
+      run: () => {
+        void actions.openBoardWindow();
+      },
+      shortcut: 'Alt+B',
+    }),
+  );
+
   return Object.freeze(commands);
 
   function focusCommand(
@@ -427,6 +442,9 @@ export function resolveWorkspaceGlobalShortcut(
       return shift ? 'previous-pane' : 'previous-tab';
     }
     return shift ? 'next-pane' : 'next-tab';
+  }
+  if (alt && !ctrl && !meta && !shift && input.code === 'KeyB') {
+    return 'open-board';
   }
   if (!alt || ctrl || meta || shift) {
     return undefined;

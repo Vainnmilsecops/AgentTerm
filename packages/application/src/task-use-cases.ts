@@ -6,17 +6,23 @@ import {
   type TaskPhase,
 } from '@agentterm/domain';
 
+import { assertCanEnterPlanning } from './can-enter-planning';
 import {
   EntityAlreadyExistsError,
   EntityNotFoundError,
   TaskPlanningFlowRequiredError,
   TaskReviewFlowRequiredError,
 } from './errors';
-import type { ProjectRepository, TaskRepository } from './ports';
+import type { ExecutionArtifactRepository, ProjectRepository, TaskRepository } from './ports';
 
 export interface TransitionTaskInput {
   readonly taskId: string;
   readonly to: TaskPhase;
+}
+
+export interface TransitionTaskDependencies {
+  readonly artifacts?: ExecutionArtifactRepository;
+  readonly tasks: TaskRepository;
 }
 
 export async function createTask(
@@ -41,6 +47,7 @@ export async function createTask(
 export async function transitionTask(
   input: TransitionTaskInput,
   tasks: TaskRepository,
+  artifacts?: ExecutionArtifactRepository,
 ): Promise<Task> {
   const task = await tasks.findById(input.taskId);
 
@@ -57,6 +64,14 @@ export async function transitionTask(
       throw new TaskPlanningFlowRequiredError(task.phase, input.to);
     }
     throw new TaskReviewFlowRequiredError(task.phase, input.to);
+  }
+
+  if (task.phase === 'BACKLOG' && input.to === 'PLANNING' && artifacts !== undefined) {
+    await assertCanEnterPlanning({
+      artifacts,
+      taskId: input.taskId,
+      taskPhase: task.phase,
+    });
   }
 
   const transitionedTask = transitionDomainTask(task, input.to);

@@ -204,6 +204,18 @@ class MemoryArtifacts implements ExecutionArtifactRepository {
   public async findById(id: string): Promise<ExecutionArtifact | undefined> {
     return this.values.find((artifact) => artifact.id === id);
   }
+  public async findLatestByTaskIdAndKind(
+    taskId: string,
+    kind: ExecutionArtifact['kind'],
+  ): Promise<ExecutionArtifact | undefined> {
+    const filtered = this.values.filter(
+      (artifact) => artifact.taskId === taskId && artifact.kind === kind,
+    );
+    if (filtered.length === 0) return undefined;
+    return filtered.reduce((latest, candidate) =>
+      candidate.createdAt > latest.createdAt ? candidate : latest,
+    );
+  }
   public async insert(): Promise<never> {
     throw new Error('review flow must not create Execution Artifacts');
   }

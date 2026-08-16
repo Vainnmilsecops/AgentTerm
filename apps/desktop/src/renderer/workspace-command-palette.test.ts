@@ -57,6 +57,7 @@ function createActions() {
     unregisterQualityGate: vi.fn<WorkspaceCommandActions['unregisterQualityGate']>(),
     importQualityGateConfig: vi.fn<WorkspaceCommandActions['importQualityGateConfig']>(),
     exportQualityGateConfig: vi.fn<WorkspaceCommandActions['exportQualityGateConfig']>(),
+    openBoardWindow: vi.fn<WorkspaceCommandActions['openBoardWindow']>(),
   };
 }
 
@@ -103,6 +104,7 @@ describe('workspace command registry', () => {
       'dependency:require:task-review',
       'dependency:remove:task-blocker',
       'gate:register',
+      'view:open-board',
     ]);
 
     await commands.find(({ id }) => id === 'task:task-review')?.run();
@@ -114,6 +116,7 @@ describe('workspace command registry', () => {
     await commands.find(({ id }) => id === 'dependency:require:task-review')?.run();
     await commands.find(({ id }) => id === 'dependency:remove:task-blocker')?.run();
     await commands.find(({ id }) => id === 'gate:register')?.run();
+    await commands.find(({ id }) => id === 'view:open-board')?.run();
 
     expect(actions.selectTask).toHaveBeenCalledWith('task-review');
     expect(actions.retryExecution).toHaveBeenCalledOnce();
@@ -127,6 +130,7 @@ describe('workspace command registry', () => {
     expect(actions.addDependency).toHaveBeenCalledWith('task-review', 'task-vietnamese');
     expect(actions.removeDependency).toHaveBeenCalledWith('task-blocker', 'task-vietnamese');
     expect(actions.focus).toHaveBeenCalledWith('checks');
+    expect(actions.openBoardWindow).toHaveBeenCalledOnce();
   });
 
   it('hides Quality Gate palette entries when the Task cannot run gates or the workspace is busy', () => {
@@ -246,6 +250,9 @@ describe('command palette keyboard model', () => {
       { code: 'Enter', key: 'Enter' },
       { code: 'KeyC', ctrlKey: true, key: 'c' },
       { code: 'KeyV', ctrlKey: true, key: 'v' },
+      { altKey: true, code: 'KeyB', ctrlKey: true, key: 'b' },
+      { altKey: true, code: 'KeyB', key: 'b', shiftKey: true },
+      { code: 'KeyB', key: 'b' },
     ]) {
       expect(resolveWorkspaceGlobalShortcut(input)).toBeUndefined();
     }
@@ -261,6 +268,9 @@ describe('command palette keyboard model', () => {
     );
     expect(resolveWorkspaceGlobalShortcut({ altKey: true, code: 'Digit3', key: '3' })).toBe(
       'focus-terminal',
+    );
+    expect(resolveWorkspaceGlobalShortcut({ altKey: true, code: 'KeyB', key: 'b' })).toBe(
+      'open-board',
     );
     expect(resolveWorkspaceGlobalShortcut({ altKey: true, code: 'BracketLeft', key: '[' })).toBe(
       'previous-tab',

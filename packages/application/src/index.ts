@@ -299,6 +299,7 @@ export {
   summarizeTaskReview,
   type AgentSessionSummary,
   type AgentWorkspaceOverview,
+  type LoadAgentWorkspacePluginDeps,
   type QualityGateRunSummary,
   type TaskReviewArtifactSummary,
   type TaskReviewChangesSummary,
@@ -307,6 +308,7 @@ export {
   type TaskReviewQualityGateSummary,
   type TaskReviewSummary,
   type TaskDependencySummary,
+  type WorkflowPluginProjection,
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,
 } from "./workspace-overview";
@@ -315,6 +317,13 @@ export {
   transitionTask,
   type TransitionTaskInput,
 } from "./task-use-cases";
+export {
+  assertCanEnterPlanning,
+  canEnterPlanning,
+  type CanEnterPlanningFailure,
+  type CanEnterPlanningInput,
+  type CanEnterPlanningResult,
+} from "./can-enter-planning";
 export {
   approveTaskReview,
   listTaskReviews,

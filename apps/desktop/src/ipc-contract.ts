@@ -50,6 +50,7 @@ export const desktopIpcChannels = Object.freeze({
   loadSettings: 'agentterm:settings:load',
   loadWorkspace: 'agentterm:workspace:load',
   loadWorkspaceLayout: 'agentterm:workspace-layout:load',
+  openBoardWindow: 'agentterm:window:open-board',
   openProject: 'agentterm:project:open',
   pushTaskBranch: 'agentterm:pull-request:push',
   refreshPullRequest: 'agentterm:pull-request:refresh',
@@ -220,6 +221,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: EmptyRequest;
+  readonly [desktopIpcChannels.openBoardWindow]: EmptyRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
   readonly [desktopIpcChannels.refreshPullRequest]: PullRequestRefreshRequest;
@@ -263,6 +265,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.loadSettings]: ApplicationSettingsView;
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: WorkspaceLayoutReadModel | undefined;
+  readonly [desktopIpcChannels.openBoardWindow]: null;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
   readonly [desktopIpcChannels.refreshPullRequest]: null;
@@ -330,6 +333,7 @@ export interface AgentTermDesktopApi {
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
+  openBoardWindow(): Promise<void>;
   openProject(): Promise<OpenDesktopProjectResult>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
@@ -370,6 +374,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
 ): DesktopIpcRequestMap[C] {
   if (!allowedChannels.has(channel)) fail();
   switch (channel) {
+    case desktopIpcChannels.openBoardWindow:
     case desktopIpcChannels.loadWorkspace:
     case desktopIpcChannels.loadSettings:
     case desktopIpcChannels.listQualityGateDetails:

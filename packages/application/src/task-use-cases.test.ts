@@ -3,13 +3,16 @@ import { describe, expect, it } from 'vitest';
 import {
   createProject as createDomainProject,
   createTask as createDomainTask,
+  ExecutionArtifactKind,
+  createExecutionArtifact as createDomainArtifact,
   transitionTask as transitionDomainTask,
   TaskPhase,
+  type ExecutionArtifact,
   type Project,
   type Task,
 } from '@agentterm/domain';
 
-import { createTask, transitionTask, type ProjectRepository, type TaskRepository } from './index';
+import { createTask, transitionTask, type ExecutionArtifactRepository, type ProjectRepository, type TaskRepository } from './index';
 
 class InMemoryProjectRepository implements ProjectRepository {
   private readonly projects = new Map<string, Project>();
@@ -55,6 +58,50 @@ class InMemoryTaskRepository implements TaskRepository {
 
     this.tasks.set(task.id, task);
   }
+}
+
+class InMemoryArtifactRepository implements ExecutionArtifactRepository {
+  public constructor(private readonly values: readonly ExecutionArtifact[] = []) {}
+  public async findById(id: string): Promise<ExecutionArtifact | undefined> {
+    return this.values.find((artifact) => artifact.id === id);
+  }
+  public async findLatestByTaskIdAndKind(
+    taskId: string,
+    kind: ExecutionArtifact['kind'],
+  ): Promise<ExecutionArtifact | undefined> {
+    const matches = this.values.filter(
+      (artifact) => artifact.taskId === taskId && artifact.kind === kind,
+    );
+    if (matches.length === 0) return undefined;
+    return matches.reduce((latest, candidate) =>
+      candidate.createdAt > latest.createdAt ? candidate : latest,
+    );
+  }
+  public async insert(artifact: ExecutionArtifact): Promise<void> {
+    throw new Error('not used');
+  }
+  public async listByTaskId(taskId: string): Promise<readonly ExecutionArtifact[]> {
+    return this.values.filter((artifact) => artifact.taskId === taskId);
+  }
+  public async listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly ExecutionArtifact[]> {
+    return this.values.filter((artifact) => artifact.taskId === taskId).slice(-limit);
+  }
+  public async readReviewEvidenceByTaskId() {
+    return { evidence: [], totalCount: 0 };
+  }
+}
+
+function researchArtifact(taskId: string, createdAt: number): ExecutionArtifact {
+  return createDomainArtifact({
+    content: '# Research\n\nFindings go here.',
+    createdAt,
+    id: `artifact-${taskId}-${createdAt}`,
+    kind: ExecutionArtifactKind.RESEARCH,
+    taskId,
+  });
 }
 
 const project = createDomainProject({ id: 'project-1', name: 'AgentTerm' });
@@ -189,5 +236,33 @@ describe('transitionTask', () => {
       to: TaskPhase.RUNNING,
     });
     await expect(tasks.findById(planning.id)).resolves.toEqual(planning);
+  });
+
+  it('blocks BACKLOG to PLANNING when no Research artifact exists', async () => {
+    const projects = new InMemoryProjectRepository([project]);
+    const tasks = new InMemoryTaskRepository();
+    await createTask(validTaskInput, projects, tasks);
+    const artifacts = new InMemoryArtifactRepository();
+
+    await expect(
+      transitionTask({ taskId: 'task-1', to: TaskPhase.PLANNING }, tasks, artifacts),
+    ).rejects.toMatchObject({ name: 'TaskResearchPhaseError', reason: 'ARTIFACT_MISSING' });
+    await expect(tasks.findById('task-1')).resolves.toMatchObject({ phase: TaskPhase.BACKLOG });
+  });
+
+  it('admits BACKLOG to PLANNING when a valid Research artifact exists', async () => {
+    const projects = new InMemoryProjectRepository([project]);
+    const tasks = new InMemoryTaskRepository();
+    await createTask(validTaskInput, projects, tasks);
+    const artifacts = new InMemoryArtifactRepository([researchArtifact('task-1', 7)]);
+
+    const planning = await transitionTask(
+      { taskId: 'task-1', to: TaskPhase.PLANNING },
+      tasks,
+      artifacts,
+    );
+
+    expect(planning.phase).toBe(TaskPhase.PLANNING);
+    await expect(tasks.findById('task-1')).resolves.toEqual(planning);
   });
 });

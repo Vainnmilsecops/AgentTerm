@@ -48,6 +48,7 @@ interface RegisterDesktopIpcHandlersInput {
   readonly application: DesktopIpcApplication | Promise<DesktopIpcApplication>;
   readonly authorize: (event: DesktopIpcMainEvent) => boolean;
   readonly ipcMain: DesktopIpcMain;
+  readonly openBoardWindow: () => void;
   readonly selectProjectDirectory: () => Promise<string | undefined>;
   readonly selectQualityGateConfigFile: () => Promise<string | undefined>;
 }
@@ -155,6 +156,10 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
     switch (channel) {
       case desktopIpcChannels.loadWorkspace:
         return application.loadWorkspace();
+      case desktopIpcChannels.openBoardWindow: {
+        input.openBoardWindow();
+        return null;
+      }
       case desktopIpcChannels.openProject: {
         const path = await input.selectProjectDirectory();
         if (path === undefined) return 'CANCELLED' satisfies OpenDesktopProjectResult;

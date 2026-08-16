@@ -215,6 +215,16 @@ function artifactRepository(): ExecutionArtifactRepository {
   const values: ExecutionArtifact[] = [];
   return {
     findById: async (id) => values.find((artifact) => artifact.id === id),
+    findLatestByTaskIdAndKind: async (taskId, kind) => {
+      const filtered = values.filter(
+        (artifact) => artifact.taskId === taskId && artifact.kind === kind,
+      );
+      return filtered.length === 0
+        ? undefined
+        : filtered.reduce((latest, candidate) =>
+            candidate.createdAt > latest.createdAt ? candidate : latest,
+          );
+    },
     insert: async (artifact) => {
       values.push(artifact);
     },

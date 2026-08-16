@@ -65,6 +65,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => false,
       ipcMain,
+      openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
     });
@@ -93,6 +94,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => true,
       ipcMain,
+      openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
     });
@@ -124,6 +126,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => true,
       ipcMain,
+      openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
     });
@@ -144,6 +147,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => true,
       ipcMain,
+      openBoardWindow: () => undefined,
       selectProjectDirectory,
       selectQualityGateConfigFile,
     });
@@ -169,6 +173,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => true,
       ipcMain,
+      openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
     });
@@ -213,6 +218,7 @@ describe('desktop main IPC handlers', () => {
       application,
       authorize: () => true,
       ipcMain,
+      openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
     });

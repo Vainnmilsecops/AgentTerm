@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 
+import { bootstrapMcpServer, type McpServer } from '@agentterm/mcp-server';
+
 import {
   createProductionDesktopApplication,
   type ProductionDesktopApplication,
@@ -13,7 +15,7 @@ import {
   type DesktopIpcMain,
   type DesktopIpcMainEvent,
 } from './desktop-main-handlers';
-import { createDesktopWindowOptions } from './desktop-window';
+import { createBoardWindowOptions, createDesktopWindowOptions } from './desktop-window';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 let mainWindow: BrowserWindow | null = null;
@@ -21,6 +23,8 @@ let applicationAttempt: Promise<ProductionDesktopApplication> | undefined;
 let applicationInstance: ProductionDesktopApplication | undefined;
 let disposeIpcHandlers: (() => void) | undefined;
 let smokeDataDirectory: string | undefined;
+const boardWindows = new Set<BrowserWindow>();
+let mcpServer: McpServer | undefined;
 
 function createWindow(): void {
   const preloadPath = join(app.getAppPath(), 'dist', 'main', 'preload.cjs');
@@ -45,6 +49,26 @@ function createWindow(): void {
   });
 
   void mainWindow.loadFile(join(app.getAppPath(), 'dist', 'renderer', 'index.html'));
+}
+
+export function createBoardWindow(): BrowserWindow {
+  const preloadPath = join(app.getAppPath(), 'dist', 'main', 'preload.cjs');
+  const boardWindow = new BrowserWindow(createBoardWindowOptions(preloadPath));
+  boardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  boardWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  boardWindow.once('ready-to-show', () => {
+    boardWindow.show();
+  });
+  boardWindow.on('closed', () => {
+    boardWindows.delete(boardWindow);
+  });
+  boardWindows.add(boardWindow);
+  void boardWindow.loadFile(
+    join(app.getAppPath(), 'dist', 'renderer', 'board.html'),
+  );
+  return boardWindow;
 }
 
 async function verifySmokeRenderer(window: BrowserWindow | null): Promise<number> {
@@ -107,6 +131,7 @@ function startDesktopApplication(): void {
   void applicationAttempt
     .then((application) => {
       applicationInstance = application;
+      void bootstrapReadOnlyMcpServer(application);
     })
     .catch(() => {
       console.error('AgentTerm desktop application composition failed.');
@@ -120,6 +145,9 @@ function startDesktopApplication(): void {
       event.senderFrame !== null &&
       event.senderFrame === mainWindow.webContents.mainFrame,
     ipcMain: ipcMain as unknown as DesktopIpcMain,
+    openBoardWindow: () => {
+      createBoardWindow();
+    },
     selectProjectDirectory: async () => {
       const window = mainWindow;
       if (window === null || window.isDestroyed()) return undefined;
@@ -145,6 +173,10 @@ function startDesktopApplication(): void {
 }
 
 async function shutdownDesktop(): Promise<void> {
+  for (const board of [...boardWindows]) {
+    if (!board.isDestroyed()) board.close();
+  }
+  boardWindows.clear();
   disposeIpcHandlers?.();
   disposeIpcHandlers = undefined;
   if (applicationInstance === undefined && applicationAttempt !== undefined) {
@@ -180,4 +212,34 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   disposeIpcHandlers?.();
   applicationInstance?.dispose();
+  mcpServer = undefined;
 });
+
+/**
+ * Starts the read-only MCP server on stdio when an MCP token is configured. The
+ * server mirrors the read-only views already exposed by the desktop Application
+ * composition and inherits the live pane snapshot recorder; no new code paths
+ * outside this package are needed.
+ */
+async function bootstrapReadOnlyMcpServer(
+  application: ProductionDesktopApplication,
+): Promise<void> {
+  const view = await application.getApplicationSettings();
+  const token = view.settings.mcpServerToken?.trim();
+  if (token === undefined || token.length === 0) {
+    mcpServer = undefined;
+    return;
+  }
+  try {
+    mcpServer = await bootstrapMcpServer({
+      authToken: token,
+      dependencies: application.mcpReadOnlyDependencies,
+    });
+  } catch (error) {
+    mcpServer = undefined;
+    console.error(
+      'AgentTerm MCP server failed to start:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}

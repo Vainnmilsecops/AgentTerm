@@ -73,6 +73,7 @@ function emptyTask(
     qualityGateRuns: [],
     reviewHistory: [],
     task: task as unknown as WorkspaceTaskOverview["task"],
+    workflowPlugin: undefined,
   };
 }
 
@@ -214,6 +215,40 @@ describe("projectOverviewToBoard", () => {
       ({ column }) => column.id === TaskPhase.RUNNING,
     );
     expect(running?.tasks[0]?.activeSession?.id).toBe("session-1");
+  });
+
+  it("propagates the WorkflowPlugin projection from the workspace overview to the card", () => {
+    const baseTask = emptyTask(TaskPhase.BACKLOG, "task-bound", "Bound Task");
+    const taskWithPlugin: WorkspaceTaskOverview = {
+      ...baseTask,
+      workflowPlugin: Object.freeze({
+        activePhaseId: "planning",
+        phaseAgentId: "gemini",
+        pluginId: "agtx",
+        pluginName: "agtx",
+      }),
+    };
+    const overview: AgentWorkspaceOverview = {
+      agents: [],
+      projects: [
+        {
+          project:
+            projectFixture() as unknown as AgentWorkspaceOverview["projects"][number]["project"],
+          tasks: [taskWithPlugin],
+        },
+      ],
+    };
+
+    const projections = projectOverviewToBoard(overview);
+    const backlog = projections.find(
+      ({ column }) => column.id === TaskPhase.BACKLOG,
+    );
+    expect(backlog?.tasks[0]?.workflowPlugin).toEqual({
+      activePhaseId: "planning",
+      phaseAgentId: "gemini",
+      pluginId: "agtx",
+      pluginName: "agtx",
+    });
   });
 });
 

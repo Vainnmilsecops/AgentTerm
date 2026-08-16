@@ -28,6 +28,7 @@ import {
   type AgentAdapter,
   type AgentCatalog,
   type AgentSessionRepository,
+  type ApplicationSettingsRepository,
   type ExecutionArtifactRepository,
   type LocalProject,
   type ProjectCatalog,
@@ -36,7 +37,17 @@ import {
   type TaskDependencyRepository,
   type TaskReviewRepository,
   type TaskReviewQualityGateEvidenceSource,
+  type WorkflowPluginBindingRecord,
+  type WorkflowPluginBindingRepository,
+  type WorkflowPluginConfigurator,
+  type WorkflowPluginConfiguratorResult,
+  type WorkflowPluginConfiguration,
 } from './index';
+import {
+  createApplicationSettings,
+  createWorkflowPlugin,
+  type WorkflowPlugin,
+} from '@agentterm/domain';
 
 class FakeAgentCatalog implements AgentCatalog {
   public constructor(private readonly adapters: readonly AgentAdapter[]) {}
@@ -1204,3 +1215,213 @@ function summarizeGateRun(run: QualityGateRun) {
     taskId: run.taskId,
   };
 }
+
+class FakeWorkflowPluginBindingRepository implements WorkflowPluginBindingRepository {
+  public upsertCalls = 0;
+  public removeCalls = 0;
+
+  public constructor(
+    private readonly bindings: ReadonlyMap<string, WorkflowPluginBindingRecord>,
+  ) {}
+
+  public async findByTaskId(
+    taskId: string,
+  ): Promise<WorkflowPluginBindingRecord | undefined> {
+    return this.bindings.get(taskId);
+  }
+
+  public async upsert(): Promise<void> {
+    this.upsertCalls += 1;
+    throw new Error('upsert is not used by the workspace overview');
+  }
+
+  public async removeByTaskId(): Promise<boolean> {
+    this.removeCalls += 1;
+    throw new Error('removeByTaskId is not used by the workspace overview');
+    return false;
+  }
+}
+
+class FakeWorkflowPluginConfigurator implements WorkflowPluginConfigurator {
+  public constructor(
+    private readonly plugins: ReadonlyMap<string, WorkflowPluginConfiguration>,
+  ) {}
+
+  public async load(input: {
+    readonly path: string;
+  }): Promise<WorkflowPluginConfiguratorResult<WorkflowPluginConfiguration>> {
+    const value = this.plugins.get(input.path);
+    if (value === undefined) {
+      return Object.freeze({ failure: 'PATH_UNREADABLE', value: undefined });
+    }
+    return Object.freeze({ failure: undefined, value });
+  }
+}
+
+class FakeApplicationSettingsRepository implements ApplicationSettingsRepository {
+  public constructor(
+    private readonly settings: Parameters<typeof createApplicationSettings>[0] = {},
+  ) {}
+
+  public async get() {
+    return createApplicationSettings(this.settings);
+  }
+
+  public async update(): Promise<never> {
+    throw new Error('update is not used by the workspace overview');
+  }
+}
+
+function buildAgtxPlugin(): WorkflowPlugin {
+  return createWorkflowPlugin({
+    description: 'agtx-inspired 4-phase plugin.',
+    id: 'agtx',
+    name: 'agtx',
+    phases: [
+      {
+        artifactHeading: '# Research',
+        artifactKind: 'research',
+        id: 'research',
+        promptTemplate: 'Investigate {{task.title}}.',
+        requiredHeadings: ['# Research'],
+      },
+      {
+        artifactHeading: '# Plan',
+        artifactKind: 'planning',
+        id: 'planning',
+        promptTemplate: 'Plan {{task.title}}.',
+        requiredHeadings: ['# Plan'],
+      },
+    ],
+  });
+}
+
+function buildPluginDependencies(input?: {
+  readonly binding?: WorkflowPluginBindingRecord;
+  readonly plugin?: WorkflowPlugin;
+  readonly pluginPath?: string;
+  readonly settings?: Parameters<typeof createApplicationSettings>[0];
+}) {
+  const plugin = input?.plugin ?? buildAgtxPlugin();
+  const path = input?.pluginPath ?? 'D:\\plugins\\agtx.json';
+  const binding = input?.binding;
+  const bindingsMap = new Map<string, WorkflowPluginBindingRecord>();
+  if (binding !== undefined) bindingsMap.set(binding.taskId, binding);
+  return {
+    pluginDeps: {
+      agents: defaultAgents,
+      applicationSettings: new FakeApplicationSettingsRepository(input?.settings),
+      configurator: new FakeWorkflowPluginConfigurator(
+        new Map([[path, Object.freeze({ path, plugin, revision: 'v1' })]]),
+      ),
+      pluginBindings: new FakeWorkflowPluginBindingRepository(bindingsMap),
+    } as const,
+  };
+}
+
+describe('loadAgentWorkspace workflowPlugin projection', () => {
+  it('returns workflowPlugin: undefined when no plugin dependencies are wired', async () => {
+    const project: LocalProject = {
+      id: 'project-plugins-none',
+      name: 'No plugin project',
+      rootPath: 'D:\\Repositories\\NoPlugins',
+    };
+    const task = createTask({
+      id: 'task-plugins-none',
+      projectId: project.id,
+      title: 'No plugin task',
+    });
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([task]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+      defaultAgents,
+      new FakeTaskDependencyRepository([]),
+    );
+
+    expect(workspace.projects[0]?.tasks[0]?.workflowPlugin).toBeUndefined();
+  });
+
+  it('resolves workflowPlugin from a persisted binding using the configured default agent', async () => {
+    const project: LocalProject = {
+      id: 'project-plugins-bound',
+      name: 'Bound project',
+      rootPath: 'D:\\Repositories\\Bound',
+    };
+    const task = createTask({
+      id: 'task-plugins-bound',
+      projectId: project.id,
+      title: 'Bound task',
+    });
+    const { pluginDeps } = buildPluginDependencies({
+      binding: {
+        activePhaseId: 'planning',
+        installedAt: 1_700_000_000_000,
+        pluginId: 'agtx',
+        revision: 1,
+        sourcePath: 'D:\\plugins\\agtx.json',
+        taskId: task.id,
+      },
+    });
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([task]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+      defaultAgents,
+      new FakeTaskDependencyRepository([]),
+      pluginDeps,
+    );
+
+    expect(workspace.projects[0]?.tasks[0]?.workflowPlugin).toEqual({
+      activePhaseId: 'planning',
+      phaseAgentId: 'codex',
+      pluginId: 'agtx',
+      pluginName: 'agtx',
+    });
+  });
+
+  it('returns workflowPlugin: undefined when the binding source path cannot be loaded', async () => {
+    const project: LocalProject = {
+      id: 'project-plugins-missing',
+      name: 'Missing plugin project',
+      rootPath: 'D:\\Repositories\\Missing',
+    };
+    const task = createTask({
+      id: 'task-plugins-missing',
+      projectId: project.id,
+      title: 'Missing plugin task',
+    });
+    const { pluginDeps } = buildPluginDependencies({
+      binding: {
+        activePhaseId: 'planning',
+        installedAt: 1,
+        pluginId: 'agtx',
+        revision: 1,
+        sourcePath: 'D:\\plugins\\missing.json',
+        taskId: task.id,
+      },
+    });
+
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project]),
+      new FakeTaskCatalog([task]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+      defaultAgents,
+      new FakeTaskDependencyRepository([]),
+      pluginDeps,
+    );
+
+    expect(workspace.projects[0]?.tasks[0]?.workflowPlugin).toBeUndefined();
+  });
+});

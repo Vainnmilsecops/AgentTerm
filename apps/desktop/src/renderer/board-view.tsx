@@ -116,6 +116,17 @@ export function BoardView({
                         : " · session active"}
                       {task.blocked ? " · blocked" : ""}
                     </span>
+                    {task.workflowPlugin !== undefined ? (
+                      <span
+                        className="board-view__card-plugin"
+                        data-board-card-plugin={task.task.id}
+                      >
+                        plugin: {task.workflowPlugin.pluginName}
+                        {task.workflowPlugin.phaseAgentId === undefined
+                          ? ""
+                          : ` · agent: ${task.workflowPlugin.phaseAgentId}`}
+                      </span>
+                    ) : null}
                   </button>
                 </li>
               ))}
