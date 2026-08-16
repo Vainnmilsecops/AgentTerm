@@ -42,12 +42,15 @@ import {
   updateApplicationSettings,
 } from '@agentterm/application';
 import type {
+  ApplicationSettingsView,
+  McpReadOnlyViewDependencies,
   PtyRuntimeEventSink,
   PtyTerminalSize,
   QualityGateConfiguration,
   QualityGateConfiguratorFailure,
 } from '@agentterm/application';
 import {
+  BoundedPaneSnapshotRecorder,
   BuiltInAgentConfigurationInspector,
   GitCliTaskReviewCodeInspector,
   GitCliTaskWorktreeLifecycle,
@@ -67,6 +70,8 @@ import type { DesktopIpcApplication } from './desktop-main-handlers';
 
 export interface ProductionDesktopApplication extends DesktopIpcApplication {
   dispose(): void;
+  getApplicationSettings(): Promise<ApplicationSettingsView>;
+  readonly mcpReadOnlyDependencies: McpReadOnlyViewDependencies;
 }
 
 export interface ProductionDesktopApplicationOptions {
@@ -96,9 +101,11 @@ export async function createProductionDesktopApplication(
     const pullRequestIntegration = new GitHubPullRequestAdapter();
     const projectDiscovery = new LocalGitProjectDiscovery();
     const runtime = new WindowsConPtyRuntime();
+    const paneSnapshotRecorder = new BoundedPaneSnapshotRecorder();
     const sessionCoordinator = new AgentSessionCoordinator({
       agents,
       clock,
+      createSessionObserver: (sessionId) => paneSnapshotRecorder.sinkFor(sessionId),
       runtime,
       sessions: persistence.sessions,
       tasks: persistence.tasks,
@@ -222,6 +229,14 @@ export async function createProductionDesktopApplication(
       tasks: persistence.tasks,
       worktrees: persistence.worktrees,
     });
+    const mcpReadOnlyDependencies = Object.freeze({
+      paneSnapshots: paneSnapshotRecorder,
+      projects: persistence.projects,
+      reviews: persistence.reviews,
+      sessions: summarizeSessions(persistence.sessions),
+      tasks: persistence.tasks,
+      taskRepository: persistence.tasks,
+    });
     const workspaceLayoutDependencies = Object.freeze({
       clock,
       repository: persistence.workspaceLayout,
@@ -233,6 +248,7 @@ export async function createProductionDesktopApplication(
     const newId = (): string => randomUUID();
 
     const application: ProductionDesktopApplication = {
+      mcpReadOnlyDependencies,
       acceptTaskPlan: async (input): Promise<void> => {
         requireOpen();
         await acceptTaskPlan(input, planningDependencies);
@@ -456,6 +472,10 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return updateApplicationSettings(input, settingsDependencies);
       },
+      getApplicationSettings: async () => {
+        requireOpen();
+        return loadApplicationSettings(settingsDependencies);
+      },
     };
     return Object.freeze(application);
   } catch (error) {
@@ -523,4 +543,32 @@ function unwrapConfiguratorResult(result: {
   readonly value: QualityGateConfiguration | undefined;
 } {
   return result;
+}
+
+/**
+ * Wraps the durable Agent Session repository so the read-only MCP server can
+ * receive lightweight per-task summaries without depending on full session
+ * history semantics or PTY runtime ownership.
+ */
+function summarizeSessions(
+  sessions: import('@agentterm/application').AgentSessionRepository,
+): import('@agentterm/application').AgentSessionSummaryReader {
+  return {
+    async listByTaskId(taskId) {
+      const records = await sessions.listByTaskId(taskId);
+      return Object.freeze(
+        records.map((record) =>
+          Object.freeze({
+            agentId: record.agentId,
+            createdAt: record.createdAt,
+            endedAt: record.endedAt,
+            failureCode: undefined,
+            id: record.id,
+            status: record.status,
+            taskId: record.taskId,
+          }),
+        ),
+      );
+    },
+  };
 }

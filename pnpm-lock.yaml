@@ -47,6 +47,9 @@ importers:
       '@agentterm/infrastructure':
         specifier: workspace:*
         version: link:../../packages/infrastructure
+      '@agentterm/mcp-server':
+        specifier: workspace:*
+        version: link:../../packages/mcp-server
       '@agentterm/shared':
         specifier: workspace:*
         version: link:../../packages/shared

@@ -75,6 +75,8 @@ export interface AgentSessionCoordinatorDependencies {
   readonly runtime: PtyRuntime;
   readonly sessions: AgentSessionRepository;
   readonly tasks: TaskRepository;
+  /** Optional factory that produces an observer sink for each new session. */
+  readonly createSessionObserver?: (sessionId: string) => PtyRuntimeEventSink | undefined;
 }
 
 interface OwnedSessionRuntime {
@@ -92,6 +94,9 @@ interface OwnedSessionRuntime {
 export class AgentSessionCoordinator {
   private readonly agents: AgentCatalog;
   private readonly clock: () => number;
+  private readonly createSessionObserver:
+    | ((sessionId: string) => PtyRuntimeEventSink | undefined)
+    | undefined;
   private readonly runtime: PtyRuntime;
   private readonly sessions: AgentSessionRepository;
   private readonly tasks: TaskRepository;
@@ -104,6 +109,7 @@ export class AgentSessionCoordinator {
   public constructor(dependencies: AgentSessionCoordinatorDependencies) {
     this.agents = dependencies.agents;
     this.clock = dependencies.clock;
+    this.createSessionObserver = dependencies.createSessionObserver;
     this.runtime = dependencies.runtime;
     this.sessions = dependencies.sessions;
     this.tasks = dependencies.tasks;
@@ -333,12 +339,22 @@ export class AgentSessionCoordinator {
 
     const bufferedEvents: PtyRuntimeEvent[] = [];
     let buffering = true;
+    const initialObservers = new Set<PtyRuntimeEventSink>();
+    if (input.eventSink !== undefined) {
+      initialObservers.add(input.eventSink);
+    }
+    if (this.createSessionObserver !== undefined) {
+      const persistedSink = this.createSessionObserver(input.sessionId);
+      if (persistedSink !== undefined) {
+        initialObservers.add(persistedSink);
+      }
+    }
     const runtimeState: OwnedSessionRuntime = {
       acceptingTerminalInput: true,
       failure: undefined,
       handle: undefined,
       interactiveAttachment: undefined,
-      observers: new Set(input.eventSink === undefined ? [] : [input.eventSink]),
+      observers: initialObservers,
       runtimeEvents: new Map(),
       stopAttempt: undefined,
       stopRequested: false,

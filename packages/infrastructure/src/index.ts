@@ -24,6 +24,10 @@ export {
 export { NodeQualityGateProcessRunner } from "./quality-gate/node-quality-gate-process-runner";
 export { NodeHostReattacher } from "./process/windows-host-reattacher";
 export { WindowsConPtyRuntime } from "./pty/windows-conpty-runtime";
+export {
+  BoundedPaneSnapshotRecorder,
+  type BoundedPaneSnapshotRecorderOptions,
+} from "./pty/bounded-pane-snapshot-recorder";
 export { SqlitePersistenceError } from "./sqlite/errors";
 export {
   openSqlitePersistence,

@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 
+import { bootstrapMcpServer, type McpServer } from '@agentterm/mcp-server';
+
 import {
   createProductionDesktopApplication,
   type ProductionDesktopApplication,
@@ -22,6 +24,7 @@ let applicationInstance: ProductionDesktopApplication | undefined;
 let disposeIpcHandlers: (() => void) | undefined;
 let smokeDataDirectory: string | undefined;
 const boardWindows = new Set<BrowserWindow>();
+let mcpServer: McpServer | undefined;
 
 function createWindow(): void {
   const preloadPath = join(app.getAppPath(), 'dist', 'main', 'preload.cjs');
@@ -128,6 +131,7 @@ function startDesktopApplication(): void {
   void applicationAttempt
     .then((application) => {
       applicationInstance = application;
+      void bootstrapReadOnlyMcpServer(application);
     })
     .catch(() => {
       console.error('AgentTerm desktop application composition failed.');
@@ -208,4 +212,34 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   disposeIpcHandlers?.();
   applicationInstance?.dispose();
+  mcpServer = undefined;
 });
+
+/**
+ * Starts the read-only MCP server on stdio when an MCP token is configured. The
+ * server mirrors the read-only views already exposed by the desktop Application
+ * composition and inherits the live pane snapshot recorder; no new code paths
+ * outside this package are needed.
+ */
+async function bootstrapReadOnlyMcpServer(
+  application: ProductionDesktopApplication,
+): Promise<void> {
+  const view = await application.getApplicationSettings();
+  const token = view.settings.mcpServerToken?.trim();
+  if (token === undefined || token.length === 0) {
+    mcpServer = undefined;
+    return;
+  }
+  try {
+    mcpServer = await bootstrapMcpServer({
+      authToken: token,
+      dependencies: application.mcpReadOnlyDependencies,
+    });
+  } catch (error) {
+    mcpServer = undefined;
+    console.error(
+      'AgentTerm MCP server failed to start:',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
