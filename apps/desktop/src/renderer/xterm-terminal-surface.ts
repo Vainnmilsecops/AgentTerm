@@ -17,6 +17,8 @@ export class XtermTerminalSurface implements TerminalSurface {
   private readonly subscriptions: IDisposable[];
   private readonly terminal: Terminal;
   private themeObserver: MutationObserver | undefined;
+  private customKeyHandler: ((event: KeyboardEvent) => boolean) | undefined;
+  private contextMenuHandler: ((event: MouseEvent) => boolean) | undefined;
 
   public constructor() {
     this.terminal = new Terminal({
@@ -58,6 +60,47 @@ export class XtermTerminalSurface implements TerminalSurface {
     this.fit();
     this.resizeObserver = new ResizeObserver(() => this.scheduleFit());
     this.resizeObserver.observe(container);
+    this.terminal.attachCustomKeyEventHandler((event) => {
+      if (this.customKeyHandler === undefined) return true;
+      return this.customKeyHandler(event);
+    });
+  }
+
+  public getSelection(): string {
+    if (this.disposed) return '';
+    return this.terminal.getSelection();
+  }
+
+  public paste(text: string): void {
+    if (this.disposed) return;
+    this.terminal.paste(text);
+  }
+
+  public selectAll(): void {
+    if (this.disposed) return;
+    this.terminal.selectAll();
+  }
+
+  /**
+   * Register a hook that decides whether an xterm-routed key event should be
+   * consumed (returning `false`) or left to the default xterm handler (returning
+   * `true`). Called by the consuming component once per mount.
+   */
+  public setKeyHandler(handler: ((event: KeyboardEvent) => boolean) | undefined): void {
+    this.customKeyHandler = handler;
+  }
+
+  /**
+   * Register a listener that decides whether the browser context menu should be
+   * suppressed for the terminal host. Returning `true` prevents the default menu.
+   */
+  public setContextMenuHandler(handler: ((event: MouseEvent) => boolean) | undefined): void {
+    this.contextMenuHandler = handler;
+  }
+
+  public hostElement(): HTMLElement | undefined {
+    if (this.disposed) return undefined;
+    return this.terminal.element ?? undefined;
   }
 
   public getSize(): PtyTerminalSize {
