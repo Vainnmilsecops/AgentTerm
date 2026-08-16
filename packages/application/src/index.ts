@@ -299,6 +299,7 @@ export {
   summarizeTaskReview,
   type AgentSessionSummary,
   type AgentWorkspaceOverview,
+  type LoadAgentWorkspacePluginDeps,
   type QualityGateRunSummary,
   type TaskReviewArtifactSummary,
   type TaskReviewChangesSummary,
@@ -307,6 +308,7 @@ export {
   type TaskReviewQualityGateSummary,
   type TaskReviewSummary,
   type TaskDependencySummary,
+  type WorkflowPluginProjection,
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,
 } from "./workspace-overview";

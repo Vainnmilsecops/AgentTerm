@@ -216,6 +216,7 @@ const emptyReviewState = Object.freeze({
   latestPlan: undefined,
   latestReview: undefined,
   reviewHistory: Object.freeze([]),
+  workflowPlugin: undefined,
 });
 const availableAgents = Object.freeze([
   Object.freeze({
@@ -560,6 +561,7 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     validation: 'VALID',
   }));
   public readonly openProject = vi.fn(async () => 'OPENED' as const);
+  public readonly openBoardWindow = vi.fn(async () => undefined);
   public loadResults: AgentWorkspaceOverview[] = [planningOverview];
   public loadFailure: Error | undefined;
   public startGate: Promise<void> | undefined;

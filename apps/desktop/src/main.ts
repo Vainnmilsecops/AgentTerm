@@ -13,7 +13,7 @@ import {
   type DesktopIpcMain,
   type DesktopIpcMainEvent,
 } from './desktop-main-handlers';
-import { createDesktopWindowOptions } from './desktop-window';
+import { createBoardWindowOptions, createDesktopWindowOptions } from './desktop-window';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 let mainWindow: BrowserWindow | null = null;
@@ -21,6 +21,7 @@ let applicationAttempt: Promise<ProductionDesktopApplication> | undefined;
 let applicationInstance: ProductionDesktopApplication | undefined;
 let disposeIpcHandlers: (() => void) | undefined;
 let smokeDataDirectory: string | undefined;
+const boardWindows = new Set<BrowserWindow>();
 
 function createWindow(): void {
   const preloadPath = join(app.getAppPath(), 'dist', 'main', 'preload.cjs');
@@ -45,6 +46,26 @@ function createWindow(): void {
   });
 
   void mainWindow.loadFile(join(app.getAppPath(), 'dist', 'renderer', 'index.html'));
+}
+
+export function createBoardWindow(): BrowserWindow {
+  const preloadPath = join(app.getAppPath(), 'dist', 'main', 'preload.cjs');
+  const boardWindow = new BrowserWindow(createBoardWindowOptions(preloadPath));
+  boardWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  boardWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+  boardWindow.once('ready-to-show', () => {
+    boardWindow.show();
+  });
+  boardWindow.on('closed', () => {
+    boardWindows.delete(boardWindow);
+  });
+  boardWindows.add(boardWindow);
+  void boardWindow.loadFile(
+    join(app.getAppPath(), 'dist', 'renderer', 'board.html'),
+  );
+  return boardWindow;
 }
 
 async function verifySmokeRenderer(window: BrowserWindow | null): Promise<number> {
@@ -120,6 +141,9 @@ function startDesktopApplication(): void {
       event.senderFrame !== null &&
       event.senderFrame === mainWindow.webContents.mainFrame,
     ipcMain: ipcMain as unknown as DesktopIpcMain,
+    openBoardWindow: () => {
+      createBoardWindow();
+    },
     selectProjectDirectory: async () => {
       const window = mainWindow;
       if (window === null || window.isDestroyed()) return undefined;
@@ -145,6 +169,10 @@ function startDesktopApplication(): void {
 }
 
 async function shutdownDesktop(): Promise<void> {
+  for (const board of [...boardWindows]) {
+    if (!board.isDestroyed()) board.close();
+  }
+  boardWindows.clear();
   disposeIpcHandlers?.();
   disposeIpcHandlers = undefined;
   if (applicationInstance === undefined && applicationAttempt !== undefined) {

@@ -59,6 +59,7 @@ import {
   WindowsConPtyRuntime,
   createBuiltInAgentCatalogFromSettings,
   createQualityGateConfigurator,
+  createWorkflowPluginConfigurator,
   openSqlitePersistence,
 } from '@agentterm/infrastructure';
 
@@ -72,6 +73,7 @@ export interface ProductionDesktopApplicationOptions {
   readonly clock?: () => number;
   readonly dataDirectory: string;
   readonly environment?: NodeJS.ProcessEnv;
+  readonly openBoardWindow?: () => void;
 }
 
 const initialTerminalSize = Object.freeze({ columns: 80, rows: 24 });
@@ -161,6 +163,10 @@ export async function createProductionDesktopApplication(
     const trustRoots = resolveQualityGateConfigTrustRoots(options.environment ?? process.env);
     const qualityGateConfigurator = createQualityGateConfigurator({
       trustRoots,
+    });
+    const pluginTrustRoots = resolveWorkflowPluginTrustRoots(options.environment ?? process.env);
+    const workflowPluginConfigurator = createWorkflowPluginConfigurator({
+      trustRoots: pluginTrustRoots,
     });
     await restoreAgentSessionsAfterRestart(persistence.sessions, clock, {
       reattachAttempt,
@@ -339,6 +345,12 @@ export async function createProductionDesktopApplication(
           persistence.reviews,
           agents,
           persistence.taskDependencies,
+          {
+            agents,
+            applicationSettings: persistence.settings,
+            configurator: workflowPluginConfigurator,
+            pluginBindings: persistence.workflowPluginBindings,
+          },
         );
       },
       loadWorkspaceLayout: async () => {
@@ -348,6 +360,10 @@ export async function createProductionDesktopApplication(
       openProject: async (input): Promise<void> => {
         requireOpen();
         await openApplicationProject(input, projectDiscovery, persistence.projects);
+      },
+      openBoardWindow: async (): Promise<void> => {
+        requireOpen();
+        options.openBoardWindow?.();
       },
       pushTaskBranch: async (input): Promise<void> => {
         requireOpen();
@@ -472,6 +488,21 @@ function resolveQualityGateConfigTrustRoots(environment: NodeJS.ProcessEnv): rea
   if (trimmed.length === 0) return Object.freeze([]);
   if (trimmed.includes('\0')) {
     throw new TypeError('AT_DESKTOP_GATE_CONFIG_ROOT contains a NUL byte.');
+  }
+  const parts = trimmed
+    .split(/[;]/u)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return Object.freeze(parts);
+}
+
+function resolveWorkflowPluginTrustRoots(environment: NodeJS.ProcessEnv): readonly string[] {
+  const raw = environment['AT_DESKTOP_PLUGIN_ROOT'];
+  if (raw === undefined) return Object.freeze([]);
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return Object.freeze([]);
+  if (trimmed.includes('\0')) {
+    throw new TypeError('AT_DESKTOP_PLUGIN_ROOT contains a NUL byte.');
   }
   const parts = trimmed
     .split(/[;]/u)

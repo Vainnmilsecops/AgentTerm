@@ -42,6 +42,7 @@ function overview(): WorkspaceTaskOverview {
     qualityGateRuns: Object.freeze([]),
     reviewHistory: Object.freeze([]),
     task: task('task-current', 'p1', 'Current'),
+    workflowPlugin: undefined,
   }) as WorkspaceTaskOverview;
 }
 

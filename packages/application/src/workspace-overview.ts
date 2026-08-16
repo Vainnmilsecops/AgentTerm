@@ -10,18 +10,23 @@ import {
   type QualityGateRun,
   type Task,
   type TaskReview,
+  type WorkflowPlugin,
 } from '@agentterm/domain';
 
 import type {
   AgentCatalog,
   AgentSessionRepository,
+  ApplicationSettingsRepository,
   ProjectCatalog,
   QualityGateRunRepository,
   TaskCatalog,
   TaskDependencyRepository,
-  TaskReviewRepository,
   TaskPlanningArtifactRepository,
+  TaskReviewRepository,
+  WorkflowPluginBindingRepository,
+  WorkflowPluginConfigurator,
 } from './ports';
+import { bindPhaseAgent } from './workflow-plugin-use-cases';
 import { listAgentSummaries, type AgentSummary } from './agent-catalog';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import { canStartTaskExecution, canStartTaskPlanning } from './task-execution';
@@ -54,6 +59,14 @@ export interface WorkspaceTaskOverview {
   readonly qualityGateRuns: readonly QualityGateRunSummary[];
   readonly reviewHistory: readonly TaskReviewSummary[];
   readonly task: Task;
+  readonly workflowPlugin: WorkflowPluginProjection | undefined;
+}
+
+export interface WorkflowPluginProjection {
+  readonly activePhaseId: string;
+  readonly phaseAgentId: string | undefined;
+  readonly pluginId: string;
+  readonly pluginName: string;
 }
 
 export interface TaskDependencySummary {
@@ -158,6 +171,13 @@ export interface AgentWorkspaceOverview {
   readonly projects: readonly WorkspaceProjectOverview[];
 }
 
+export interface LoadAgentWorkspacePluginDeps {
+  readonly agents: AgentCatalog;
+  readonly applicationSettings: ApplicationSettingsRepository;
+  readonly configurator: WorkflowPluginConfigurator;
+  readonly pluginBindings: WorkflowPluginBindingRepository;
+}
+
 export async function loadAgentWorkspace(
   projects: ProjectCatalog,
   tasks: TaskCatalog,
@@ -167,7 +187,9 @@ export async function loadAgentWorkspace(
   reviews: TaskReviewRepository,
   agents: AgentCatalog,
   taskDependencies: TaskDependencyRepository,
+  pluginDeps?: LoadAgentWorkspacePluginDeps,
 ): Promise<AgentWorkspaceOverview> {
+  const pluginCache = pluginDeps ? new PluginProjectionCache(pluginDeps) : undefined;
   const agentSummaries = await listAgentSummaries(agents);
   const recentProjects = await projects.listRecent();
   const projectOverviews = await Promise.all(
@@ -227,6 +249,9 @@ export async function loadAgentWorkspace(
           const hasPendingReview =
             task.phase === TaskPhase.REVIEW &&
             latestReviewAttempt?.status === TaskReviewStatus.PENDING;
+          const workflowPlugin = pluginCache
+            ? await pluginCache.resolve(task.id)
+            : undefined;
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
             artifacts: Object.freeze([...artifactHistory]),
@@ -286,6 +311,7 @@ export async function loadAgentWorkspace(
             qualityGateRuns: Object.freeze(gateHistory.map(summarizeQualityGateRun)),
             reviewHistory,
             task,
+            workflowPlugin,
           });
         }),
       );
@@ -297,6 +323,61 @@ export async function loadAgentWorkspace(
   );
 
   return Object.freeze({ agents: agentSummaries, projects: Object.freeze(projectOverviews) });
+}
+
+/**
+ * Resolves per-Task WorkflowPlugin projections while sharing one cached
+ * plugin load across the workspace overview. The renderer never receives a
+ * WorkflowPluginBindingRecord, only the safe id/name/phase/agent summary.
+ */
+class PluginProjectionCache {
+  private readonly pluginByPath = new Map<string, WorkflowPlugin>();
+  private readonly projections = new Map<string, WorkflowPluginProjection>();
+
+  public constructor(private readonly deps: LoadAgentWorkspacePluginDeps) {}
+
+  public async resolve(taskId: string): Promise<WorkflowPluginProjection | undefined> {
+    const cached = this.projections.get(taskId);
+    if (cached !== undefined) return cached;
+    const binding = await this.deps.pluginBindings.findByTaskId(taskId);
+    if (binding === undefined) {
+      this.projections.set(taskId, undefined as unknown as WorkflowPluginProjection);
+      return undefined;
+    }
+    const plugin = await this.loadPlugin(binding.sourcePath);
+    if (plugin === undefined) {
+      this.projections.set(taskId, undefined as unknown as WorkflowPluginProjection);
+      return undefined;
+    }
+    let phaseAgentId: string | undefined;
+    try {
+      const settings = await this.deps.applicationSettings.get();
+      const agent = bindPhaseAgent(
+        { phaseId: binding.activePhaseId, plugin, settings },
+        this.deps.agents,
+      );
+      phaseAgentId = agent.id;
+    } catch {
+      phaseAgentId = undefined;
+    }
+    const projection = Object.freeze({
+      activePhaseId: binding.activePhaseId,
+      phaseAgentId,
+      pluginId: plugin.id,
+      pluginName: plugin.name,
+    }) satisfies WorkflowPluginProjection;
+    this.projections.set(taskId, projection);
+    return projection;
+  }
+
+  private async loadPlugin(path: string): Promise<WorkflowPlugin | undefined> {
+    const cached = this.pluginByPath.get(path);
+    if (cached !== undefined) return cached;
+    const loaded = await this.deps.configurator.load({ path });
+    if (loaded.failure !== undefined || loaded.value === undefined) return undefined;
+    this.pluginByPath.set(path, loaded.value.plugin);
+    return loaded.value.plugin;
+  }
 }
 
 export function summarizeTaskReview(review: TaskReview): TaskReviewSummary {

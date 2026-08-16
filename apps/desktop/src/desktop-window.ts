@@ -25,3 +25,15 @@ export function createDesktopWindowOptions(preloadPath: string): BrowserWindowCo
     width: 1120,
   };
 }
+
+export function createBoardWindowOptions(preloadPath: string): BrowserWindowConstructorOptions {
+  const base = createDesktopWindowOptions(preloadPath);
+  return {
+    ...base,
+    height: 820,
+    minHeight: 560,
+    minWidth: 960,
+    title: 'AgentTerm Board',
+    width: 1280,
+  };
+}

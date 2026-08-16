@@ -121,6 +121,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onExportQualityGateConfig: (input: {
     readonly configuration: import('@agentterm/application').QualityGateConfiguration;
   }) => Promise<void>;
+  readonly onOpenBoardWindow?: () => Promise<void> | void;
   readonly snapshot: WorkspaceSnapshot;
 }
 
@@ -193,6 +194,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onExportQualityGateConfig={(input) =>
         controller?.exportQualityGateConfig(input) ?? Promise.resolve()
       }
+      onOpenBoardWindow={() => client?.openBoardWindow()}
       snapshot={snapshot}
     />
   );
@@ -234,6 +236,7 @@ export function AgentWorkspaceView({
   onUnregisterQualityGate,
   onImportQualityGateConfig,
   onExportQualityGateConfig,
+  onOpenBoardWindow = () => undefined,
   snapshot,
 }: AgentWorkspaceViewProps) {
   const [paletteState, setPaletteState] = useState(initialCommandPaletteState);
@@ -467,6 +470,10 @@ export function AgentWorkspaceView({
         scheduleTerminalFocus();
         return;
       }
+      if (shortcut === 'open-board') {
+        void onOpenBoardWindow();
+        return;
+      }
       setPaletteState(initialCommandPaletteState);
       focusTarget(shortcut.replace('focus-', '') as WorkspaceFocusTarget);
     };
@@ -636,6 +643,7 @@ export function AgentWorkspaceView({
             revision: `palette-${String(Date.now())}`,
           },
         }),
+      openBoardWindow: () => onOpenBoardWindow(),
     },
   );
 
