@@ -250,6 +250,11 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.runQualityGate],
         );
         return null;
+      case desktopIpcChannels.stopAgentSession:
+        await application.stopAgentSession(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.stopAgentSession],
+        );
+        return null;
       case desktopIpcChannels.listTaskChanges:
         return application.listTaskChanges(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskChanges],

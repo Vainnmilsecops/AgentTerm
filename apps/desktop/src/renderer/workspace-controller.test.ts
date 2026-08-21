@@ -50,6 +50,7 @@ type TestWorkspaceViewProps = Omit<
   | 'onSelectTaskChange'
   | 'onSplitTerminal'
   | 'onStartPlanning'
+  | 'onStopAgent'
   | 'onUnregisterQualityGate'
   | 'onImportQualityGateConfig'
   | 'onExportQualityGateConfig'
@@ -78,6 +79,7 @@ type TestWorkspaceViewProps = Omit<
       | 'onSelectTaskChange'
       | 'onSplitTerminal'
       | 'onStartPlanning'
+      | 'onStopAgent'
       | 'onUnregisterQualityGate'
       | 'onImportQualityGateConfig'
       | 'onExportQualityGateConfig'
@@ -646,6 +648,7 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     async () => true,
   );
   public readonly runQualityGate = vi.fn(async () => undefined);
+  public readonly stopAgentSession = vi.fn(async () => undefined);
   public readonly startTaskExecution = vi.fn<AgentWorkspaceClient['startTaskExecution']>(
     async () => undefined,
   );

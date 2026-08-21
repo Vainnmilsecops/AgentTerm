@@ -70,6 +70,7 @@ describe('desktop preload bridge', () => {
       'selectQualityGateConfigPath',
       'startTaskExecution',
       'startTaskPlanning',
+      'stopAgentSession',
       'unregisterQualityGate',
       'updateSettings',
     ]);

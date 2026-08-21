@@ -278,6 +278,10 @@ export class WorkspaceController {
     }
   }
 
+  public stopAgentSession(sessionId: string): void {
+    void this.client.stopAgentSession({ sessionId });
+  }
+
   public selectWorkspacePane(paneId: string): void {
     this.publishWorkspaceLayout(activateWorkspacePane(this.requireLayout(), paneId), false);
   }

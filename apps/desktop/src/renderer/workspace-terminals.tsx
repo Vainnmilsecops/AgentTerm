@@ -25,6 +25,7 @@ export interface WorkspaceTerminalsProps {
   readonly onCloseTab: (tabId: string) => void;
   readonly onRuntimeEvent: (event: PtyRuntimeEvent) => void;
   readonly onSplit: (sessionId: string) => void;
+  readonly onStopAgent?: (sessionId: string) => void;
   readonly overview: AgentWorkspaceOverview;
 }
 
@@ -39,6 +40,7 @@ export function WorkspaceTerminals({
   onCloseTab,
   onRuntimeEvent,
   onSplit,
+  onStopAgent,
   overview,
 }: WorkspaceTerminalsProps) {
   const [connectionStates, setConnectionStates] = useState<
@@ -174,6 +176,7 @@ export function WorkspaceTerminals({
                     )
                   }
                   onRuntimeEvent={onRuntimeEvent}
+                  {...(onStopAgent !== undefined ? { onStopAgent } : {})}
                   paneId={pane.id}
                   {...(pane.sessionId === undefined ? {} : { sessionId: pane.sessionId })}
                 />

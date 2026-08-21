@@ -29,6 +29,7 @@ export interface TerminalRendererProps {
   readonly onClose?: () => void;
   readonly onConnectionStateChange?: (state: TerminalConnectionState) => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
+  readonly onStopAgent?: (sessionId: string) => void;
   readonly paneId?: string;
   readonly sessionId?: string;
   readonly taskId?: string;
@@ -45,6 +46,7 @@ export function TerminalRenderer({
   onClose,
   onConnectionStateChange,
   onRuntimeEvent,
+  onStopAgent,
   paneId = 'primary',
   sessionId,
   taskId,
@@ -145,11 +147,14 @@ export function TerminalRenderer({
   const contextMenu = useTerminalContextMenu({
     enabled: state === 'connected',
     onClose: () => undefined,
-    resolveActions: buildContextMenuActions,
+    resolveActions: (ctx) => buildContextMenuActions(ctx.sessionId, ctx.hasSelection),
+    sessionId,
     target: containerRef.current,
   });
 
-  const contextMenuDispatch = (action: { readonly kind: 'copy' | 'paste' | 'select-all' }) => {
+  const contextMenuDispatch = (action: {
+    readonly kind: 'copy' | 'paste' | 'select-all' | 'agent-stop' | 'agent-signal';
+  }) => {
     const surface = surfaceRef.current as TerminalSurface | undefined;
     if (surface === undefined) return;
     if (action.kind === 'copy') {
@@ -157,8 +162,13 @@ export function TerminalRenderer({
       if (text.length > 0) void navigator.clipboard.writeText(text);
     } else if (action.kind === 'paste') {
       void navigator.clipboard.readText().then((text) => inputHook.pasteText(text));
-    } else {
+    } else if (action.kind === 'select-all') {
       surface.selectAll();
+    } else if (action.kind === 'agent-stop') {
+      if (sessionId !== undefined) onStopAgent?.(sessionId);
+    } else if (action.kind === 'agent-signal') {
+      const etx = '\x03'; // Ctrl+C = ETX
+      surfaceRef.current?.paste(etx);
     }
   };
 
