@@ -4,6 +4,7 @@ import type { PtyRuntimeEvent, PtyTerminalSize } from '@agentterm/application';
 
 import {
   TerminalController,
+  type TerminalConnectionFailure,
   type TerminalSessionAttachment,
   type TerminalSessionClient,
   type TerminalSurface,
@@ -296,16 +297,16 @@ describe('TerminalController', () => {
 });
 
 describe('TerminalController — serialized input queue', () => {
-  interface Deferred<T> {
-    promise: Promise<T>;
+  interface Deferred {
+    promise: Promise<undefined>;
     reject: (reason: unknown) => void;
-    resolve: (value: T) => void;
+    resolve: (value?: undefined) => void;
   }
 
-  function deferred<T>(): Deferred<T> {
-    let resolve!: (value: T) => void;
+  function deferred(): Deferred {
+    let resolve!: (value?: undefined) => void;
     let reject!: (reason: unknown) => void;
-    const promise = new Promise<T>((res, rej) => {
+    const promise = new Promise<undefined>((res, rej) => {
       resolve = res;
       reject = rej;
     });
@@ -325,7 +326,7 @@ describe('TerminalController — serialized input queue', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(client.attachment.write.mock.calls.map((call) => call[0])).toEqual(['a', 'b', 'c']);
+    expect((client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0])).toEqual(['a', 'b', 'c']);
   });
 
   it('marks state failed and surfaces a failure event when a write rejects', async () => {
@@ -414,7 +415,7 @@ describe('TerminalController — serialized input queue', () => {
     controller.mount({} as HTMLElement);
     await controller.setSession('session-1', client);
 
-    const first = deferred<void>();
+    const first = deferred();
     client.attachment.write
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(async () => undefined);
@@ -423,6 +424,6 @@ describe('TerminalController — serialized input queue', () => {
     surface.emitInput('b');
     first.resolve();
     await controller.flushInputQueue();
-    expect(client.attachment.write.mock.calls.map((call) => call[0])).toEqual(['a', 'b']);
+    expect((client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0])).toEqual(['a', 'b']);
   });
 });
