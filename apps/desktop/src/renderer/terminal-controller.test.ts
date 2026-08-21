@@ -11,7 +11,10 @@ import {
 } from './terminal-controller';
 
 class FakeTerminalSurface implements TerminalSurface {
+  public readonly clearSearch = vi.fn();
   public readonly dispose = vi.fn();
+  public readonly findSearch = vi.fn(() => true);
+  public readonly findSearchPrevious = vi.fn(() => true);
   public readonly focus = vi.fn();
   public readonly open = vi.fn();
   public readonly paste = vi.fn();

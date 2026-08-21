@@ -19,7 +19,10 @@ export interface TerminalSessionClient {
 }
 
 export interface TerminalSurface {
+  clearSearch(): void;
   dispose(): void;
+  findSearch(input: TerminalSearchRequest): boolean;
+  findSearchPrevious(input: TerminalSearchRequest): boolean;
   focus(): void;
   getSelection(): string;
   getSize(): PtyTerminalSize;
@@ -32,6 +35,12 @@ export interface TerminalSurface {
   selectAll(): void;
   setFontSize(fontSize: number): void;
   write(data: string): void;
+}
+
+export interface TerminalSearchRequest {
+  readonly caseSensitive: boolean;
+  readonly mode: 'literal' | 'regex';
+  readonly term: string;
 }
 
 interface ActiveAttachment {
@@ -308,6 +317,27 @@ export class TerminalController {
     } catch {
       // Surface may already be disposed by the renderer; ignore.
     }
+  }
+
+  /**
+   * Forward a search request to the underlying xterm surface. Returns the
+   * addon's `findNext`/`findPrevious` boolean, or `false` if the surface is
+   * no longer attached. The renderer is responsible for keeping the search
+   * bar's `lastResult` in sync via a follow-up `RECORD_RESULT` dispatch.
+   */
+  public findSearch(request: TerminalSearchRequest): boolean {
+    if (this.disposed || this.inputSubscription === undefined) return false;
+    return this.surface.findSearch(request);
+  }
+
+  public findSearchPrevious(request: TerminalSearchRequest): boolean {
+    if (this.disposed || this.inputSubscription === undefined) return false;
+    return this.surface.findSearchPrevious(request);
+  }
+
+  public clearSearch(): void {
+    if (this.disposed || this.inputSubscription === undefined) return;
+    this.surface.clearSearch();
   }
 
   public setFontSize(fontSize: number): void {

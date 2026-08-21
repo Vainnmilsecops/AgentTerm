@@ -1,16 +1,18 @@
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search';
 import { Terminal, type IDisposable } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 
 import type { PtyTerminalSize } from '@agentterm/application';
 
-import type { TerminalSurface } from './terminal-controller';
+import type { TerminalSearchRequest, TerminalSurface } from './terminal-controller';
 import { resolveTerminalTheme } from './terminal-theme';
 
 export class XtermTerminalSurface implements TerminalSurface {
   private disposed = false;
   private fitFrame: number | undefined;
   private readonly fitAddon = new FitAddon();
+  private readonly searchAddon = new SearchAddon();
   private readonly inputListeners = new Set<(data: string) => void>();
   private readonly resizeListeners = new Set<(size: PtyTerminalSize) => void>();
   private resizeObserver: ResizeObserver | undefined;
@@ -31,6 +33,7 @@ export class XtermTerminalSurface implements TerminalSurface {
       theme: readTerminalTheme(),
     });
     this.terminal.loadAddon(this.fitAddon);
+    this.terminal.loadAddon(this.searchAddon);
     this.subscriptions = [
       this.terminal.onData((data) => {
         for (const listener of [...this.inputListeners]) {
@@ -79,6 +82,21 @@ export class XtermTerminalSurface implements TerminalSurface {
   public selectAll(): void {
     if (this.disposed) return;
     this.terminal.selectAll();
+  }
+
+  public findSearch(input: TerminalSearchRequest): boolean {
+    if (this.disposed || input.term.length === 0) return false;
+    return this.searchAddon.findNext(input.term, toSearchOptions(input));
+  }
+
+  public findSearchPrevious(input: TerminalSearchRequest): boolean {
+    if (this.disposed || input.term.length === 0) return false;
+    return this.searchAddon.findPrevious(input.term, toSearchOptions(input));
+  }
+
+  public clearSearch(): void {
+    if (this.disposed) return;
+    this.searchAddon.clearDecorations();
   }
 
   /**
@@ -224,4 +242,11 @@ function createIdempotentDisposer(dispose: () => void): () => void {
     disposed = true;
     dispose();
   };
+}
+
+function toSearchOptions(input: TerminalSearchRequest): ISearchOptions {
+  return Object.freeze({
+    caseSensitive: input.caseSensitive,
+    regex: input.mode === 'regex',
+  });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { PtyRuntimeEvent } from '@agentterm/application';
 
@@ -14,6 +14,18 @@ import {
   TerminalContextMenu,
   useTerminalContextMenu,
 } from './terminal-context-menu';
+import {
+  deriveSearchView,
+  isSearchOpenShortcut,
+  TerminalSearchBar,
+  type TerminalSearchBarHandle,
+} from './terminal-search-bar';
+import {
+  decideSearchAction,
+  initialSearchState,
+  type SearchEvent,
+  type SearchState,
+} from './terminal-search-state';
 import { useTerminalInput } from './use-terminal-input';
 import { WorkspaceIcon } from './workspace-icons';
 import {
@@ -69,8 +81,10 @@ export function TerminalRenderer({
   const controllerRef = useRef<TerminalController | undefined>(undefined);
   const runtimeEventRef = useRef(onRuntimeEvent);
   const failureSinkRef = useRef<((failure: TerminalConnectionFailure) => void) | undefined>(undefined);
+  const searchBarRef = useRef<TerminalSearchBarHandle | null>(null);
   const [state, setState] = useState<TerminalConnectionState>('empty');
   const [, setSelection] = useState('');
+  const [searchState, setSearchState] = useState<SearchState>(initialSearchState);
 
   const inputHook = useTerminalInput({
     active,
@@ -79,6 +93,45 @@ export function TerminalRenderer({
     sessionId,
     taskId,
   });
+
+  const dispatchSearch = useCallback((event: SearchEvent): void => {
+    setSearchState((prev) => {
+      const decision = decideSearchAction(prev, event);
+      for (const effect of decision.effects) {
+        if (effect.kind === 'focus-input') {
+          searchBarRef.current?.focus();
+        }
+      }
+      return decision.state;
+    });
+  }, []);
+
+  const searchView = useMemo(() => deriveSearchView(searchState), [searchState]);
+
+  const runSearch = useCallback(
+    (direction: 'next' | 'previous'): void => {
+      if (searchState.term.trim().length === 0) return;
+      if (searchState.mode === 'regex' && searchState.lastResult.kind === 'invalid-regex') {
+        return;
+      }
+      const controller = controllerRef.current;
+      if (controller === undefined) return;
+      const request = {
+        caseSensitive: searchState.caseSensitive,
+        mode: searchState.mode,
+        term: searchState.term,
+      };
+      const hit =
+        direction === 'next'
+          ? controller.findSearch(request)
+          : controller.findSearchPrevious(request);
+      dispatchSearch({
+        kind: 'RECORD_RESULT',
+        result: hit ? { kind: 'found' } : { kind: 'not-found' },
+      });
+    },
+    [dispatchSearch, searchState],
+  );
 
   useEffect(() => {
     failureSinkRef.current = inputHook.triggerControllerFailure;
@@ -193,6 +246,40 @@ export function TerminalRenderer({
     return () => window.clearInterval(interval);
   }, [controllerRef.current]);
 
+  // Pane-local Ctrl+Shift+F interceptor. We bind on the terminal host
+  // element (rather than `document`) so that two terminal panes don't fight
+  // over the same chord. xterm's own attachCustomKeyEventHandler only sees
+  // copy / paste / send-bytes chords; this listener runs in the bubble phase
+  // and prevents the browser from forwarding the chord to xterm.
+  useEffect(() => {
+    if (!active) return undefined;
+    const surface = surfaceRef.current;
+    if (surface === undefined) return undefined;
+    const host = surface.hostElement();
+    if (host === undefined) return undefined;
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (inputHook.pendingConfirmation !== undefined) return;
+      if (!isSearchOpenShortcut(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const wasOpen = searchState.open;
+      dispatchSearch({ kind: wasOpen ? 'CLOSE' : 'OPEN' });
+    };
+    host.addEventListener('keydown', handleKeyDown);
+    return () => {
+      host.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [active, dispatchSearch, inputHook.pendingConfirmation, searchState.open]);
+
+  // Re-focus xterm and clear decorations whenever the bar closes.
+  useEffect(() => {
+    if (searchState.open) return;
+    controllerRef.current?.clearSearch();
+    if (state === 'connected') {
+      controllerRef.current?.focus();
+    }
+  }, [searchState.open, state]);
+
   const contextMenu = useTerminalContextMenu({
     enabled: state === 'connected',
     onClose: () => undefined,
@@ -276,6 +363,21 @@ export function TerminalRenderer({
               </div>
             </div>
           </div>
+        ) : null}
+        {searchState.open ? (
+          <TerminalSearchBar
+            caseSensitive={searchView.caseSensitive}
+            mode={searchView.mode}
+            ref={searchBarRef}
+            result={searchView.result}
+            term={searchView.term}
+            onCaseChange={(next) => dispatchSearch({ kind: 'SET_CASE', caseSensitive: next })}
+            onClose={() => dispatchSearch({ kind: 'CLOSE' })}
+            onModeChange={(next) => dispatchSearch({ kind: 'SET_MODE', mode: next })}
+            onNext={() => runSearch('next')}
+            onPrevious={() => runSearch('previous')}
+            onTermChange={(next) => dispatchSearch({ kind: 'SET_TERM', term: next })}
+          />
         ) : null}
       </div>
       {inputHook.pendingConfirmation !== undefined ? (

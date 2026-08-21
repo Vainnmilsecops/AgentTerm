@@ -443,3 +443,87 @@
   margin: var(--space-1) 0;
   background: var(--border-subtle);
 }
+
+.terminal-search-bar {
+  position: absolute;
+  bottom: var(--space-3);
+  right: var(--space-3);
+  z-index: 8500;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-elevated);
+  box-shadow: 0 0.5rem 1.5rem rgba(0 0 0 / 0.2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  max-width: min(28rem, 80%);
+}
+
+.terminal-search-bar__input {
+  flex: 1 1 auto;
+  min-width: 8rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.terminal-search-bar__input:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.terminal-search-bar__toggle,
+.terminal-search-bar__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.terminal-search-bar__toggle[aria-pressed='true'],
+.terminal-search-bar__action:not(:disabled):hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-search-bar__action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.terminal-search-bar__toggle:focus-visible,
+.terminal-search-bar__action:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.terminal-search-bar__feedback {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  min-width: 5rem;
+  text-align: center;
+}
+
+.terminal-search-bar__feedback--warn {
+  color: var(--accent-warning, #d29922);
+}
+
+.terminal-search-bar__feedback--error {
+  color: var(--accent-danger, #f85149);
+}
