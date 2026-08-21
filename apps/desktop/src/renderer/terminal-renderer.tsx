@@ -20,6 +20,10 @@ import {
   registerTerminalLinkProvider,
   type IDisposableLinkProvider,
 } from './xterm-link-provider';
+import {
+  registerWorktreeFileLinkProvider,
+  type IDisposableWorktreeFileLinkProvider,
+} from './xterm-worktree-file-link-provider';
 import { XtermTerminalSurface } from './xterm-terminal-surface';
 
 export interface TerminalRendererProps {
@@ -33,6 +37,7 @@ export interface TerminalRendererProps {
   readonly onClose?: () => void;
   readonly onConnectionStateChange?: (state: TerminalConnectionState) => void;
   readonly onOpenExternalLink?: (url: string) => void;
+  readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
   readonly onStopAgent?: (sessionId: string) => void;
   readonly paneId?: string;
@@ -51,6 +56,7 @@ export function TerminalRenderer({
   onClose,
   onConnectionStateChange,
   onOpenExternalLink,
+  onOpenWorktreeFile,
   onRuntimeEvent,
   onStopAgent,
   paneId = 'primary',
@@ -150,6 +156,31 @@ export function TerminalRenderer({
     });
     return () => handle.dispose();
   }, [onOpenExternalLink]);
+
+  // Register a sibling link provider for absolute filesystem paths that
+  // live inside the persisted primary Task Worktree. The renderer
+  // receives no native path until the user Ctrl+clicks a token, and the
+  // Application resolver (`resolveTerminalLinkTarget`) decides what is
+  // eligible.
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (surface === undefined) return undefined;
+    if (onOpenWorktreeFile === undefined || taskId === undefined) return undefined;
+    const handle: IDisposableWorktreeFileLinkProvider = registerWorktreeFileLinkProvider({
+      resolve: (text) => {
+        if (taskId === undefined) return undefined;
+        return {
+          absolutePath: text,
+          activate: (_event, absolutePath) => {
+            onOpenWorktreeFile({ absolutePath, taskId });
+          },
+          text,
+        };
+      },
+      terminal: surface.getTerminal(),
+    });
+    return () => handle.dispose();
+  }, [onOpenWorktreeFile, taskId]);
 
   // Track selection on the surface so context menu can decide.
   useEffect(() => {

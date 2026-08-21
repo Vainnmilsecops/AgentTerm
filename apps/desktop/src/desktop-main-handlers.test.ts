@@ -68,7 +68,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
-      shell: { openExternal: async (_url: string) => undefined },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(7);
 
@@ -98,7 +98,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
-      shell: { openExternal: async (_url: string) => undefined },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(3);
 
@@ -131,7 +131,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
-      shell: { openExternal: async (_url: string) => undefined },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
 
     await expect(
@@ -153,7 +153,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory,
       selectQualityGateConfigFile,
-      shell: { openExternal: async (_url: string) => undefined },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(5);
 
@@ -180,7 +180,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
-      shell: { openExternal: async (_url: string) => undefined },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(6);
 
@@ -205,6 +205,103 @@ describe('desktop main IPC handlers', () => {
     expect(application.beginTaskPlanning).toHaveBeenCalledWith({ taskId: 'task-created' });
   });
 
+  it('dispatches openWorktreeFile through the application resolver', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication({
+      openWorktreeFile: vi.fn(async () => undefined),
+    });
+    const sender = new FakeSender(7);
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
+        absolutePath: 'C:\\repo\\src\\index.ts',
+        taskId: 'task-1',
+      }),
+    ).resolves.toEqual({ ok: true, value: null });
+    expect(application.openWorktreeFile).toHaveBeenCalledWith({
+      absolutePath: 'C:\\repo\\src\\index.ts',
+      taskId: 'task-1',
+    });
+  });
+
+  it('maps WorktreeLinkNotFoundError to NOT_FOUND', async () => {
+    const ipcMain = new FakeIpcMain();
+    class FakeNotFoundError extends Error {
+      public constructor() {
+        super('fake');
+        this.name = 'WorktreeLinkNotFoundError';
+      }
+    }
+    const application = createApplication({
+      openWorktreeFile: vi.fn(async () => {
+        throw new FakeNotFoundError();
+      }),
+    });
+    const sender = new FakeSender(7);
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
+        absolutePath: 'C:\\outside\\foo.ts',
+        taskId: 'task-1',
+      }),
+    ).resolves.toEqual({
+      error: { code: 'OPERATION_FAILED', message: 'The requested AgentTerm operation failed.' },
+      ok: false,
+    });
+  });
+
+  it('rejects openWorktreeFile with non-absolute paths and path traversal segments', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication({
+      openWorktreeFile: vi.fn(async () => undefined),
+    });
+    const sender = new FakeSender(7);
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
+        absolutePath: 'foo\\bar.ts',
+        taskId: 'task-1',
+      }),
+    ).resolves.toEqual({
+      error: { code: 'INVALID_REQUEST', message: 'The desktop request is invalid.' },
+      ok: false,
+    });
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
+        absolutePath: 'C:\\repo\\..\\evil.exe',
+        taskId: 'task-1',
+      }),
+    ).resolves.toEqual({
+      error: { code: 'INVALID_REQUEST', message: 'The desktop request is invalid.' },
+      ok: false,
+    });
+    expect(application.openWorktreeFile).not.toHaveBeenCalled();
+  });
+
   it('owns terminal subscriptions per sender and detaches without terminating the Session', async () => {
     const ipcMain = new FakeIpcMain();
     let eventSink: ((event: PtyRuntimeEvent) => void) | undefined;
@@ -226,7 +323,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
-      shell: { openExternal: async (_url: string) => undefined },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const owner = new FakeSender(11);
     const other = new FakeSender(12);

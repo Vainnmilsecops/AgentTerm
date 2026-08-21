@@ -127,7 +127,10 @@ function startDesktopApplication(): void {
   const dataDirectory = isSmokeTest
     ? (smokeDataDirectory ??= mkdtempSync(join(tmpdir(), 'agentterm-electron-smoke-')))
     : app.getPath('userData');
-  applicationAttempt = createProductionDesktopApplication({ dataDirectory });
+  applicationAttempt = createProductionDesktopApplication({
+    dataDirectory,
+    shellOpenPath: async (absolutePath: string) => shell.openPath(absolutePath),
+  });
   void applicationAttempt
     .then((application) => {
       applicationInstance = application;
@@ -171,6 +174,7 @@ function startDesktopApplication(): void {
     },
     shell: {
       openExternal: (url: string) => shell.openExternal(url),
+      openPath: (absolutePath: string) => shell.openPath(absolutePath),
     },
   });
 }

@@ -53,6 +53,7 @@ export const desktopIpcChannels = Object.freeze({
   openBoardWindow: 'agentterm:window:open-board',
   openExternalLink: 'agentterm:terminal:open-external-link',
   openProject: 'agentterm:project:open',
+  openWorktreeFile: 'agentterm:terminal:open-worktree-file',
   pushTaskBranch: 'agentterm:pull-request:push',
   refreshPullRequest: 'agentterm:pull-request:refresh',
   registerQualityGate: 'agentterm:quality-gates:register',
@@ -196,6 +197,11 @@ interface OpenExternalLinkRequest {
   readonly url: string;
 }
 
+interface OpenWorktreeFileRequest {
+  readonly absolutePath: string;
+  readonly taskId: string;
+}
+
 interface TerminalSubscriptionRequest {
   readonly subscriptionId: string;
 }
@@ -234,6 +240,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.openBoardWindow]: EmptyRequest;
   readonly [desktopIpcChannels.openExternalLink]: OpenExternalLinkRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
+  readonly [desktopIpcChannels.openWorktreeFile]: OpenWorktreeFileRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
   readonly [desktopIpcChannels.refreshPullRequest]: PullRequestRefreshRequest;
   readonly [desktopIpcChannels.registerQualityGate]: QualityGateRegistrationRequest;
@@ -280,6 +287,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.openBoardWindow]: null;
   readonly [desktopIpcChannels.openExternalLink]: null;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
+  readonly [desktopIpcChannels.openWorktreeFile]: null;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
   readonly [desktopIpcChannels.refreshPullRequest]: null;
   readonly [desktopIpcChannels.registerQualityGate]: null;
@@ -350,6 +358,7 @@ export interface AgentTermDesktopApi {
   openBoardWindow(): Promise<void>;
   openExternalLink(input: { readonly url: string }): Promise<void>;
   openProject(): Promise<OpenDesktopProjectResult>;
+  openWorktreeFile(input: { readonly absolutePath: string; readonly taskId: string }): Promise<void>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
   registerQualityGate(input: QualityGateRegistrationRequest): Promise<void>;
@@ -402,6 +411,13 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.openExternalLink: {
       const record = exactRecord(input, ['url']);
       return Object.freeze({ url: readExternalUrl(record.url) }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.openWorktreeFile: {
+      const record = exactRecord(input, ['absolutePath', 'taskId']);
+      return Object.freeze({
+        absolutePath: readWorktreeAbsolutePath(record.absolutePath),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.createTask: {
       const record = exactRecord(input, ['brief', 'projectId', 'title']);
@@ -870,6 +886,24 @@ function readExternalUrl(input: unknown): string {
   const lowered = value.toLowerCase();
   if (!lowered.startsWith('http://') && !lowered.startsWith('https://')) fail();
   if (/\s/u.test(value)) fail();
+  return value;
+}
+
+function readWorktreeAbsolutePath(input: unknown): string {
+  // Mirrors the renderer resolver: accept Windows drive paths and POSIX
+  // absolute paths, refuse anything else, refuse path-traversal segments,
+  // and refuse control bytes that could be smuggled through the IPC
+  // boundary. Canonicalization belongs to the main-process worktree
+  // adapter; this validator only enforces shape.
+  const value = readBoundedString(input, maximumIdentityLength);
+  const isWindowsDrive = /^[A-Za-z]:[\\/]/u.test(value);
+  const isPosix = value.startsWith('/');
+  if (!isWindowsDrive && !isPosix) fail();
+  if (value.includes('\0')) fail();
+  for (const segment of value.split(/[\\/]+/u)) {
+    if (segment === '..' || segment === '.') fail();
+  }
+  if (/[\u0000-\u001f\u007f]/u.test(value)) fail();
   return value;
 }
 

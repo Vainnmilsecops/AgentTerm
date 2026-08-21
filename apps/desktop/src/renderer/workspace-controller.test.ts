@@ -565,6 +565,9 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly openProject = vi.fn(async () => 'OPENED' as const);
   public readonly openBoardWindow = vi.fn(async () => undefined);
   public readonly openExternalLink = vi.fn(async (_input: { readonly url: string }) => undefined);
+  public readonly openWorktreeFile = vi.fn(
+    async (_input: { readonly absolutePath: string; readonly taskId: string }) => undefined,
+  );
   public loadResults: AgentWorkspaceOverview[] = [planningOverview];
   public loadFailure: Error | undefined;
   public startGate: Promise<void> | undefined;
