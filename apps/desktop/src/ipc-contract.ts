@@ -51,6 +51,7 @@ export const desktopIpcChannels = Object.freeze({
   loadWorkspace: 'agentterm:workspace:load',
   loadWorkspaceLayout: 'agentterm:workspace-layout:load',
   openBoardWindow: 'agentterm:window:open-board',
+  openExternalLink: 'agentterm:terminal:open-external-link',
   openProject: 'agentterm:project:open',
   pushTaskBranch: 'agentterm:pull-request:push',
   refreshPullRequest: 'agentterm:pull-request:refresh',
@@ -191,6 +192,10 @@ interface PullRequestRefreshRequest extends TaskRequest {
   readonly repositoryOwner: string;
 }
 
+interface OpenExternalLinkRequest {
+  readonly url: string;
+}
+
 interface TerminalSubscriptionRequest {
   readonly subscriptionId: string;
 }
@@ -227,6 +232,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: EmptyRequest;
   readonly [desktopIpcChannels.openBoardWindow]: EmptyRequest;
+  readonly [desktopIpcChannels.openExternalLink]: OpenExternalLinkRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
   readonly [desktopIpcChannels.refreshPullRequest]: PullRequestRefreshRequest;
@@ -272,6 +278,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: WorkspaceLayoutReadModel | undefined;
   readonly [desktopIpcChannels.openBoardWindow]: null;
+  readonly [desktopIpcChannels.openExternalLink]: null;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
   readonly [desktopIpcChannels.refreshPullRequest]: null;
@@ -341,6 +348,7 @@ export interface AgentTermDesktopApi {
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
   openBoardWindow(): Promise<void>;
+  openExternalLink(input: { readonly url: string }): Promise<void>;
   openProject(): Promise<OpenDesktopProjectResult>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
@@ -391,6 +399,10 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.loadWorkspaceLayout:
     case desktopIpcChannels.selectQualityGateConfigPath:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
+    case desktopIpcChannels.openExternalLink: {
+      const record = exactRecord(input, ['url']);
+      return Object.freeze({ url: readExternalUrl(record.url) }) as DesktopIpcRequestMap[C];
+    }
     case desktopIpcChannels.createTask: {
       const record = exactRecord(input, ['brief', 'projectId', 'title']);
       return Object.freeze({
@@ -851,6 +863,14 @@ function readQualityGateKind(input: unknown): QualityGateKind {
 function readStringArray(input: unknown, maxLength: number): readonly string[] {
   if (!Array.isArray(input) || input.length > maxLength) fail();
   return Object.freeze(input.map((entry) => readBoundedString(entry, maximumIdentityLength)));
+}
+
+function readExternalUrl(input: unknown): string {
+  const value = readBoundedString(input, 2048);
+  const lowered = value.toLowerCase();
+  if (!lowered.startsWith('http://') && !lowered.startsWith('https://')) fail();
+  if (/\s/u.test(value)) fail();
+  return value;
 }
 
 function readTerminalData(input: unknown): string {

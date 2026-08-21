@@ -123,6 +123,16 @@ export class XtermTerminalSurface implements TerminalSurface {
     }
   }
 
+  public registerLinks(
+    provider: import('@xterm/xterm').ILinkProvider,
+  ): import('@xterm/xterm').IDisposable {
+    return this.terminal.registerLinkProvider(provider);
+  }
+
+  public getTerminal(): Terminal {
+    return this.terminal;
+  }
+
   public reset(): void {
     if (!this.disposed) {
       this.terminal.reset();

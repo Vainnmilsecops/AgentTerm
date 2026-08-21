@@ -86,6 +86,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onCycleWorkspacePane: (delta: -1 | 1) => void;
   readonly onCycleWorkspaceTab: (delta: -1 | 1) => void;
   readonly onPushTaskBranch: () => void;
+  readonly onOpenExternalLink?: (url: string) => void;
   readonly onOpenProject: () => void;
   readonly onRefreshPullRequest: () => void;
   readonly onRefresh: () => void;
@@ -197,6 +198,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
         controller?.exportQualityGateConfig(input) ?? Promise.resolve()
       }
       onOpenBoardWindow={() => client?.openBoardWindow()}
+      onOpenExternalLink={(url) => void client?.openExternalLink({ url })}
       snapshot={snapshot}
     />
   );
@@ -218,6 +220,7 @@ export function AgentWorkspaceView({
   onRefresh,
   onRegisterQualityGate,
   onPushTaskBranch,
+  onOpenExternalLink,
   onOpenProject,
   onRefreshPullRequest,
   onRequestChanges,
@@ -707,6 +710,9 @@ export function AgentWorkspaceView({
             onActiveConnectionStateChange={setActiveTerminalContext}
             onClosePane={onCloseWorkspacePane}
             onCloseTab={onCloseWorkspaceTab}
+            {...(onOpenExternalLink === undefined
+              ? {}
+              : { onOpenExternalLink })}
             onRuntimeEvent={(event) => {
               if (event.kind !== 'output') onRefresh();
             }}

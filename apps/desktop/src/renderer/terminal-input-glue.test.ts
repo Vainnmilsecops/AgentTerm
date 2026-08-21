@@ -7,6 +7,10 @@ import type {
   TerminalPasteRequest,
 } from './terminal-controller';
 import {
+  BRACKETED_PASTE_BEGIN,
+  BRACKETED_PASTE_END,
+} from './terminal-paste-controller';
+import {
   dispatchConfirmPaste,
   dispatchPasteText,
   failureToFeedback,
@@ -31,6 +35,26 @@ describe('dispatchPasteText', () => {
     });
     expect(result.pending).toBeUndefined();
     expect(result.feedback.level).toBe('info');
+    expect(controller.pasteText).toHaveBeenCalledWith({
+      byteLength: 5,
+      lineCount: 1,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'hello',
+      wrap: 'never',
+    });
+  });
+
+  it('does not wrap single-line small pastes in bracketed markers', () => {
+    const controller = new FakeController();
+    dispatchPasteText('hello', {
+      controller: controller as unknown as TerminalController,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+    });
+    const call = controller.pasteText.mock.calls[0]?.[0];
+    expect(call?.text).toBe('hello');
+    expect(call?.text.startsWith(BRACKETED_PASTE_BEGIN)).toBe(false);
   });
 
   it('defers large text to confirmation', () => {
@@ -100,9 +124,31 @@ describe('dispatchConfirmPaste', () => {
       lineCount: 1,
       sessionId: 'session-1',
       taskId: 'task-1',
-      text: 'x'.repeat(9000),
+      text: `${BRACKETED_PASTE_BEGIN}${'x'.repeat(9000)}${BRACKETED_PASTE_END}`,
+      wrap: 'auto',
     });
     expect(feedback.level).toBe('info');
+  });
+
+  it('wraps multi-line buffered text in bracketed-paste markers', () => {
+    const controller = new FakeController();
+    const pending = {
+      byteLength: 30,
+      byteLengthLabel: '30 B',
+      lineCount: 4,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'a\nb\nc\nd',
+    };
+    dispatchConfirmPaste(pending, controller as unknown as TerminalController);
+    expect(controller.pasteText).toHaveBeenCalledWith({
+      byteLength: 30,
+      lineCount: 4,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: `${BRACKETED_PASTE_BEGIN}a\nb\nc\nd${BRACKETED_PASTE_END}`,
+      wrap: 'auto',
+    });
   });
 
   it('reports failure when controller rejects', () => {

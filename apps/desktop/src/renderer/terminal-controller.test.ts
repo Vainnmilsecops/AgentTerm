@@ -186,6 +186,75 @@ describe('TerminalController', () => {
     expect(leftClient.attachment.resize).not.toHaveBeenCalledWith({ columns: 144, rows: 45 });
   });
 
+  it('reasserts focus and refits when the active tab changes', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    expect(controller.reassertFocus()).toBe(true);
+    expect(controller.refit()).toBe(true);
+    expect(surface.focus).toHaveBeenCalled();
+    expect(surface.refresh).toHaveBeenCalled();
+  });
+
+  it('refit and reassertFocus are no-ops when not mounted', () => {
+    const surface = new FakeTerminalSurface();
+    const controller = new TerminalController(surface);
+
+    expect(controller.refit()).toBe(false);
+    expect(controller.reassertFocus()).toBe(false);
+    expect(surface.refresh).not.toHaveBeenCalled();
+    expect(surface.focus).not.toHaveBeenCalled();
+  });
+
+  it('refit and reassertFocus return false when the controller is not connected', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+
+    // Still attaching — no session has resolved yet.
+    // refit only needs the surface to be open (which happens at mount).
+    expect(controller.refit()).toBe(true);
+    // reassertFocus needs an active, non-failed connection.
+    expect(controller.reassertFocus()).toBe(false);
+
+    await controller.setSession('session-1', client);
+    client.emit({ exitCode: 0, kind: 'exited', sequence: 1 });
+
+    expect(controller.reassertFocus()).toBe(false);
+  });
+
+  it('clearPendingPaste releases the pending paste buffer on the surface', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.clearPendingPaste();
+    expect(surface.selectAll).toHaveBeenCalled();
+  });
+
+  it('clearPendingPaste tolerates a surface that has already been disposed', async () => {
+    const surface = new FakeTerminalSurface();
+    Object.defineProperty(surface, 'dispose', {
+      value: vi.fn(() => {
+        throw new Error('already disposed');
+      }),
+      writable: true,
+    });
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+    controller.clearPendingPaste();
+    // No throw, no crash; the renderer can still call focus/refit.
+    expect(controller.reassertFocus()).toBe(true);
+  });
+
   it('detaches the prior session once and ignores its late events when switching sessions', async () => {
     const surface = new FakeTerminalSurface();
     const first = new FakeTerminalSessionClient();
@@ -374,6 +443,80 @@ describe('TerminalController — serialized input queue', () => {
     });
     expect(surface.paste).toHaveBeenCalledWith('hi');
     expect(client.attachment.write).not.toHaveBeenCalled();
+  });
+
+  it('pasteText wraps multi-line payloads with bracketed-paste markers by default', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.pasteText({
+      byteLength: 7,
+      lineCount: 3,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'a\nb\nc',
+    });
+    expect(surface.paste).toHaveBeenCalledWith('\u001b[200~a\nb\nc\u001b[201~');
+    expect(client.attachment.write).not.toHaveBeenCalled();
+  });
+
+  it('pasteText wraps single-line payloads past the confirm byte threshold', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.pasteText({
+      byteLength: 9_000,
+      lineCount: 1,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'x'.repeat(9_000),
+    });
+    const call = surface.paste.mock.calls[0]?.[0] as string | undefined;
+    expect(call?.startsWith('\u001b[200~')).toBe(true);
+    expect(call?.endsWith('\u001b[201~')).toBe(true);
+  });
+
+  it('pasteText does not wrap single-line small payloads even when wrap is always', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    // Caller can still force unwrapping via wrap: 'never'.
+    controller.pasteText({
+      byteLength: 7,
+      lineCount: 3,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'a\nb\nc',
+      wrap: 'never',
+    });
+    expect(surface.paste).toHaveBeenCalledWith('a\nb\nc');
+  });
+
+  it('pasteText always wraps when wrap is always', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+
+    controller.pasteText({
+      byteLength: 2,
+      lineCount: 1,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'hi',
+      wrap: 'always',
+    });
+    expect(surface.paste).toHaveBeenCalledWith('\u001b[200~hi\u001b[201~');
   });
 
   it('sendBytes routes through the FIFO queue', async () => {

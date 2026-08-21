@@ -56,6 +56,7 @@ describe('desktop preload bridge', () => {
       'loadWorkspace',
       'loadWorkspaceLayout',
       'openBoardWindow',
+      'openExternalLink',
       'openProject',
       'pushTaskBranch',
       'refreshTaskPullRequest',

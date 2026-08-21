@@ -3,7 +3,13 @@ import type {
   TerminalController,
 } from './terminal-controller';
 import { decideKeyOutcome, ETX_BYTE } from './terminal-keyboard-controller';
-import { classifyPaste, evaluatePaste, formatPasteByteLength } from './terminal-paste-controller';
+import {
+  classifyPaste,
+  evaluatePaste,
+  formatPasteByteLength,
+  prepareBracketedPasteText,
+  type BracketedPasteWrap,
+} from './terminal-paste-controller';
 
 export interface PendingPasteConfirmation {
   readonly byteLength: number;
@@ -57,12 +63,14 @@ export function dispatchPasteText(text: string, input: PasteDispatchInput): Past
       },
     };
   }
+  const wrapMode: BracketedPasteWrap = 'never';
   const outcome = input.controller?.pasteText({
     byteLength: cls.byteLength,
     lineCount: cls.lineCount,
     sessionId: input.sessionId,
     taskId: input.taskId,
-    text,
+    text: prepareBracketedPasteText(text, wrapMode, cls.lineCount, cls.byteLength),
+    wrap: wrapMode,
   });
   if (outcome?.status === 'paste-unavailable') {
     return {
@@ -79,12 +87,19 @@ export function dispatchConfirmPaste(
   pending: PendingPasteConfirmation,
   controller: TerminalController | undefined,
 ): TerminalInputFeedback {
+  const wrapMode: BracketedPasteWrap = 'auto';
   const outcome = controller?.pasteText({
     byteLength: pending.byteLength,
     lineCount: pending.lineCount,
     sessionId: pending.sessionId,
     taskId: pending.taskId,
-    text: pending.text,
+    text: prepareBracketedPasteText(
+      pending.text,
+      wrapMode,
+      pending.lineCount,
+      pending.byteLength,
+    ),
+    wrap: wrapMode,
   });
   if (outcome?.status === 'paste-unavailable') {
     return { level: 'error', message: 'Paste failed — terminal input unavailable.' };

@@ -16,6 +16,10 @@ import {
 } from './terminal-context-menu';
 import { useTerminalInput } from './use-terminal-input';
 import { WorkspaceIcon } from './workspace-icons';
+import {
+  registerTerminalLinkProvider,
+  type IDisposableLinkProvider,
+} from './xterm-link-provider';
 import { XtermTerminalSurface } from './xterm-terminal-surface';
 
 export interface TerminalRendererProps {
@@ -28,6 +32,7 @@ export interface TerminalRendererProps {
   readonly onActivate?: () => void;
   readonly onClose?: () => void;
   readonly onConnectionStateChange?: (state: TerminalConnectionState) => void;
+  readonly onOpenExternalLink?: (url: string) => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
   readonly onStopAgent?: (sessionId: string) => void;
   readonly paneId?: string;
@@ -45,6 +50,7 @@ export function TerminalRenderer({
   onActivate,
   onClose,
   onConnectionStateChange,
+  onOpenExternalLink,
   onRuntimeEvent,
   onStopAgent,
   paneId = 'primary',
@@ -61,7 +67,9 @@ export function TerminalRenderer({
   const [, setSelection] = useState('');
 
   const inputHook = useTerminalInput({
+    active,
     controller: controllerRef.current,
+    paneId,
     sessionId,
     taskId,
   });
@@ -115,13 +123,6 @@ export function TerminalRenderer({
     controllerRef.current?.setFontSize(fontSize);
   }, [fontSize]);
 
-  useEffect(() => {
-    if (!active) {
-      return;
-    }
-    controllerRef.current?.refreshLayout();
-  }, [active]);
-
   // Wire keyboard handler into xterm via the surface once both exist.
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -132,6 +133,23 @@ export function TerminalRenderer({
       surface.setKeyHandler(undefined);
     };
   }, [inputHook]);
+
+  // Register xterm link provider for HTTP/HTTPS URLs. The renderer is
+  // intentionally limited to URL resolution — path resolution belongs to
+  // the Application use case `resolveTerminalLinkTarget` and requires a
+  // follow-up IPC channel that exposes Worktree inspection.
+  useEffect(() => {
+    const surface = surfaceRef.current;
+    if (surface === undefined || onOpenExternalLink === undefined) return undefined;
+    const handle: IDisposableLinkProvider = registerTerminalLinkProvider({
+      resolve: (text) => ({
+        activate: (_event, url) => onOpenExternalLink(url),
+        text,
+      }),
+      terminal: surface.getTerminal(),
+    });
+    return () => handle.dispose();
+  }, [onOpenExternalLink]);
 
   // Track selection on the surface so context menu can decide.
   useEffect(() => {
