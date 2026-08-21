@@ -28,6 +28,7 @@ import {
   removeTaskDependency,
   requestTaskChanges,
   requestTaskReview,
+  resolveTerminalLinkTarget,
   restoreAgentSessionsAfterRestart,
   retryTaskExecution,
   runQualityGate,
@@ -79,10 +80,25 @@ export interface ProductionDesktopApplicationOptions {
   readonly dataDirectory: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly openBoardWindow?: () => void;
+  readonly shellOpenPath?: (absolutePath: string) => Promise<string>;
 }
 
 const initialTerminalSize = Object.freeze({ columns: 80, rows: 24 });
 const maximumQualityGateOutputBytes = 256 * 1024;
+
+class WorktreeLinkNotFoundError extends Error {
+  public constructor() {
+    super('Worktree link target was not found inside the task worktree.');
+    this.name = 'WorktreeLinkNotFoundError';
+  }
+}
+
+class WorktreeLinkOpenError extends Error {
+  public constructor() {
+    super('The desktop shell could not open the worktree file.');
+    this.name = 'WorktreeLinkOpenError';
+  }
+}
 
 export async function createProductionDesktopApplication(
   options: ProductionDesktopApplicationOptions,
@@ -93,6 +109,7 @@ export async function createProductionDesktopApplication(
   try {
     const clock = options.clock ?? Date.now;
     const environment = snapshotLaunchEnvironment(options.environment ?? process.env);
+    const shellOpenPath = options.shellOpenPath ?? (async (): Promise<string> => '');
     const settings = await persistence.settings.get();
     const agents = createBuiltInAgentCatalogFromSettings(settings);
     const agentInspector = new BuiltInAgentConfigurationInspector();
@@ -262,6 +279,26 @@ export async function createProductionDesktopApplication(
         // the Application interface total for IPC contract consumers.
         void input;
         requireOpen();
+      },
+      openWorktreeFile: async (input): Promise<void> => {
+        // The trust-root enforcement lives in this composition because it
+        // owns the persisted Worktree repository. The renderer-facing IPC
+        // contract has already rejected `..` segments and non-absolute
+        // shapes; here we re-run the Application resolver with the real
+        // SQLite-backed Worktree path so a misbehaving renderer cannot
+        // smuggle a path outside the Task Worktree.
+        requireOpen();
+        const result = await resolveTerminalLinkTarget(
+          { linkText: input.absolutePath, taskId: input.taskId },
+          { taskWorktrees: persistence.worktrees },
+        );
+        if (result.kind !== 'worktree-file') {
+          throw new WorktreeLinkNotFoundError();
+        }
+        const osError = await shellOpenPath(result.absolutePath);
+        if (osError.length > 0) {
+          throw new WorktreeLinkOpenError();
+        }
       },
       approveTaskReview: async (input): Promise<void> => {
         requireOpen();

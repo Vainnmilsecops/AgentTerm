@@ -88,6 +88,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onPushTaskBranch: () => void;
   readonly onOpenExternalLink?: (url: string) => void;
   readonly onOpenProject: () => void;
+  readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
   readonly onRefreshPullRequest: () => void;
   readonly onRefresh: () => void;
   readonly onRegisterQualityGate: (input: {
@@ -222,6 +223,7 @@ export function AgentWorkspaceView({
   onPushTaskBranch,
   onOpenExternalLink,
   onOpenProject,
+  onOpenWorktreeFile,
   onRefreshPullRequest,
   onRequestChanges,
   onRequestReview,
@@ -713,6 +715,13 @@ export function AgentWorkspaceView({
             {...(onOpenExternalLink === undefined
               ? {}
               : { onOpenExternalLink })}
+            {...(onOpenWorktreeFile === undefined
+              ? {}
+              : {
+                  onOpenWorktreeFile: (input: { readonly absolutePath: string; readonly taskId: string }): void => {
+                    void client?.openWorktreeFile(input);
+                  },
+                })}
             onRuntimeEvent={(event) => {
               if (event.kind !== 'output') onRefresh();
             }}

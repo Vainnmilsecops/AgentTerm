@@ -51,7 +51,10 @@ interface RegisterDesktopIpcHandlersInput {
   readonly openBoardWindow: () => void;
   readonly selectProjectDirectory: () => Promise<string | undefined>;
   readonly selectQualityGateConfigFile: () => Promise<string | undefined>;
-  readonly shell: { readonly openExternal: (url: string) => Promise<void> };
+  readonly shell: {
+    readonly openExternal: (url: string) => Promise<void>;
+    readonly openPath: (absolutePath: string) => Promise<string>;
+  };
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -97,6 +100,8 @@ const expectedApplicationErrors = new Set([
   'TaskReviewReadinessError',
   'TaskWorktreeLifecycleError',
   'TaskWorktreePersistenceError',
+  'WorktreeLinkNotFoundError',
+  'WorktreeLinkOpenError',
 ]);
 
 export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInput): () => void {
@@ -165,6 +170,12 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         const { url } =
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.openExternalLink];
         await input.shell.openExternal(url);
+        return null;
+      }
+      case desktopIpcChannels.openWorktreeFile: {
+        const { absolutePath, taskId } =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.openWorktreeFile];
+        await application.openWorktreeFile({ absolutePath, taskId });
         return null;
       }
       case desktopIpcChannels.openProject: {

@@ -58,6 +58,7 @@ describe('desktop preload bridge', () => {
       'openBoardWindow',
       'openExternalLink',
       'openProject',
+      'openWorktreeFile',
       'pushTaskBranch',
       'refreshTaskPullRequest',
       'registerQualityGate',

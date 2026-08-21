@@ -24,6 +24,7 @@ export interface WorkspaceTerminalsProps {
   readonly onClosePane: (paneId: string) => void;
   readonly onCloseTab: (tabId: string) => void;
   readonly onOpenExternalLink?: (url: string) => void;
+  readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
   readonly onRuntimeEvent: (event: PtyRuntimeEvent) => void;
   readonly onSplit: (sessionId: string) => void;
   readonly onStopAgent?: (sessionId: string) => void;
@@ -40,6 +41,7 @@ export function WorkspaceTerminals({
   onClosePane,
   onCloseTab,
   onOpenExternalLink,
+  onOpenWorktreeFile,
   onRuntimeEvent,
   onSplit,
   onStopAgent,
@@ -178,6 +180,7 @@ export function WorkspaceTerminals({
                     )
                   }
                   {...(onOpenExternalLink !== undefined ? { onOpenExternalLink } : {})}
+                  {...(onOpenWorktreeFile !== undefined ? { onOpenWorktreeFile } : {})}
                   onRuntimeEvent={onRuntimeEvent}
                   {...(onStopAgent !== undefined ? { onStopAgent } : {})}
                   paneId={pane.id}
