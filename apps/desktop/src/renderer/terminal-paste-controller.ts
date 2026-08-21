@@ -46,7 +46,7 @@ export function classifyPaste(text: string): PasteClassifier {
 }
 
 export function evaluatePaste(input: PasteEvaluationInput): PasteEvaluation {
-  if (input.byteLength > PAUSE_BREAK_BYTES) {
+  if (input.byteLength >= PAUSE_BREAK_BYTES) {
     return { kind: 'rejected', reason: 'TOO_LARGE' };
   }
   const needsConfirm = input.byteLength > PASTE_CONFIRM_BYTES || input.lineCount > 1;

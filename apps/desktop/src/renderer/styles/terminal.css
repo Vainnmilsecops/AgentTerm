@@ -389,3 +389,57 @@
   gap: var(--space-1);
   margin-top: var(--space-1);
 }
+
+/* ── Terminal Context Menu ─────────────────────────────────────────── */
+
+.terminal-context-menu {
+  position: fixed;
+  z-index: 9000;
+  min-width: 11rem;
+  margin: 0;
+  padding: var(--space-1) 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  list-style: none;
+  background: var(--surface-elevated);
+  box-shadow: 0 0.5rem 1.5rem rgba(0 0 0 / 0.2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.terminal-context-menu__item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0.375rem var(--space-3);
+  border: 0;
+  border-radius: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+}
+
+.terminal-context-menu__item:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-context-menu__item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+.terminal-context-menu__item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.terminal-context-menu__separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border-subtle);
+}

@@ -464,6 +464,10 @@ export async function createProductionDesktopApplication(
           executionDependencies,
         );
       },
+      stopAgentSession: async (input): Promise<void> => {
+        requireOpen();
+        await sessionCoordinator.stop({ sessionId: input.sessionId });
+      },
       unregisterQualityGate: async (input) => {
         requireOpen();
         return unregisterQualityGate(input.gateId, qualityGateCatalog);

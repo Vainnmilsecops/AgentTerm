@@ -293,6 +293,7 @@ function createApplication(
     requestTaskReview: vi.fn(unavailable),
     retryTaskExecution: vi.fn(unavailable),
     runQualityGate: vi.fn(unavailable),
+    stopAgentSession: vi.fn(unavailable),
     startTaskExecution: vi.fn(unavailable),
     startTaskPlanning: vi.fn(unavailable),
     updateSettings: vi.fn(unavailable),

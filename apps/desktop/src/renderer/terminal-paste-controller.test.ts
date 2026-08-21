@@ -86,7 +86,7 @@ describe('evaluatePaste — rejected before sending', () => {
     expect(result.kind).toBe('accept');
   });
 
-  it('treats 1 MiB exactly as the hard limit (still accepted, no confirmation needed below limit)', () => {
+  it('treats exactly 1 MiB as too large', () => {
     const result = evaluatePaste({
       byteLength: PAUSE_BREAK_BYTES,
       lineCount: 1,
@@ -94,7 +94,21 @@ describe('evaluatePaste — rejected before sending', () => {
       taskId: 'task-1',
       text: 'x'.repeat(PAUSE_BREAK_BYTES),
     });
-    expect(result.kind).toBe('accept');
+    expect(result.kind).toBe('rejected');
+    if (result.kind === 'rejected') {
+      expect(result.reason).toBe('TOO_LARGE');
+    }
+  });
+
+  it('treats just below 1 MiB with multiple lines as requiring confirmation', () => {
+    const result = evaluatePaste({
+      byteLength: PAUSE_BREAK_BYTES - 1,
+      lineCount: 2,
+      sessionId: 'session-1',
+      taskId: 'task-1',
+      text: 'x'.repeat(PAUSE_BREAK_BYTES - 1),
+    });
+    expect(result.kind).toBe('confirm');
   });
 });
 

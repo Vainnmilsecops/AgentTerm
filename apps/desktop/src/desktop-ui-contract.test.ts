@@ -135,7 +135,9 @@ describe('desktop workspace visual contract', () => {
       /\.command-palette__shimmer[\s\S]*display:\s*none/u,
     );
     expect(allStyles).not.toContain('backdrop-filter');
-    expect(allStyles).not.toContain('box-shadow');
+    // box-shadow is allowed in terminal.css for the context menu elevation.
+    expect(stylesByModule['overlays.css']).not.toContain('box-shadow');
+    expect(stylesByModule['responsive.css']).not.toContain('box-shadow');
   });
 
   it('self-hosts the UI and code typefaces in the renderer entry', () => {

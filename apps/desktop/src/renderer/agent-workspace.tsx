@@ -112,6 +112,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onSelectWorkspacePane: (paneId: string) => void;
   readonly onSelectWorkspaceTab: (tabId: string) => void;
   readonly onSplitTerminal: (sessionId: string) => void;
+  readonly onStopAgent?: (sessionId: string) => void;
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
@@ -183,6 +184,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onSelectWorkspacePane={(paneId) => controller?.selectWorkspacePane(paneId)}
       onSelectWorkspaceTab={(tabId) => controller?.selectWorkspaceTab(tabId)}
       onSplitTerminal={(sessionId) => controller?.splitSelectedTerminal(sessionId)}
+      onStopAgent={(sessionId) => controller?.stopAgentSession(sessionId)}
       onStartTask={() => void controller?.startSelectedTask()}
       onStartPlanning={() => void controller?.startSelectedPlanning()}
       onUnregisterQualityGate={(gateId) =>
@@ -231,6 +233,7 @@ export function AgentWorkspaceView({
   onSelectWorkspacePane,
   onSelectWorkspaceTab,
   onSplitTerminal,
+  onStopAgent,
   onStartTask,
   onStartPlanning,
   onUnregisterQualityGate,
@@ -708,6 +711,7 @@ export function AgentWorkspaceView({
               if (event.kind !== 'output') onRefresh();
             }}
             onSplit={onSplitTerminal}
+            {...(onStopAgent !== undefined ? { onStopAgent } : {})}
             overview={snapshot.overview}
           />
         </ResizableTerminalWorkspace>
