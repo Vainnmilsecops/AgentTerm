@@ -23,6 +23,7 @@ export interface WorkspaceTerminalsProps {
   readonly onActiveConnectionStateChange?: (context: ActiveTerminalContext) => void;
   readonly onClosePane: (paneId: string) => void;
   readonly onCloseTab: (tabId: string) => void;
+  readonly onOpenExternalLink?: (url: string) => void;
   readonly onRuntimeEvent: (event: PtyRuntimeEvent) => void;
   readonly onSplit: (sessionId: string) => void;
   readonly onStopAgent?: (sessionId: string) => void;
@@ -38,6 +39,7 @@ export function WorkspaceTerminals({
   onActiveConnectionStateChange,
   onClosePane,
   onCloseTab,
+  onOpenExternalLink,
   onRuntimeEvent,
   onSplit,
   onStopAgent,
@@ -175,6 +177,7 @@ export function WorkspaceTerminals({
                       current[pane.id] === state ? current : { ...current, [pane.id]: state },
                     )
                   }
+                  {...(onOpenExternalLink !== undefined ? { onOpenExternalLink } : {})}
                   onRuntimeEvent={onRuntimeEvent}
                   {...(onStopAgent !== undefined ? { onStopAgent } : {})}
                   paneId={pane.id}

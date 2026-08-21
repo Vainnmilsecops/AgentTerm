@@ -257,6 +257,12 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return addTaskDependency(input, persistence.tasks, persistence.taskDependencies);
       },
+      openExternalLink: async (input): Promise<void> => {
+        // Routing is owned by the main-process composition; this stub keeps
+        // the Application interface total for IPC contract consumers.
+        void input;
+        requireOpen();
+      },
       approveTaskReview: async (input): Promise<void> => {
         requireOpen();
         await approveTaskReview(input, reviewDependencies);

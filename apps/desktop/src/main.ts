@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 
 import { bootstrapMcpServer, type McpServer } from '@agentterm/mcp-server';
 
@@ -168,6 +168,9 @@ function startDesktopApplication(): void {
       });
       const path = selection.filePaths[0];
       return selection.canceled || path === undefined || path.length === 0 ? undefined : path;
+    },
+    shell: {
+      openExternal: (url: string) => shell.openExternal(url),
     },
   });
 }

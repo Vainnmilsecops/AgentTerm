@@ -400,3 +400,9 @@ export {
   type McpTaskDetail,
   type McpTaskListingEntry,
 } from "./mcp-read-only-views";
+export {
+  resolveTerminalLinkTarget,
+  type ResolvedTerminalLink,
+  type ResolveTerminalLinkDependencies,
+  type ResolveTerminalLinkInput,
+} from "./terminal-link-resolver";

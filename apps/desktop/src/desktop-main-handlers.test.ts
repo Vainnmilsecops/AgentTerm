@@ -68,6 +68,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined },
     });
     const sender = new FakeSender(7);
 
@@ -97,6 +98,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined },
     });
     const sender = new FakeSender(3);
 
@@ -129,6 +131,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined },
     });
 
     await expect(
@@ -150,6 +153,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory,
       selectQualityGateConfigFile,
+      shell: { openExternal: async (_url: string) => undefined },
     });
     const sender = new FakeSender(5);
 
@@ -176,6 +180,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined },
     });
     const sender = new FakeSender(6);
 
@@ -221,6 +226,7 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      shell: { openExternal: async (_url: string) => undefined },
     });
     const owner = new FakeSender(11);
     const other = new FakeSender(12);

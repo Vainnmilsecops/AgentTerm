@@ -51,6 +51,7 @@ interface RegisterDesktopIpcHandlersInput {
   readonly openBoardWindow: () => void;
   readonly selectProjectDirectory: () => Promise<string | undefined>;
   readonly selectQualityGateConfigFile: () => Promise<string | undefined>;
+  readonly shell: { readonly openExternal: (url: string) => Promise<void> };
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -158,6 +159,12 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.loadWorkspace();
       case desktopIpcChannels.openBoardWindow: {
         input.openBoardWindow();
+        return null;
+      }
+      case desktopIpcChannels.openExternalLink: {
+        const { url } =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.openExternalLink];
+        await input.shell.openExternal(url);
         return null;
       }
       case desktopIpcChannels.openProject: {

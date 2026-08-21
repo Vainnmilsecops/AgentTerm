@@ -5,6 +5,11 @@ import type {
   PtyTerminalSize,
 } from '@agentterm/application';
 
+import {
+  type BracketedPasteWrap,
+  prepareBracketedPasteText,
+} from './terminal-paste-controller';
+
 export type TerminalConnectionState = 'empty' | 'attaching' | 'connected' | 'exited' | 'failed';
 
 export type TerminalSessionAttachment = AgentSessionTerminalAttachment;
@@ -45,6 +50,11 @@ export interface TerminalPasteRequest {
   readonly sessionId: string;
   readonly taskId: string;
   readonly text: string;
+  /**
+   * Bracketed-paste policy. Defaults to `auto` (multi-line or > PASTE_CONFIRM_BYTES
+   * bytes wrap in CSI 200/201~ markers). Callers can force `always`/`never`.
+   */
+  readonly wrap?: BracketedPasteWrap;
 }
 
 export interface TerminalPasteOutcome {
@@ -135,7 +145,14 @@ export class TerminalController {
       return { failure: undefined, status: 'paste-unavailable' };
     }
     if (paste !== undefined) {
-      this.surface.paste(text);
+      const wrapMode: BracketedPasteWrap = paste.wrap ?? 'auto';
+      const payload = prepareBracketedPasteText(
+        text,
+        wrapMode,
+        paste.lineCount,
+        paste.byteLength,
+      );
+      this.surface.paste(payload);
     } else {
       this.enqueueWrite(text, 'write');
     }
@@ -251,6 +268,48 @@ export class TerminalController {
     }
   }
 
+  /**
+   * Idempotent focus restoration hook for tab/pane activation. Returns true
+   * when the controller is attached and the underlying surface accepted the
+   * focus call. Safe to call when the controller is not yet attached: returns
+   * false and the renderer can retry on the next activation.
+   */
+  public reassertFocus(): boolean {
+    if (this.disposed || this.inputSubscription === undefined) return false;
+    if (this.state !== 'connected' || this.inputUnavailable) return false;
+    this.surface.focus();
+    return true;
+  }
+
+  /**
+   * Idempotent fit hook for tab activation. Returns true when the surface
+   * recomputed its dimensions. Safe to call when the controller is not yet
+   * attached; the renderer can retry.
+   */
+  public refit(): boolean {
+    if (this.disposed || this.inputSubscription === undefined) return false;
+    this.surface.refresh();
+    return true;
+  }
+
+  /**
+   * Drops the current paste-confirmation dialog by clearing the visible
+   * xterm selection that the user originally copied from. The renderer owns
+   * the `PendingPasteConfirmation` state; this hook signals the controller to
+   * release any surface state that would otherwise leak into the next paste.
+   */
+  public clearPendingPaste(): void {
+    if (this.disposed || this.inputSubscription === undefined) return;
+    // xterm keeps a pending programmatic paste buffer; clearing the selection
+    // is the cleanest signal that the prior paste is no longer intended.
+    try {
+      this.surface.selectAll();
+      this.surface.write('\u0000');
+    } catch {
+      // Surface may already be disposed by the renderer; ignore.
+    }
+  }
+
   public setFontSize(fontSize: number): void {
     if (!this.disposed) {
       this.surface.setFontSize(fontSize);
@@ -277,7 +336,7 @@ export class TerminalController {
   }
 
   /**
-   * Test seam ‚Äî awaits the serialized write queue. Production callers should
+   * Test seam ù awaits the serialized write queue. Production callers should
    * not depend on this; it exists so renderer tests can observe FIFO order
    * and post-failure state without polling internal state.
    */

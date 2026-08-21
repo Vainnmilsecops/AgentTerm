@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BRACKETED_PASTE_BEGIN,
+  BRACKETED_PASTE_END,
   classifyPaste,
   evaluatePaste,
+  formatPasteByteLength,
+  prepareBracketedPasteText,
   PASTE_CONFIRM_BYTES,
   PAUSE_BREAK_BYTES,
+  shouldWrapBracketedPaste,
   type PasteClassifier,
+  wrapBracketedPaste,
 } from './terminal-paste-controller';
 
 describe('evaluatePaste — rejected before sending', () => {
@@ -134,5 +140,99 @@ describe('classifyPaste — line counting', () => {
     const cls = classifyPaste(text);
     expect(cls.byteLength).toBe(new TextEncoder().encode(text).length);
     expect(cls.lineCount).toBe(1);
+  });
+});
+
+describe('wrapBracketedPaste — pure escape wrapping', () => {
+  it('wraps an empty payload with begin and end markers', () => {
+    expect(wrapBracketedPaste('')).toBe(`${BRACKETED_PASTE_BEGIN}${BRACKETED_PASTE_END}`);
+  });
+
+  it('preserves ASCII payload verbatim between markers', () => {
+    expect(wrapBracketedPaste('hi')).toBe(`${BRACKETED_PASTE_BEGIN}hi${BRACKETED_PASTE_END}`);
+  });
+
+  it('preserves multi-byte UTF-8 payload verbatim between markers', () => {
+    const text = 'Tiếng Việt có dấu 🐍';
+    const wrapped = wrapBracketedPaste(text);
+    expect(wrapped.startsWith(BRACKETED_PASTE_BEGIN)).toBe(true);
+    expect(wrapped.endsWith(BRACKETED_PASTE_END)).toBe(true);
+    const inner = wrapped.slice(BRACKETED_PASTE_BEGIN.length, -BRACKETED_PASTE_END.length);
+    expect(inner).toBe(text);
+  });
+
+  it('preserves embedded CR/LF and CRLF without translation', () => {
+    const text = 'line one\nline two\r\nline three\r';
+    expect(wrapBracketedPaste(text)).toBe(
+      `${BRACKETED_PASTE_BEGIN}line one\nline two\r\nline three\r${BRACKETED_PASTE_END}`,
+    );
+  });
+
+  it('marks use the canonical CSI 200/201 parameter bytes', () => {
+    expect(BRACKETED_PASTE_BEGIN).toBe('\u001b[200~');
+    expect(BRACKETED_PASTE_END).toBe('\u001b[201~');
+  });
+});
+
+describe('shouldWrapBracketedPaste — wrap policy', () => {
+  it('always wraps when mode is always', () => {
+    expect(shouldWrapBracketedPaste({ byteLength: 1, lineCount: 1, mode: 'always' })).toBe(true);
+  });
+
+  it('never wraps when mode is never', () => {
+    expect(
+      shouldWrapBracketedPaste({ byteLength: 100_000, lineCount: 200, mode: 'never' }),
+    ).toBe(false);
+  });
+
+  it('auto wraps multi-line pastes regardless of byte size', () => {
+    expect(shouldWrapBracketedPaste({ byteLength: 4, lineCount: 2, mode: 'auto' })).toBe(true);
+  });
+
+  it('auto wraps single-line pastes past the confirm byte threshold', () => {
+    expect(
+      shouldWrapBracketedPaste({
+        byteLength: PASTE_CONFIRM_BYTES + 1,
+        lineCount: 1,
+        mode: 'auto',
+      }),
+    ).toBe(true);
+  });
+
+  it('auto skips wrapping single-line small pastes', () => {
+    expect(shouldWrapBracketedPaste({ byteLength: 4, lineCount: 1, mode: 'auto' })).toBe(false);
+  });
+});
+
+describe('prepareBracketedPasteText — convenience', () => {
+  it('returns original text when wrap is not requested', () => {
+    expect(prepareBracketedPasteText('hi', 'never', 1, 2)).toBe('hi');
+    expect(prepareBracketedPasteText('hi', 'auto', 1, 2)).toBe('hi');
+  });
+
+  it('returns wrapped text when wrap is requested', () => {
+    expect(prepareBracketedPasteText('a\nb', 'auto', 2, 3)).toBe(
+      `${BRACKETED_PASTE_BEGIN}a\nb${BRACKETED_PASTE_END}`,
+    );
+    expect(prepareBracketedPasteText('a\nb', 'always', 1, 1)).toBe(
+      `${BRACKETED_PASTE_BEGIN}a\nb${BRACKETED_PASTE_END}`,
+    );
+  });
+});
+
+describe('formatPasteByteLength', () => {
+  it('formats bytes', () => {
+    expect(formatPasteByteLength(0)).toBe('0 B');
+    expect(formatPasteByteLength(512)).toBe('512 B');
+  });
+
+  it('formats kibibytes with one decimal', () => {
+    expect(formatPasteByteLength(1024)).toBe('1.0 KiB');
+    expect(formatPasteByteLength(2560)).toBe('2.5 KiB');
+  });
+
+  it('formats mebibytes with two decimals', () => {
+    expect(formatPasteByteLength(1024 * 1024)).toBe('1.00 MiB');
+    expect(formatPasteByteLength(1024 * 1024 * 2 + 1024 * 512)).toBe('2.50 MiB');
   });
 });
