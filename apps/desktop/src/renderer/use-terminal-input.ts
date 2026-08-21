@@ -119,7 +119,7 @@ export function useTerminalInput(params: UseTerminalInputParams): UseTerminalInp
           if (typeof navigator === 'undefined' || navigator.clipboard === undefined) return;
           await navigator.clipboard.writeText(text);
         },
-        onPasteFromClipboard: () => readClipboard().then((text) => pasteText(text)),
+        onPasteFromClipboard: () => readClipboard().then((text) => { pasteText(text); return text; }),
       };
       return handleKeyEvent(args, ctx);
     },

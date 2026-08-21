@@ -62,7 +62,7 @@ export class TerminalController {
   private readonly failureSink: ((failure: TerminalConnectionFailure) => void) | undefined;
   private readonly stateSink: ((state: TerminalConnectionState) => void) | undefined;
   private readonly surface: TerminalSurface;
-  private writeQueue: Promise<void> = Promise.resolve();
+  private readonly pendingWrites: Array<Promise<unknown>> = [];
   public inputUnavailable = false;
   public state: TerminalConnectionState = 'empty';
 
@@ -156,15 +156,13 @@ export class TerminalController {
     }
     const attachment = current.attachment;
     const sessionId = 'unknown';
-    const next = this.writeQueue
-      .then(() => attachment.write(data))
-      .catch((error) => {
-        this.inputUnavailable = true;
-        this.updateState('failed');
-        this.failureSink?.({ operation, sessionId });
-        throw error;
-      });
-    this.writeQueue = next.catch(() => undefined);
+    const write = attachment.write(data).catch((error) => {
+      this.inputUnavailable = true;
+      this.updateState('failed');
+      this.failureSink?.({ operation, sessionId });
+      throw error;
+    });
+    this.pendingWrites.push(write);
   }
 
   public async setSession(
@@ -284,14 +282,10 @@ export class TerminalController {
    * and post-failure state without polling internal state.
    */
   public async flushInputQueue(): Promise<void> {
-    for (;;) {
-      const observed = this.writeQueue;
-      try {
-        await observed;
-      } catch {
-        // Rejected tail is captured via the failure sink; tests assert that.
-      }
-      if (observed === this.writeQueue) return;
+    try {
+      await Promise.all<void>(this.pendingWrites.map((p) => p.catch(() => undefined)) as Array<Promise<void>>);
+    } catch {
+      // Error already surfaced via failure sink; tests assert post-failure state.
     }
   }
 

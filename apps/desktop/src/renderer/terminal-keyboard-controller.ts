@@ -60,7 +60,7 @@ function normalizeKey(key: string): string {
   if (key.length === 1) {
     return key.toUpperCase();
   }
-  return key;
+  return key.toUpperCase();
 }
 
 export function decideKeyOutcome(

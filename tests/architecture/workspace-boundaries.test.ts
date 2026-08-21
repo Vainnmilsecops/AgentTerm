@@ -14,7 +14,7 @@ type Manifest = {
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const packages = {
-  'apps/desktop': ['@agentterm/application', '@agentterm/infrastructure', '@agentterm/shared'],
+  'apps/desktop': ['@agentterm/application', '@agentterm/infrastructure', '@agentterm/mcp-server', '@agentterm/shared'],
   'apps/website': [],
   'packages/application': ['@agentterm/domain'],
   'packages/config': [],

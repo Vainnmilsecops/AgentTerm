@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type {
   TerminalConnectionFailure,
   TerminalController,
+  TerminalPasteOutcome,
   TerminalPasteRequest,
 } from './terminal-controller';
 import {
@@ -13,9 +14,9 @@ import {
 } from './terminal-input-glue';
 
 class FakeController {
-  public readonly pasteText = vi.fn((_input: TerminalPasteRequest) => ({
+  public readonly pasteText = vi.fn((_input: TerminalPasteRequest): TerminalPasteOutcome => ({
     failure: undefined,
-    status: 'accepted' as const,
+    status: 'accepted',
   }));
   public readonly sendBytes = vi.fn();
 }
@@ -135,7 +136,7 @@ describe('handleKeyEvent', () => {
         getSelection: () => '',
         hasSelection: () => false,
         onCopy: () => undefined,
-        onPasteFromClipboard: () => '',
+        onPasteFromClipboard: () => Promise.resolve(''),
       },
     );
     expect(consumed).toBe(false);
@@ -144,7 +145,7 @@ describe('handleKeyEvent', () => {
 
   it('returns false and copies when Ctrl+C is pressed with selection', () => {
     const controller = new FakeController();
-    const onCopy = vi.fn((text: string) => text);
+    const onCopy = vi.fn((text: string): void | Promise<void> => { void text; });
     const consumed = handleKeyEvent(
       { ctrlKey: true, isComposing: false, key: 'C', keyCode: 0, metaKey: false, shiftKey: false },
       {
@@ -152,7 +153,7 @@ describe('handleKeyEvent', () => {
         getSelection: () => 'hello',
         hasSelection: () => true,
         onCopy,
-        onPasteFromClipboard: () => '',
+        onPasteFromClipboard: () => Promise.resolve(''),
       },
     );
     expect(consumed).toBe(false);
@@ -169,7 +170,7 @@ describe('handleKeyEvent', () => {
         getSelection: () => '',
         hasSelection: () => false,
         onCopy: () => undefined,
-        onPasteFromClipboard: () => '',
+        onPasteFromClipboard: () => Promise.resolve(''),
       },
     );
     expect(consumed).toBe(true);
