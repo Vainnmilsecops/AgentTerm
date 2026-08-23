@@ -175,6 +175,7 @@ describe('SQLite migrations', () => {
           { name: 'workflow-plugin-bindings', version: 15 },
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
+          { name: 'application-settings-clipboard-access', version: 18 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -403,6 +404,7 @@ describe('SQLite migrations', () => {
           { name: 'workflow-plugin-bindings', version: 15 },
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
+          { name: 'application-settings-clipboard-access', version: 18 },
         ]);
       } finally {
         migrated.close();
@@ -484,6 +486,7 @@ describe('SQLite migrations', () => {
           { name: 'workflow-plugin-bindings', version: 15 },
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
+          { name: 'application-settings-clipboard-access', version: 18 },
         ]);
       } finally {
         migrated.close();
@@ -584,6 +587,7 @@ describe('SQLite migrations', () => {
           { name: 'workflow-plugin-bindings', version: 15 },
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
+          { name: 'application-settings-clipboard-access', version: 18 },
         ]);
       } finally {
         migrated.close();
@@ -655,6 +659,7 @@ describe('SQLite migrations', () => {
           { name: 'workflow-plugin-bindings', version: 15 },
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
+          { name: 'application-settings-clipboard-access', version: 18 },
         ]);
       } finally {
         migrated.close();
@@ -776,6 +781,7 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'workflow-plugin-bindings', version: 15 }),
           expect.objectContaining({ name: 'execution-artifact-research-kind', version: 16 }),
           expect.objectContaining({ name: 'application-settings-mcp-token', version: 17 }),
+          expect.objectContaining({ name: 'application-settings-clipboard-access', version: 18 }),
         ]);
       } finally {
         migrated.close();

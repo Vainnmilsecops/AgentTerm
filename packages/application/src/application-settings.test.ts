@@ -124,6 +124,7 @@ describe('Application Settings use cases', () => {
     const result = await updateApplicationSettings(
       {
         agentExecutables: [{ agentId: 'claude', executablePath: 'C:\\Tools\\claude.exe' }],
+        allowClipboardReadWrite: false,
         defaultAgentId: 'claude',
         expectedRevision: 0,
         terminalFontSize: 16,
@@ -157,6 +158,7 @@ describe('Application Settings use cases', () => {
       updateApplicationSettings(
         {
           agentExecutables: [],
+          allowClipboardReadWrite: false,
           defaultAgentId: 'unknown',
           expectedRevision: 0,
           terminalFontSize: 14,
@@ -169,6 +171,7 @@ describe('Application Settings use cases', () => {
       updateApplicationSettings(
         {
           agentExecutables: [{ agentId: 'codex', executablePath: 'C:\\secret\\missing.exe' }],
+          allowClipboardReadWrite: false,
           defaultAgentId: 'codex',
           expectedRevision: 0,
           terminalFontSize: 14,
@@ -182,6 +185,7 @@ describe('Application Settings use cases', () => {
       await updateApplicationSettings(
         {
           agentExecutables: [{ agentId: 'codex', executablePath: 'C:\\secret\\missing.exe' }],
+          allowClipboardReadWrite: false,
           defaultAgentId: 'codex',
           expectedRevision: 0,
           terminalFontSize: 14,
@@ -211,6 +215,7 @@ describe('Application Settings use cases', () => {
     const result = await updateApplicationSettings(
       {
         agentExecutables: [],
+        allowClipboardReadWrite: false,
         defaultAgentId: 'gemini',
         expectedRevision: 0,
         terminalFontSize: 16,
@@ -246,6 +251,7 @@ describe('Application Settings use cases', () => {
       updateApplicationSettings(
         {
           agentExecutables: [],
+          allowClipboardReadWrite: false,
           defaultAgentId: 'codex',
           expectedRevision: 1,
           terminalFontSize: 14,

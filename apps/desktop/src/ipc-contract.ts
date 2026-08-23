@@ -637,6 +637,7 @@ function readFileDiffRequest(input: unknown): GetTaskFileDiffInput {
 function readSettingsRequest(input: unknown): UpdateApplicationSettingsInput {
   const record = exactRecord(input, [
     'agentExecutables',
+    'allowClipboardReadWrite',
     'defaultAgentId',
     'expectedRevision',
     'terminalFontSize',
@@ -653,6 +654,8 @@ function readSettingsRequest(input: unknown): UpdateApplicationSettingsInput {
       executablePath: readBoundedString(executable.executablePath, maximumIdentityLength),
     });
   });
+  if (typeof record.allowClipboardReadWrite !== 'boolean') fail();
+  const allowClipboardReadWrite = record.allowClipboardReadWrite;
   const expectedRevision = readNonnegativeSafeInteger(record.expectedRevision);
   const terminalFontSize = record.terminalFontSize;
   if (
@@ -665,6 +668,7 @@ function readSettingsRequest(input: unknown): UpdateApplicationSettingsInput {
   }
   return Object.freeze({
     agentExecutables: Object.freeze(agentExecutables),
+    allowClipboardReadWrite,
     defaultAgentId: readAgentId(record.defaultAgentId),
     expectedRevision,
     terminalFontSize,

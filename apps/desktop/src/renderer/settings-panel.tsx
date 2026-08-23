@@ -13,11 +13,15 @@ export interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ error, onSave, saving, view }: SettingsPanelProps) {
+  const [allowClipboardReadWrite, setAllowClipboardReadWrite] = useState(
+    view.settings.allowClipboardReadWrite,
+  );
   const [defaultAgentId, setDefaultAgentId] = useState(view.settings.defaultAgentId);
   const [terminalFontSize, setTerminalFontSize] = useState(view.settings.terminalFontSize);
   const [executables, setExecutables] = useState(() => executableMap(view));
 
   useEffect(() => {
+    setAllowClipboardReadWrite(view.settings.allowClipboardReadWrite);
     setDefaultAgentId(view.settings.defaultAgentId);
     setTerminalFontSize(view.settings.terminalFontSize);
     setExecutables(executableMap(view));
@@ -30,6 +34,7 @@ export function SettingsPanel({ error, onSave, saving, view }: SettingsPanelProp
         const executablePath = (executables[agent.id] ?? '').trim();
         return executablePath.length === 0 ? [] : [{ agentId: agent.id, executablePath }];
       }),
+      allowClipboardReadWrite,
       defaultAgentId,
       expectedRevision: view.settings.revision,
       terminalFontSize,
@@ -74,6 +79,22 @@ export function SettingsPanel({ error, onSave, saving, view }: SettingsPanelProp
             />
           </label>
         </div>
+
+        <fieldset className="settings-form__flags" disabled={saving}>
+          <legend>Terminal</legend>
+          <label className="settings-form__flag">
+            <input
+              checked={allowClipboardReadWrite}
+              onChange={(event) => setAllowClipboardReadWrite(event.currentTarget.checked)}
+              type="checkbox"
+            />
+            <span>Allow TUIs to read and write the system clipboard via OSC 52.</span>
+            <small>
+              Disabled by default. When enabled, every active terminal pane will honour the
+              OSC 52 escape sequences that TUIs use to exchange text with the system clipboard.
+            </small>
+          </label>
+        </fieldset>
 
         <fieldset disabled={saving}>
           <legend>Agent executables</legend>

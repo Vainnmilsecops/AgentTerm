@@ -32,10 +32,11 @@ describe('SettingsPanel', () => {
           ],
           settings: {
             agentExecutables: [],
+            allowClipboardReadWrite: false,
             defaultAgentId: 'codex',
             mcpServerToken: undefined,
             revision: 0,
-            schemaVersion: 1,
+            schemaVersion: 2,
             terminalFontSize: 14,
           },
         },

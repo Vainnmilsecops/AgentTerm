@@ -1,3 +1,4 @@
+import { ClipboardAddon } from '@xterm/addon-clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search';
 import { Terminal, type IDisposable } from '@xterm/xterm';
@@ -8,11 +9,16 @@ import type { PtyTerminalSize } from '@agentterm/application';
 import type { TerminalSearchRequest, TerminalSurface } from './terminal-controller';
 import { resolveTerminalTheme } from './terminal-theme';
 
+export interface XtermTerminalSurfaceOptions {
+  readonly allowClipboardAccess: boolean;
+}
+
 export class XtermTerminalSurface implements TerminalSurface {
   private disposed = false;
   private fitFrame: number | undefined;
   private readonly fitAddon = new FitAddon();
   private readonly searchAddon = new SearchAddon();
+  private readonly clipboardAddon: ClipboardAddon | undefined;
   private readonly inputListeners = new Set<(data: string) => void>();
   private readonly resizeListeners = new Set<(size: PtyTerminalSize) => void>();
   private resizeObserver: ResizeObserver | undefined;
@@ -22,7 +28,7 @@ export class XtermTerminalSurface implements TerminalSurface {
   private customKeyHandler: ((event: KeyboardEvent) => boolean) | undefined;
   private contextMenuHandler: ((event: MouseEvent) => boolean) | undefined;
 
-  public constructor() {
+  public constructor(options: XtermTerminalSurfaceOptions = { allowClipboardAccess: false }) {
     this.terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: 'bar',
@@ -32,8 +38,12 @@ export class XtermTerminalSurface implements TerminalSurface {
       scrollback: 5_000,
       theme: readTerminalTheme(),
     });
+    this.clipboardAddon = options.allowClipboardAccess ? new ClipboardAddon() : undefined;
     this.terminal.loadAddon(this.fitAddon);
     this.terminal.loadAddon(this.searchAddon);
+    if (this.clipboardAddon !== undefined) {
+      this.terminal.loadAddon(this.clipboardAddon);
+    }
     this.subscriptions = [
       this.terminal.onData((data) => {
         for (const listener of [...this.inputListeners]) {

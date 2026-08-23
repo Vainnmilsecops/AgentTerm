@@ -704,6 +704,9 @@ export function AgentWorkspaceView({
           }
         >
           <WorkspaceTerminals
+            {...(snapshot.settings?.settings.allowClipboardReadWrite === true
+              ? { allowClipboardReadWrite: true }
+              : {})}
             {...(client === undefined ? {} : { client })}
             layout={snapshot.layout}
             fontSize={snapshot.settings?.settings.terminalFontSize ?? 14}

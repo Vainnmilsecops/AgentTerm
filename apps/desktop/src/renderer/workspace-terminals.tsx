@@ -15,6 +15,7 @@ export interface ActiveTerminalContext {
 }
 
 export interface WorkspaceTerminalsProps {
+  readonly allowClipboardReadWrite?: boolean;
   readonly client?: TerminalSessionClient;
   readonly layout: WorkspaceLayout;
   readonly fontSize?: number;
@@ -32,6 +33,7 @@ export interface WorkspaceTerminalsProps {
 }
 
 export function WorkspaceTerminals({
+  allowClipboardReadWrite = false,
   client,
   layout,
   fontSize = 14,
@@ -166,6 +168,7 @@ export function WorkspaceTerminals({
               {tab.panes.map((pane, paneIndex) => (
                 <TerminalRenderer
                   active={tab.id === layout.activeTabId && pane.id === tab.activePaneId}
+                  allowClipboardAccess={allowClipboardReadWrite}
                   canClose={tab.panes.length > 1}
                   {...(client === undefined ? {} : { client })}
                   closeLabel={`Close terminal pane ${paneIndex + 1}`}
