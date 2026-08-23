@@ -237,6 +237,7 @@ const availableAgents = Object.freeze([
 function settings(
   overrides: {
     readonly agentExecutables?: ApplicationSettingsView['settings']['agentExecutables'];
+    readonly allowClipboardReadWrite?: boolean;
     readonly defaultAgentId?: string;
     readonly mcpServerToken?: string | undefined;
     readonly revision?: number;
@@ -245,10 +246,11 @@ function settings(
 ): ApplicationSettingsView['settings'] {
   return Object.freeze({
     agentExecutables: overrides.agentExecutables ?? Object.freeze([]),
+    allowClipboardReadWrite: overrides.allowClipboardReadWrite ?? false,
     defaultAgentId: overrides.defaultAgentId ?? 'codex',
     mcpServerToken: overrides.mcpServerToken ?? undefined,
     revision: overrides.revision ?? 0,
-    schemaVersion: 1,
+    schemaVersion: 2,
     terminalFontSize: overrides.terminalFontSize ?? 14,
   });
 }
@@ -866,6 +868,7 @@ describe('WorkspaceController', () => {
 
     await controller.saveSettings({
       agentExecutables: [{ agentId: 'codex', executablePath: 'C:\\Tools\\codex.exe' }],
+      allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       expectedRevision: 0,
       terminalFontSize: 18,
@@ -873,6 +876,7 @@ describe('WorkspaceController', () => {
 
     expect(client.updateSettings).toHaveBeenCalledWith({
       agentExecutables: [{ agentId: 'codex', executablePath: 'C:\\Tools\\codex.exe' }],
+      allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       expectedRevision: 0,
       terminalFontSize: 18,
@@ -899,6 +903,7 @@ describe('WorkspaceController', () => {
       agentExecutables: [
         { agentId: 'codex', executablePath: 'C:\\private\\secret-token\\missing-agent.exe' },
       ],
+      allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       expectedRevision: 0,
       terminalFontSize: 14,

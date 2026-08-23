@@ -1,4 +1,5 @@
 export const ApplicationSettingsDefaults = Object.freeze({
+  allowClipboardReadWrite: false,
   defaultAgentId: 'codex',
   mcpServerToken: undefined,
   terminalFontSize: 14,
@@ -11,25 +12,28 @@ export interface AgentExecutableSetting {
 
 export interface ApplicationSettings {
   readonly agentExecutables: readonly AgentExecutableSetting[];
+  readonly allowClipboardReadWrite: boolean;
   readonly defaultAgentId: string;
   readonly mcpServerToken: string | undefined;
   readonly revision: number;
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly terminalFontSize: number;
 }
 
 export interface CreateApplicationSettingsInput {
   readonly agentExecutables?: readonly AgentExecutableSetting[];
+  readonly allowClipboardReadWrite?: boolean;
   readonly defaultAgentId?: string;
   readonly mcpServerToken?: string | undefined;
   readonly revision?: number;
-  readonly schemaVersion?: 1;
+  readonly schemaVersion?: 2;
   readonly terminalFontSize?: number;
 }
 
 export type InvalidApplicationSettingsReason =
   | 'DUPLICATE_AGENT'
   | 'INVALID_AGENT_ID'
+  | 'INVALID_CLIPBOARD_ACCESS'
   | 'INVALID_EXECUTABLE'
   | 'INVALID_MCP_SERVER_TOKEN'
   | 'INVALID_REVISION'
@@ -59,7 +63,7 @@ export function createApplicationSettings(
     throw new InvalidApplicationSettingsError('INVALID_REVISION');
   }
 
-  if (input.schemaVersion !== undefined && input.schemaVersion !== 1) {
+  if (input.schemaVersion !== undefined && input.schemaVersion !== 2) {
     throw new InvalidApplicationSettingsError('INVALID_SCHEMA_VERSION');
   }
 
@@ -74,6 +78,8 @@ export function createApplicationSettings(
   ) {
     throw new InvalidApplicationSettingsError('INVALID_TERMINAL_FONT_SIZE');
   }
+
+  const allowClipboardReadWrite = normalizeClipboardAccess(input.allowClipboardReadWrite);
 
   const mcpServerToken = normalizeMcpServerToken(input.mcpServerToken);
 
@@ -102,10 +108,11 @@ export function createApplicationSettings(
 
   return Object.freeze({
     agentExecutables: Object.freeze(agentExecutables),
+    allowClipboardReadWrite,
     defaultAgentId,
     mcpServerToken,
     revision,
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     terminalFontSize,
   });
 }
@@ -134,12 +141,24 @@ function normalizeMcpServerToken(value: string | undefined): string | undefined 
   return trimmed;
 }
 
+function normalizeClipboardAccess(value: unknown): boolean {
+  if (value === undefined) {
+    return ApplicationSettingsDefaults.allowClipboardReadWrite;
+  }
+  if (typeof value !== 'boolean') {
+    throw new InvalidApplicationSettingsError('INVALID_CLIPBOARD_ACCESS');
+  }
+  return value;
+}
+
 function messageForReason(reason: InvalidApplicationSettingsReason): string {
   switch (reason) {
     case 'DUPLICATE_AGENT':
       return 'Application Settings contain a duplicate agent executable override.';
     case 'INVALID_AGENT_ID':
       return 'Application Settings contain an invalid stable agent identifier.';
+    case 'INVALID_CLIPBOARD_ACCESS':
+      return 'OSC 52 clipboard access setting must be a boolean.';
     case 'INVALID_EXECUTABLE':
       return 'An agent executable override is invalid.';
     case 'INVALID_MCP_SERVER_TOKEN':

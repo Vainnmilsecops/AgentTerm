@@ -44,6 +44,7 @@ import { XtermTerminalSurface } from './xterm-terminal-surface';
 
 export interface TerminalRendererProps {
   readonly active?: boolean;
+  readonly allowClipboardAccess?: boolean;
   readonly canClose?: boolean;
   readonly client?: TerminalSessionClient;
   readonly closeLabel?: string;
@@ -63,6 +64,7 @@ export interface TerminalRendererProps {
 
 export function TerminalRenderer({
   active = true,
+  allowClipboardAccess = false,
   canClose = false,
   client,
   closeLabel = 'Close terminal pane',
@@ -154,13 +156,20 @@ export function TerminalRenderer({
     connectionStateChangeRef.current?.(state);
   }, [state]);
 
+  const allowClipboardAccessRef = useRef(allowClipboardAccess);
+  useEffect(() => {
+    allowClipboardAccessRef.current = allowClipboardAccess;
+  }, [allowClipboardAccess]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (container === null) {
       return;
     }
 
-    const surface = new XtermTerminalSurface();
+    const surface = new XtermTerminalSurface({
+      allowClipboardAccess: allowClipboardAccessRef.current,
+    });
     surfaceRef.current = surface;
     const controller = new TerminalController(
       surface,

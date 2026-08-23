@@ -41,7 +41,7 @@ describe('production desktop Application composition', () => {
       expect(settings.settings).toMatchObject({
         defaultAgentId: 'codex',
         revision: 0,
-        schemaVersion: 1,
+        schemaVersion: 2,
       });
       await expect(
         application.startTaskExecution({ agentId: 'codex', taskId: 'missing-task' }),

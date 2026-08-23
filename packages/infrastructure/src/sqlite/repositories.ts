@@ -90,7 +90,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
 
   public constructor(private readonly database: DatabaseSync) {
     this.readSettingsStatement = database.prepare(
-      `SELECT schema_version, revision, default_agent_id, terminal_font_size, mcp_server_token
+      `SELECT schema_version, revision, default_agent_id, terminal_font_size, mcp_server_token, allow_clipboard_read_write
        FROM application_settings WHERE singleton_id = 1`,
     );
     this.readExecutablesStatement = database.prepare(
@@ -99,7 +99,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
     );
     this.updateSettingsStatement = database.prepare(
       `UPDATE application_settings
-       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?, mcp_server_token = ?
+       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?, mcp_server_token = ?, allow_clipboard_read_write = ?
        WHERE singleton_id = 1 AND revision = ?`,
     );
     this.deleteExecutablesStatement = database.prepare(
@@ -123,6 +123,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
           agentId: readSettingsText(executableRow.agent_id),
           executablePath: readSettingsText(executableRow.executable_path),
         })),
+        allowClipboardReadWrite: readSettingsInteger(row.allow_clipboard_read_write) === 1,
         defaultAgentId: readSettingsText(row.default_agent_id),
         ...(row.mcp_server_token === null
           ? {}
@@ -148,6 +149,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
         settings.defaultAgentId,
         settings.terminalFontSize,
         settings.mcpServerToken ?? null,
+        settings.allowClipboardReadWrite ? 1 : 0,
         expectedRevision,
       );
       if (updated.changes !== 1 && updated.changes !== 1n) {
@@ -2317,8 +2319,8 @@ function readSettingsInteger(value: unknown): number {
   return value;
 }
 
-function readSettingsSchemaVersion(value: unknown): 1 {
-  if (value !== 1) {
+function readSettingsSchemaVersion(value: unknown): 2 {
+  if (value !== 2) {
     throw new TypeError('Unsupported Application Settings schema version.');
   }
   return value;

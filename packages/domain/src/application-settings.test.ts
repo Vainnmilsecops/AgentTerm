@@ -12,13 +12,15 @@ describe('Application Settings', () => {
 
     expect(settings).toEqual({
       agentExecutables: [],
+      allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       mcpServerToken: undefined,
       revision: 0,
-      schemaVersion: 1,
+      schemaVersion: 2,
       terminalFontSize: 14,
     });
     expect(ApplicationSettingsDefaults).toEqual({
+      allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       mcpServerToken: undefined,
       terminalFontSize: 14,
@@ -35,6 +37,7 @@ describe('Application Settings', () => {
     ];
     const settings = createApplicationSettings({
       agentExecutables: source,
+      allowClipboardReadWrite: true,
       defaultAgentId: 'gemini',
       mcpServerToken: 'a'.repeat(24),
       revision: 4,
@@ -47,10 +50,11 @@ describe('Application Settings', () => {
         { agentId: 'claude', executablePath: 'C:\\Tools\\claude.exe' },
         { agentId: 'gemini', executablePath: 'C:\\Tools\\gemini.cmd' },
       ],
+      allowClipboardReadWrite: true,
       defaultAgentId: 'gemini',
       mcpServerToken: 'a'.repeat(24),
       revision: 4,
-      schemaVersion: 1,
+      schemaVersion: 2,
       terminalFontSize: 16,
     });
     expect(Object.isFrozen(settings.agentExecutables[0])).toBe(true);
@@ -62,6 +66,7 @@ describe('Application Settings', () => {
     [{ terminalFontSize: 7 }, 'INVALID_TERMINAL_FONT_SIZE'],
     [{ terminalFontSize: 33 }, 'INVALID_TERMINAL_FONT_SIZE'],
     [{ agentExecutables: [{ agentId: 'codex', executablePath: '   ' }] }, 'INVALID_EXECUTABLE'],
+    [{ allowClipboardReadWrite: 'yes' as unknown as boolean }, 'INVALID_CLIPBOARD_ACCESS'],
     [
       {
         agentExecutables: [
