@@ -9,6 +9,13 @@ import {
   type BracketedPasteWrap,
   prepareBracketedPasteText,
 } from './terminal-paste-controller';
+import {
+  INITIAL_MOUSE_MODE,
+  type MouseMode,
+  parseMouseModeChunk,
+} from './terminal-mouse-mode-parser';
+
+export type MouseModeListener = (mode: MouseMode) => void;
 
 export type TerminalConnectionState = 'empty' | 'attaching' | 'connected' | 'exited' | 'failed';
 
@@ -82,6 +89,9 @@ export class TerminalController {
   private readonly stateSink: ((state: TerminalConnectionState) => void) | undefined;
   private readonly surface: TerminalSurface;
   private readonly pendingWrites: Array<Promise<unknown>> = [];
+  private readonly mouseModeListeners = new Set<MouseModeListener>();
+  private mouseMode: MouseMode = INITIAL_MOUSE_MODE;
+  private mouseModePending: string | null = null;
   public inputUnavailable = false;
   public state: TerminalConnectionState = 'empty';
 
@@ -216,6 +226,7 @@ export class TerminalController {
       }
       safelyPublishEvent(this.eventObserver, event);
       if (event.kind === 'output') {
+        this.updateMouseMode(event.data);
         this.surface.write(event.data);
         return;
       }
@@ -358,6 +369,7 @@ export class TerminalController {
     this.resizeSubscription?.();
     this.resizeSubscription = undefined;
     this.surface.dispose();
+    this.mouseModeListeners.clear();
   }
 
   /** Read-only access to the surface for the render layer. */
@@ -366,7 +378,41 @@ export class TerminalController {
   }
 
   /**
-   * Test seam  awaits the serialized write queue. Production callers should
+   * Subscribe to mouse-mode changes detected from the PTY output
+   * stream. The listener fires only when the mode reference changes
+   * (the parser returns the same `===` object when nothing relevant
+   * was in a chunk). Returns an idempotent unsubscriber.
+   */
+  public onMouseModeChange(listener: MouseModeListener): () => void {
+    this.mouseModeListeners.add(listener);
+    return () => {
+      this.mouseModeListeners.delete(listener);
+    };
+  }
+
+  /** Current mouse-mode snapshot. The parser reference is stable. */
+  public getMouseMode(): MouseMode {
+    return this.mouseMode;
+  }
+
+  private updateMouseMode(chunk: string): void {
+    const result = parseMouseModeChunk(this.mouseMode, chunk, this.mouseModePending);
+    this.mouseModePending = result.pending;
+    if (result.mode === this.mouseMode) {
+      return;
+    }
+    this.mouseMode = result.mode;
+    for (const listener of [...this.mouseModeListeners]) {
+      try {
+        listener(result.mode);
+      } catch {
+        // Listener errors must not interrupt the PTY -> xterm pipeline.
+      }
+    }
+  }
+
+  /**
+   * Test seam ? awaits the serialized write queue. Production callers should
    * not depend on this; it exists so renderer tests can observe FIFO order
    * and post-failure state without polling internal state.
    */

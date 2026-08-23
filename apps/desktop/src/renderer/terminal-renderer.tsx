@@ -15,6 +15,10 @@ import {
   useTerminalContextMenu,
 } from './terminal-context-menu';
 import {
+  isMouseModeActive,
+  type MouseMode,
+} from './terminal-mouse-mode-parser';
+import {
   deriveSearchView,
   isSearchOpenShortcut,
   TerminalSearchBar,
@@ -83,6 +87,7 @@ export function TerminalRenderer({
   const failureSinkRef = useRef<((failure: TerminalConnectionFailure) => void) | undefined>(undefined);
   const searchBarRef = useRef<TerminalSearchBarHandle | null>(null);
   const [state, setState] = useState<TerminalConnectionState>('empty');
+  const [mouseMode, setMouseMode] = useState<MouseMode>({ protocol: 'NONE', sgr: false });
   const [, setSelection] = useState('');
   const [searchState, setSearchState] = useState<SearchState>(initialSearchState);
 
@@ -164,8 +169,10 @@ export function TerminalRenderer({
       (failure) => failureSinkRef.current?.(failure),
     );
     controllerRef.current = controller;
+    const unsubscribeMouseMode = controller.onMouseModeChange(setMouseMode);
     controller.mount(container);
     return () => {
+      unsubscribeMouseMode();
       if (controllerRef.current === controller) {
         controllerRef.current = undefined;
       }
@@ -327,6 +334,17 @@ export function TerminalRenderer({
       <header className="terminal-panel__header">
         <span className={`terminal-status terminal-status--${state}`} aria-hidden="true" />
         <span aria-live="polite">{statusLabel(state, inputHook.feedback)}</span>
+        {isMouseModeActive(mouseMode) ? (
+          <span
+            className="terminal-panel__mouse-badge"
+            aria-label={mouseModeBadgeLabel(mouseMode)}
+            data-terminal-mouse-mode={mouseMode.protocol}
+            data-terminal-mouse-sgr={mouseMode.sgr ? 'true' : 'false'}
+            title={mouseModeBadgeTitle(mouseMode)}
+          >
+            mouse
+          </span>
+        ) : null}
         <span className="terminal-panel__identity">{sessionId ?? 'No Session'}</span>
         {active ? <kbd>Alt+3</kbd> : null}
         <button
@@ -440,5 +458,31 @@ function statusLabel(state: TerminalConnectionState, feedback: { readonly messag
       return 'Agent Session exited — terminal output is preserved';
     case 'failed':
       return 'Terminal connection failed';
+  }
+}
+
+function mouseModeBadgeLabel(mode: MouseMode): string {
+  const protocol = mouseModeProtocolName(mode.protocol);
+  return mode.sgr
+    ? `Mouse reporting on (${protocol}, SGR encoding)`
+    : `Mouse reporting on (${protocol})`;
+}
+
+function mouseModeBadgeTitle(mode: MouseMode): string {
+  const protocol = mouseModeProtocolName(mode.protocol);
+  const encoding = mode.sgr ? 'SGR extended' : 'legacy single-byte';
+  return `Active TUI requested mouse reporting (${protocol}, ${encoding}). Shift+right-click forwards button-2 to it.`;
+}
+
+function mouseModeProtocolName(protocol: MouseMode['protocol']): string {
+  switch (protocol) {
+    case 'X10':
+      return 'X10 button events';
+    case 'DRAG':
+      return 'button + drag events';
+    case 'ANY':
+      return 'any motion events';
+    case 'NONE':
+      return 'no mouse reporting';
   }
 }
