@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import {
+  CONTEXT_MENU_FORWARD_HINT,
+  decideContextMenuGesture,
+} from './terminal-context-menu-gesture';
+
 /**
  * Renderer-only pure decision for the right-click menu on the terminal pane.
  *
@@ -138,6 +143,14 @@ export function TerminalContextMenu({ actions, onSelect, position }: TerminalCon
           </button>
         </li>
       ))}
+      <li
+        aria-hidden="true"
+        className="terminal-context-menu__hint"
+        data-terminal-context-menu-hint
+        role="presentation"
+      >
+        {CONTEXT_MENU_FORWARD_HINT}
+      </li>
     </ul>
   );
 }
@@ -196,6 +209,14 @@ export function useTerminalContextMenu(
     const onContextMenu = (event: MouseEvent): void => {
       const inside = target.contains(event.target as Node);
       if (!inside) return;
+      // Shift+right-click is the documented escape hatch that lets
+      // button-2 reach the active TUI through xterm's own mouse
+      // forwarding. Without this, our preventDefault() below would
+      // suppress the gesture and TUIs like vim / fzf / ranger that
+      // request CSI ? 1002h would never see the click.
+      if (decideContextMenuGesture(event) === 'forward-to-tui') {
+        return;
+      }
       event.preventDefault();
       const selectionText = readWindowSelection();
       setSelection(selectionText);
