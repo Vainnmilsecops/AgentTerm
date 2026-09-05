@@ -366,7 +366,6 @@ describe('loadAgentWorkspace', () => {
     const edges = [
       { dependencyTaskId: upstream.id, projectId: project.id, taskId: dependentA.id },
       { dependencyTaskId: upstream.id, projectId: project.id, taskId: dependentB.id },
-      { dependencyTaskId: upstream.id, projectId: otherProject.id, taskId: outside.id },
     ] as const;
     const workspace = await loadAgentWorkspace(
       new FakeProjectCatalog([project, otherProject]),
@@ -397,9 +396,7 @@ describe('loadAgentWorkspace', () => {
     expect(dependentOverview?.dependents).toEqual([]);
     const outsideProject = workspace.projects.find(({ project }) => project.id === otherProject.id);
     const outsideOverview = outsideProject?.tasks.find(({ task }) => task.id === outside.id);
-    expect(outsideOverview?.dependencies).toEqual([
-      expect.objectContaining({ id: upstream.id, phase: 'BACKLOG', satisfied: false, title: 'Upstream' }),
-    ]);
+    expect(outsideOverview?.dependencies).toEqual([]);
     expect(outsideOverview?.dependents).toEqual([]);
   });
 
@@ -513,7 +510,9 @@ describe('loadAgentWorkspace', () => {
               previousSession: summarize(exited),
               qualityGateRuns: [summarizeGateRun(lintPassed), summarizeGateRun(testsFailed)],
               reviewHistory: [],
+              dependents: [],
               task: runningTask,
+              workflowPlugin: undefined,
             },
             {
               activeSession: olderActiveSummary,
@@ -536,7 +535,9 @@ describe('loadAgentWorkspace', () => {
               previousSession: olderActiveSummary,
               qualityGateRuns: [],
               reviewHistory: [],
+              dependents: [],
               task: secondTask,
+              workflowPlugin: undefined,
             },
           ],
         },

@@ -1399,12 +1399,18 @@ describe('WorkspaceController', () => {
   });
 
   it('starts research with the user-selected Agent when it differs from the plugin', async () => {
+    const alternativeAgent = Object.freeze({
+      capabilities: Object.freeze(['SESSION_RESUME'] as const),
+      displayName: 'Claude',
+      id: 'claude',
+      kind: 'available' as const,
+    });
     const researchTask: WorkspaceTaskOverview['task'] = Object.freeze({
       ...planningTask,
       phase: 'BACKLOG',
     });
     const researchOverview = Object.freeze({
-      agents: availableAgents,
+      agents: Object.freeze([...availableAgents, alternativeAgent]),
       projects: [
         {
           project,
@@ -1428,12 +1434,12 @@ describe('WorkspaceController', () => {
     const controller = new WorkspaceController(client);
     await controller.load();
 
-    controller.selectAgent('future-agent');
+    controller.selectAgent('claude');
     await controller.startSelectedResearch();
 
     expect(client.startTaskResearch).toHaveBeenCalledOnce();
     expect(client.startTaskResearch).toHaveBeenCalledWith({
-      agentId: 'future-agent',
+      agentId: 'claude',
       taskId: 'task-1',
     });
   });
