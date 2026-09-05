@@ -117,6 +117,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onStopAgent?: (sessionId: string) => void;
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
+  readonly onStartResearch: () => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
   readonly onImportQualityGateConfig: () => Promise<
     import('@agentterm/application').ImportQualityGateConfigResult | undefined
@@ -189,6 +190,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onStopAgent={(sessionId) => controller?.stopAgentSession(sessionId)}
       onStartTask={() => void controller?.startSelectedTask()}
       onStartPlanning={() => void controller?.startSelectedPlanning()}
+      onStartResearch={() => void controller?.startSelectedResearch()}
       onUnregisterQualityGate={(gateId) =>
         controller?.unregisterQualityGate(gateId) ?? Promise.resolve(false)
       }
@@ -241,6 +243,7 @@ export function AgentWorkspaceView({
   onStopAgent,
   onStartTask,
   onStartPlanning,
+  onStartResearch,
   onUnregisterQualityGate,
   onImportQualityGateConfig,
   onExportQualityGateConfig,
@@ -497,7 +500,20 @@ export function AgentWorkspaceView({
           metaKey: event.metaKey,
           shiftKey: event.shiftKey,
         },
-        selected,
+        {
+          canAcceptPlan: selected.canAcceptPlan,
+          canApproveReview: selected.canApproveReview,
+          canBeginPlanning: selected.canBeginPlanning,
+          canRequestChanges: selected.canRequestChanges,
+          canRequestReview: selected.canRequestReview,
+          canRetryExecution: selected.canRetryExecution,
+          canRevisePlan: selected.canRevisePlan,
+          canStartExecution: selected.canStartExecution,
+          canStartPlanning: selected.canStartPlanning,
+          canStartResearch:
+            selected.task.phase === 'BACKLOG' &&
+            selected.workflowPlugin?.activePhaseId === 'research',
+        },
       );
       if (action === undefined) return;
       event.preventDefault();
@@ -507,6 +523,9 @@ export function AgentWorkspaceView({
           return;
         case 'start-planning':
           onStartPlanning();
+          return;
+        case 'start-research':
+          onStartResearch();
           return;
         case 'start-task':
           onStartTask();
@@ -611,6 +630,8 @@ export function AgentWorkspaceView({
                 title: dependency.title,
               })),
               id: selected.task.id,
+              phase: selected.task.phase as 'BACKLOG' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING',
+              pluginActivePhaseId: selected.workflowPlugin?.activePhaseId,
               projectId: selectedProject?.project.id ?? '',
               title: selected.task.title,
             },
@@ -641,6 +662,7 @@ export function AgentWorkspaceView({
       },
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
+      startResearch: onStartResearch,
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
       importQualityGateConfig: () => onImportQualityGateConfig(),
       exportQualityGateConfig: () =>
@@ -1108,6 +1130,28 @@ export function AgentWorkspaceView({
                   <p className="task-id">{selected.task.id}</p>
                 </div>
                 <div className="task-actions" aria-busy={actionsBusy}>
+                  {selected.task.phase === 'BACKLOG' &&
+                  selected.workflowPlugin?.activePhaseId === 'research' ? (
+                    <button
+                      className="primary-action button-with-hint"
+                      data-action-hint="start-research"
+                      disabled={
+                        actionsBusy ||
+                        !canStartAttempt(selected, snapshot.selectedAgentId) ||
+                        (snapshot.selectedAgentId === undefined &&
+                          selected.workflowPlugin?.phaseAgentId === undefined)
+                      }
+                      onClick={onStartResearch}
+                      title={startAttemptTitle(selected, snapshot.selectedAgentId)}
+                      type="button"
+                    >
+                      <span>
+                        {isSelectedAction(snapshot, selected.task.id, 'start-research')
+                          ? 'Starting research…'
+                          : 'Start research'}
+                      </span>
+                    </button>
+                  ) : null}
                   {selected.canBeginPlanning ? (
                     <button
                       className="primary-action button-with-hint"

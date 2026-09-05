@@ -54,6 +54,7 @@ type TestWorkspaceViewProps = Omit<
   | 'onSelectTaskChange'
   | 'onSplitTerminal'
   | 'onStartPlanning'
+  | 'onStartResearch'
   | 'onStopAgent'
   | 'onUnregisterQualityGate'
   | 'onImportQualityGateConfig'
@@ -83,6 +84,7 @@ type TestWorkspaceViewProps = Omit<
       | 'onSelectTaskChange'
       | 'onSplitTerminal'
       | 'onStartPlanning'
+      | 'onStartResearch'
       | 'onStopAgent'
       | 'onUnregisterQualityGate'
       | 'onImportQualityGateConfig'
@@ -135,6 +137,7 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onSelectTaskChange: () => undefined,
     onSplitTerminal: () => undefined,
     onStartPlanning: () => undefined,
+    onStartResearch: () => undefined,
     onUnregisterQualityGate: async () => true,
     onImportQualityGateConfig: async () => undefined as never,
     onExportQualityGateConfig: async () => undefined,
@@ -2093,6 +2096,7 @@ describe('AgentWorkspaceView', () => {
         onSelectAgent: () => undefined,
         onSelectTask: () => undefined,
         onStartPlanning: () => undefined,
+        onStartResearch: () => undefined,
         onStartTask: () => undefined,
         snapshot: {
           actionError: undefined,
@@ -2217,6 +2221,7 @@ describe('AgentWorkspaceView', () => {
         onSelectAgent: () => undefined,
         onSelectTask: () => undefined,
         onStartPlanning: () => undefined,
+        onStartResearch: () => undefined,
         onStartTask: () => undefined,
         snapshot: {
           actionError: undefined,

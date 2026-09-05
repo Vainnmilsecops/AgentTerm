@@ -12,6 +12,7 @@ export type WorkspaceMnemonicAction =
   | 'request-review'
   | 'retry-task'
   | 'start-planning'
+  | 'start-research'
   | 'start-task';
 
 export interface WorkspaceMnemonicKey {
@@ -34,6 +35,7 @@ export interface WorkspaceMnemonicContext {
   readonly canRevisePlan: boolean;
   readonly canStartExecution: boolean;
   readonly canStartPlanning: boolean;
+  readonly canStartResearch: boolean;
 }
 
 export function shortcutLabel(separator: string, parts: readonly string[]): string {
@@ -46,6 +48,8 @@ export function mnemonicFor(id: string): MnemonicHint | undefined {
       return { key: 'P', label: 'Begin planning', modifiers: ['Alt'] };
     case 'start-task':
       return { key: 'S', label: 'Start execution', modifiers: ['Alt'] };
+    case 'start-research':
+      return { key: 'E', label: 'Start research', modifiers: ['Alt', 'Shift'] };
     case 'retry-task':
       return { key: 'R', label: 'Retry execution', modifiers: ['Alt'] };
     case 'accept-plan':
@@ -85,6 +89,8 @@ export function resolveWorkspaceMnemonic(
     case 'r':
       if (key.shiftKey) return context.canRequestReview ? 'request-review' : undefined;
       return context.canRetryExecution ? 'retry-task' : undefined;
+    case 'e':
+      return key.shiftKey && context.canStartResearch ? 'start-research' : undefined;
     case 'a':
       return !key.shiftKey && context.canAcceptPlan ? 'accept-plan' : undefined;
     case 'c':
