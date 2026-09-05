@@ -171,6 +171,7 @@ export function createDesktopBridge(
     selectQualityGateConfigPath: () => invoke(desktopIpcChannels.selectQualityGateConfigPath, {}),
     startTaskExecution: (input) => invokeVoid(desktopIpcChannels.startExecution, input),
     startTaskPlanning: (input) => invokeVoid(desktopIpcChannels.startPlanning, input),
+    startTaskResearch: (input) => invokeVoid(desktopIpcChannels.startResearch, input),
     unregisterQualityGate: (input) => invoke(desktopIpcChannels.unregisterQualityGate, input),
     updateSettings: (input) => invoke(desktopIpcChannels.updateSettings, input),
   };

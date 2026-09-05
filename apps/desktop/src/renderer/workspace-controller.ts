@@ -65,7 +65,8 @@ export type WorkspaceActionKind =
   | 'retry-execution'
   | 'run-quality-gate'
   | 'start-execution'
-  | 'start-planning';
+  | 'start-planning'
+  | 'start-research';
 
 type SelectedWorkspaceActionKind = Exclude<
   WorkspaceActionKind,
@@ -452,6 +453,10 @@ export class WorkspaceController {
     return this.executeSelectedAction('start-planning');
   }
 
+  public startSelectedResearch(): Promise<void> {
+    return this.executeSelectedAction('start-research');
+  }
+
   public acceptSelectedPlan(): Promise<void> {
     return this.executeSelectedAction('accept-plan');
   }
@@ -767,7 +772,10 @@ export class WorkspaceController {
     // only bail when the user has not picked anything AND the Task has no
     // plugin binding — that combination would fail server-side anyway.
     if (
-      (kind === 'start-execution' || kind === 'retry-execution' || kind === 'start-planning') &&
+      (kind === 'start-execution' ||
+        kind === 'retry-execution' ||
+        kind === 'start-planning' ||
+        kind === 'start-research') &&
       selectedAgentId === undefined &&
       selected.workflowPlugin?.phaseAgentId === undefined
     ) {
@@ -775,7 +783,10 @@ export class WorkspaceController {
     }
 
     const startActionKind =
-      kind === 'start-execution' || kind === 'retry-execution' || kind === 'start-planning'
+      kind === 'start-execution' ||
+      kind === 'retry-execution' ||
+      kind === 'start-planning' ||
+      kind === 'start-research'
         ? kind
         : undefined;
     const effectiveAgentId =
@@ -1295,6 +1306,13 @@ async function runWorkspaceAction(
         await client.startTaskPlanning({ agentId, taskId: action.taskId });
       }
       return;
+    case 'start-research':
+      if (agentId === undefined) {
+        await client.startTaskResearch({ taskId: action.taskId });
+      } else {
+        await client.startTaskResearch({ agentId, taskId: action.taskId });
+      }
+      return;
     case 'accept-plan':
       await client.acceptTaskPlan({ planId: requirePlanId(evidenceId), taskId: action.taskId });
       return;
@@ -1407,6 +1425,12 @@ function canRunAction(
       return task.canBeginPlanning;
     case 'start-planning':
       return task.canStartPlanning || task.canRevisePlan;
+    case 'start-research':
+      return (
+        task.task.phase === 'BACKLOG' &&
+        task.workflowPlugin !== undefined &&
+        task.workflowPlugin.activePhaseId === 'research'
+      );
     case 'accept-plan':
       return task.canAcceptPlan && task.latestPlan !== undefined;
     case 'start-execution':
@@ -1483,6 +1507,8 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task could not enter planning.';
     case 'start-planning':
       return 'Task planning could not be started.';
+    case 'start-research':
+      return 'Task research could not be started.';
     case 'accept-plan':
       return 'Task Plan could not be accepted.';
     case 'start-execution':
@@ -1518,6 +1544,8 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task entered planning, but workspace status could not be refreshed.';
     case 'start-planning':
       return 'Task planning started, but workspace status could not be refreshed.';
+    case 'start-research':
+      return 'Task research started, but workspace status could not be refreshed.';
     case 'accept-plan':
       return 'Task Plan accepted, but workspace status could not be refreshed.';
     case 'start-execution':

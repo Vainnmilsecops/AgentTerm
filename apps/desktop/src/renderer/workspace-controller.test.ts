@@ -219,6 +219,7 @@ const emptyReviewState = Object.freeze({
   canRunQualityGate: false,
   canStartPlanning: false,
   dependencies: Object.freeze([]),
+  dependents: Object.freeze([]),
   latestPlan: undefined,
   latestReview: undefined,
   reviewHistory: Object.freeze([]),
@@ -663,6 +664,9 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     async () => undefined,
   );
   public readonly startTaskPlanning = vi.fn<AgentWorkspaceClient['startTaskPlanning']>(
+    async () => undefined,
+  );
+  public readonly startTaskResearch = vi.fn<AgentWorkspaceClient['startTaskResearch']>(
     async () => undefined,
   );
   public readonly acceptTaskPlan = vi.fn<AgentWorkspaceClient['acceptTaskPlan']>(

@@ -35,6 +35,7 @@ function overview(): WorkspaceTaskOverview {
     canStartPlanning: false,
     blocked: false,
     dependencies: Object.freeze([]),
+    dependents: Object.freeze([]),
     latestPlan: undefined,
     latestReview: undefined,
     latestSession: undefined,
