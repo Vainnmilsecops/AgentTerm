@@ -392,6 +392,199 @@ describe('M5 — Per-phase agent end-to-end across research → plan → run →
     },
     60_000,
   );
+
+  it.runIf(process.platform === 'win32')(
+    'omitting agentId lets the resolver pick the plugin-bound agent (no override)',
+    async () => {
+      const fixtureRoot = mkdtempSync(join(tmpdir(), 'agentterm-m5-omit-'));
+      const repositoryPath = join(fixtureRoot, 'M5 Omit AgentId Repo');
+      const worktreesRoot = join(fixtureRoot, 'Task Worktrees');
+      const databasePath = join(fixtureRoot, 'agentterm.db');
+      writeFileSync(join(fixtureRoot, 'gemini.exe'), 'fixture executable');
+      writeFileSync(join(fixtureRoot, 'claude.exe'), 'fixture executable');
+      initializeRepository(repositoryPath);
+      writeFileSync(join(repositoryPath, 'tracked.txt'), 'initial\n');
+      commitAll(repositoryPath);
+      const canonicalRepositoryPath = realpathSync.native(repositoryPath);
+      const persistence = openSqlitePersistence(databasePath);
+
+      try {
+        await persistence.projects.recordOpen({
+          pathIdentity: `test:${canonicalRepositoryPath.toLocaleLowerCase('en-US')}`,
+          project: createProject({ id: 'project-m5-omit', name: 'M5 omit fixture' }),
+          rootPath: canonicalRepositoryPath,
+        });
+        await createTask(
+          { brief: 'Test: agentId omitted resolves plugin-bound agent', id: 'task-m5-omit', projectId: 'project-m5-omit', title: 'Omit agentId test' },
+          persistence.projects,
+          persistence.tasks,
+        );
+
+        const plugin = createBuiltInAgtxPlugin();
+        const settings = createApplicationSettings({ defaultAgentId: 'claude' });
+        const runtime = new CapturingPtyRuntime();
+        let now = 1_900_100_000_000;
+
+        const geminiAdapter = new FixtureAgentAdapter('gemini', ['--research']);
+        const claudeAdapter = new FixtureAgentAdapter('claude', ['--plan-mode']);
+        const agents = new ConfiguredAgentCatalog([geminiAdapter, claudeAdapter]);
+        const sessions = new AgentSessionCoordinator({
+          agents,
+          clock: () => now++,
+          runtime,
+          sessions: persistence.sessions,
+          tasks: persistence.tasks,
+        });
+
+        await installWorkflowPluginForTask(
+          { expectedRevision: 0, path: 'memory://agtx', taskId: 'task-m5-omit' },
+          {
+            bindingRepository: persistence.workflowPluginBindings,
+            configurator: makeMemoryConfigurator(plugin),
+            now: () => now,
+          },
+        );
+
+        // taskExecutionDependencies with agent resolution deps wired in
+        const taskExecutionDependencies = {
+          agents,
+          applicationSettings: {
+            async get() { return settings; },
+            async update() { /* no-op */ },
+          },
+          git: new GitCliTaskWorktreeLifecycle(worktreesRoot),
+          localProjects: persistence.projects,
+          pluginBindings: persistence.workflowPluginBindings,
+          sessionCoordinator: sessions,
+          taskDependencies: persistence.taskDependencies,
+          tasks: persistence.tasks,
+          worktrees: persistence.worktrees,
+          workflowPluginConfigurator: makeMemoryConfigurator(plugin),
+        };
+
+        const systemRoot = getEnvironmentVariable('SYSTEMROOT') ?? 'C:\\Windows';
+        const environment = { SystemRoot: systemRoot };
+        const initialSize = { columns: 120, rows: 36 };
+
+        // Call WITHOUT agentId — the resolver must pick gemini for the research phase
+        const researchAttempt = await startTaskResearch(
+          {
+            // agentId omitted — resolver will pick from plugin binding
+            environment,
+            initialSize,
+            sessionId: 'session-research-omit',
+            taskId: 'task-m5-omit',
+          },
+          taskExecutionDependencies,
+        );
+
+        // The resolver MUST have picked gemini because research phase is locked to it
+        expect(researchAttempt.session.agentId).toBe('gemini');
+        expect(geminiAdapter.launchCalls).toHaveLength(1);
+        expect(claudeAdapter.launchCalls).toHaveLength(0);
+      } finally {
+        persistence.close();
+        rmSync(fixtureRoot, { force: true, recursive: true });
+      }
+    },
+    60_000,
+  );
+
+  it.runIf(process.platform === 'win32')(
+    'explicit agentId overrides the plugin binding resolver',
+    async () => {
+      const fixtureRoot = mkdtempSync(join(tmpdir(), 'agentterm-m5-override-'));
+      const repositoryPath = join(fixtureRoot, 'M5 Override Repo');
+      const worktreesRoot = join(fixtureRoot, 'Task Worktrees');
+      const databasePath = join(fixtureRoot, 'agentterm.db');
+      writeFileSync(join(fixtureRoot, 'gemini.exe'), 'fixture executable');
+      writeFileSync(join(fixtureRoot, 'claude.exe'), 'fixture executable');
+      initializeRepository(repositoryPath);
+      writeFileSync(join(repositoryPath, 'tracked.txt'), 'initial\n');
+      commitAll(repositoryPath);
+      const canonicalRepositoryPath = realpathSync.native(repositoryPath);
+      const persistence = openSqlitePersistence(databasePath);
+
+      try {
+        await persistence.projects.recordOpen({
+          pathIdentity: `test:${canonicalRepositoryPath.toLocaleLowerCase('en-US')}`,
+          project: createProject({ id: 'project-m5-override', name: 'M5 override fixture' }),
+          rootPath: canonicalRepositoryPath,
+        });
+        await createTask(
+          { brief: 'Test: explicit agentId overrides plugin binding', id: 'task-m5-override', projectId: 'project-m5-override', title: 'Override agentId test' },
+          persistence.projects,
+          persistence.tasks,
+        );
+
+        const plugin = createBuiltInAgtxPlugin();
+        const settings = createApplicationSettings({ defaultAgentId: 'claude' });
+        const runtime = new CapturingPtyRuntime();
+        let now = 1_900_200_000_000;
+
+        const geminiAdapter = new FixtureAgentAdapter('gemini', ['--research']);
+        const claudeAdapter = new FixtureAgentAdapter('claude', ['--plan-mode']);
+        const agents = new ConfiguredAgentCatalog([geminiAdapter, claudeAdapter]);
+        const sessions = new AgentSessionCoordinator({
+          agents,
+          clock: () => now++,
+          runtime,
+          sessions: persistence.sessions,
+          tasks: persistence.tasks,
+        });
+
+        await installWorkflowPluginForTask(
+          { expectedRevision: 0, path: 'memory://agtx', taskId: 'task-m5-override' },
+          {
+            bindingRepository: persistence.workflowPluginBindings,
+            configurator: makeMemoryConfigurator(plugin),
+            now: () => now,
+          },
+        );
+
+        const taskExecutionDependencies = {
+          agents,
+          applicationSettings: {
+            async get() { return settings; },
+            async update() { /* no-op */ },
+          },
+          git: new GitCliTaskWorktreeLifecycle(worktreesRoot),
+          localProjects: persistence.projects,
+          pluginBindings: persistence.workflowPluginBindings,
+          sessionCoordinator: sessions,
+          taskDependencies: persistence.taskDependencies,
+          tasks: persistence.tasks,
+          worktrees: persistence.worktrees,
+          workflowPluginConfigurator: makeMemoryConfigurator(plugin),
+        };
+
+        const systemRoot = getEnvironmentVariable('SYSTEMROOT') ?? 'C:\\Windows';
+        const environment = { SystemRoot: systemRoot };
+        const initialSize = { columns: 120, rows: 36 };
+
+        // Explicit agentId: claude — overrides the research phase binding (which would be gemini)
+        const researchAttempt = await startTaskResearch(
+          {
+            agentId: 'claude', // explicit override
+            environment,
+            initialSize,
+            sessionId: 'session-research-override',
+            taskId: 'task-m5-override',
+          },
+          taskExecutionDependencies,
+        );
+
+        // The explicit override MUST be honored even though plugin says gemini for research
+        expect(researchAttempt.session.agentId).toBe('claude');
+        expect(claudeAdapter.launchCalls).toHaveLength(1);
+        expect(geminiAdapter.launchCalls).toHaveLength(0);
+      } finally {
+        persistence.close();
+        rmSync(fixtureRoot, { force: true, recursive: true });
+      }
+    },
+    60_000,
+  );
 });
 
 function makeMemoryConfigurator(

@@ -762,12 +762,26 @@ export class WorkspaceController {
     ) {
       return Promise.resolve();
     }
+    // The per-phase agent resolver in Application will pick an agent from the
+    // Task's Workflow Plugin binding when `selectedAgentId` is undefined. We
+    // only bail when the user has not picked anything AND the Task has no
+    // plugin binding — that combination would fail server-side anyway.
     if (
       (kind === 'start-execution' || kind === 'retry-execution' || kind === 'start-planning') &&
-      selectedAgentId === undefined
+      selectedAgentId === undefined &&
+      selected.workflowPlugin?.phaseAgentId === undefined
     ) {
       return Promise.resolve();
     }
+
+    const startActionKind =
+      kind === 'start-execution' || kind === 'retry-execution' || kind === 'start-planning'
+        ? kind
+        : undefined;
+    const effectiveAgentId =
+      startActionKind === undefined
+        ? selectedAgentId
+        : decideStartActionAgentId(selected.workflowPlugin?.phaseAgentId, selectedAgentId);
 
     const action: WorkspaceAction =
       kind === 'run-quality-gate'
@@ -775,7 +789,7 @@ export class WorkspaceController {
         : kind === 'refresh-pull-request'
           ? createPullRequestRefreshAction(taskId, this.snapshot.pullRequestInspection)
           : { kind, taskId };
-    const attempt = this.performAction(action, evidenceId, selectedAgentId);
+    const attempt = this.performAction(action, evidenceId, effectiveAgentId);
     this.actionAttempt = attempt;
     void attempt
       .finally(() => {
@@ -1275,16 +1289,28 @@ async function runWorkspaceAction(
       await client.beginTaskPlanning({ taskId: action.taskId });
       return;
     case 'start-planning':
-      await client.startTaskPlanning({ agentId: requireAgentId(agentId), taskId: action.taskId });
+      if (agentId === undefined) {
+        await client.startTaskPlanning({ taskId: action.taskId });
+      } else {
+        await client.startTaskPlanning({ agentId, taskId: action.taskId });
+      }
       return;
     case 'accept-plan':
       await client.acceptTaskPlan({ planId: requirePlanId(evidenceId), taskId: action.taskId });
       return;
     case 'start-execution':
-      await client.startTaskExecution({ agentId: requireAgentId(agentId), taskId: action.taskId });
+      if (agentId === undefined) {
+        await client.startTaskExecution({ taskId: action.taskId });
+      } else {
+        await client.startTaskExecution({ agentId, taskId: action.taskId });
+      }
       return;
     case 'retry-execution':
-      await client.retryTaskExecution({ agentId: requireAgentId(agentId), taskId: action.taskId });
+      if (agentId === undefined) {
+        await client.retryTaskExecution({ taskId: action.taskId });
+      } else {
+        await client.retryTaskExecution({ agentId, taskId: action.taskId });
+      }
       return;
     case 'request-review':
       await client.requestTaskReview({ taskId: action.taskId });
@@ -1343,11 +1369,32 @@ async function runWorkspaceAction(
   }
 }
 
-function requireAgentId(agentId: string | undefined): string {
-  if (agentId === undefined) {
-    throw new TypeError('An available coding agent is required.');
+/**
+ * Decides whether a Task start action should send an explicit `agentId` to
+ * Application or let Application resolve it from the Workflow Plugin binding.
+ *
+ * Rules:
+ *  - When the Task has a plugin binding (`workflowPluginAgentId`) AND the user
+ *    has not picked a different agent, omit `agentId` so the per-phase agent
+ *    resolver picks the right agent for this phase.
+ *  - Otherwise (no binding or user override), pass the user-selected agent.
+ *
+ * Returns `undefined` to mean "let Application resolve".
+ */
+export function decideStartActionAgentId(
+  workflowPluginAgentId: string | undefined,
+  userSelectedAgentId: string | undefined,
+): string | undefined {
+  if (workflowPluginAgentId === undefined) {
+    return userSelectedAgentId;
   }
-  return agentId;
+  if (userSelectedAgentId === undefined) {
+    return undefined;
+  }
+  if (userSelectedAgentId === workflowPluginAgentId) {
+    return undefined;
+  }
+  return userSelectedAgentId;
 }
 
 function canRunAction(

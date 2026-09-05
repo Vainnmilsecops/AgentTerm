@@ -204,12 +204,16 @@ export async function createProductionDesktopApplication(
       settings: persistence.settings,
     });
     const executionDependencies = Object.freeze({
+      agents,
+      applicationSettings: persistence.settings,
       git,
       localProjects: persistence.projects,
+      pluginBindings: persistence.workflowPluginBindings,
       sessionCoordinator,
       taskDependencies: persistence.taskDependencies,
       tasks: persistence.tasks,
       worktrees: persistence.worktrees,
+      workflowPluginConfigurator,
     });
     const planningDependencies = Object.freeze({
       artifacts: persistence.artifacts,

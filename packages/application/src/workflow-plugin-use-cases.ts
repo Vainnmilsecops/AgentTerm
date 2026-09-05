@@ -1,14 +1,24 @@
 import {
+  TaskPhase,
   type ApplicationSettings,
   type WorkflowPhase,
   type WorkflowPlugin,
 } from "@agentterm/domain";
 
 import {
+  AgentNotConfiguredError,
   WorkflowPluginAgentNotConfiguredError,
   WorkflowPluginPhaseNotFoundError,
 } from "./errors";
-import type { AgentCatalog, AgentIdentity } from "./ports";
+import { WorkflowPluginConfiguratorError } from "./workflow-plugin-loader";
+import type {
+  AgentCatalog,
+  AgentIdentity,
+  ApplicationSettingsRepository,
+  WorkflowPluginBindingRepository,
+  WorkflowPluginConfigurator,
+  WorkflowPluginConfiguratorResult,
+} from "./ports";
 
 export interface BindPhaseAgentInput {
   readonly phaseId: string;
@@ -91,3 +101,74 @@ function findPhase(plugin: WorkflowPlugin, phaseId: string): WorkflowPhase {
   }
   throw new WorkflowPluginPhaseNotFoundError(plugin.id, phaseId);
 }
+
+/**
+ * Resolves the coding-agent identity for a Task execution attempt.
+ *
+ * Precedence:
+ *  1. Explicit `requestedAgentId` from the caller — always honored when
+ *     supplied.
+ *  2. Workflow Plugin binding looked up via the optional `pluginBindings`
+ *     repository. When found, the agent is picked through
+ *     {@link bindPhaseAgent} using the phase id that maps to the expected
+ *     TaskPhase (`'planning'` → `TaskPhase.PLANNING`, `'running'` →
+ *     `TaskPhase.RUNNING`, `'research'` → `TaskPhase.BACKLOG`).
+ *  3. No binding and no explicit agent — throws `AgentNotConfiguredError`
+ *     so the renderer knows it must surface an explicit agent selection.
+ *
+ * The resolver intentionally never inspects the catalog for a "best match"
+ * when a binding is present; that decision is fully owned by
+ * `bindPhaseAgent` so the Domain shape stays the single source of truth.
+ */
+export async function resolveAgentForTask(
+  taskId: string,
+  requestedAgentId: string | undefined,
+  expectedPhase: typeof TaskPhase.BACKLOG | typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING,
+  dependencies: {
+    readonly agents?: AgentCatalog;
+    readonly applicationSettings?: ApplicationSettingsRepository;
+    readonly pluginBindings?: WorkflowPluginBindingRepository;
+    readonly sessionCoordinator: Pick<import('./agent-session-coordinator').AgentSessionCoordinator, 'isAgentConfigured' | 'listByTaskId'>;
+    readonly workflowPluginConfigurator?: WorkflowPluginConfigurator;
+  },
+): Promise<string> {
+  if (requestedAgentId !== undefined && requestedAgentId.length > 0) {
+    return requestedAgentId;
+  }
+  const { pluginBindings, workflowPluginConfigurator, agents } = dependencies;
+  if (
+    pluginBindings === undefined ||
+    workflowPluginConfigurator === undefined ||
+    agents === undefined
+  ) {
+    throw new AgentNotConfiguredError('default');
+  }
+  const binding = await pluginBindings.findByTaskId(taskId);
+  if (binding === undefined) {
+    throw new AgentNotConfiguredError('default');
+  }
+  const loaded: WorkflowPluginConfiguratorResult<import('./ports').WorkflowPluginConfiguration> = await workflowPluginConfigurator.load({ path: binding.sourcePath });
+  if (loaded.failure !== undefined) {
+    throw new WorkflowPluginConfiguratorError(loaded.failure);
+  }
+  if (loaded.value === undefined) {
+    throw new WorkflowPluginConfiguratorError('INVALID_FORMAT');
+  }
+  const settings: ApplicationSettings =
+    (await dependencies.applicationSettings?.get()) ?? { agentExecutables: [], allowClipboardReadWrite: false, defaultAgentId: 'codex', mcpServerToken: undefined, revision: 0, schemaVersion: 2, terminalFontSize: 14 };
+  const phaseId = phaseIdFor(expectedPhase);
+  const agent = bindPhaseAgent({ phaseId, plugin: loaded.value.plugin, settings }, agents);
+  return agent.id;
+}
+
+/** Maps a TaskPhase to its corresponding plugin phase id string. */
+function phaseIdFor(phase: typeof TaskPhase.BACKLOG | typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING): string {
+  switch (phase) {
+    case TaskPhase.BACKLOG: return 'research';
+    case TaskPhase.PLANNING: return 'planning';
+    case TaskPhase.RUNNING: return 'running';
+  }
+}
+
+// Re-export for convenience so task-execution.ts can use it
+export { findPhase };

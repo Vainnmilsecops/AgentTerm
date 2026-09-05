@@ -26,6 +26,7 @@ import {
   retryTaskExecution,
   startTaskPlanning,
   startTaskExecution,
+  resolveAgentForTask,
   type AgentAdapter,
   type AgentIdentity,
   type AgentLaunchRequest,
@@ -366,6 +367,86 @@ class FakePtyRuntime implements PtyRuntime {
     this.sinks[index]?.(event);
   }
 }
+
+describe('resolveAgentForTask', () => {
+  it('returns the explicit requested agent when supplied', async () => {
+    const mockAdapter: AgentAdapter = {
+      identity: Object.freeze({ displayName: 'Mock', id: 'mock' }),
+      async inspect() {
+        return Object.freeze({
+          capabilities: [],
+          executablePath: 'C:\\mock.exe',
+          kind: 'available' as const,
+        });
+      },
+      async buildLaunchCommand(request: AgentLaunchRequest) {
+        return Object.freeze({ ...request, arguments: [], executablePath: 'C:\\mock.exe' });
+      },
+    };
+    const result = await resolveAgentForTask(
+      'task-1',
+      'claude',
+      TaskPhase.PLANNING,
+      {
+        agents: new ConfiguredAgentCatalog([mockAdapter]),
+        sessionCoordinator: Object.assign(
+          Object.create({
+            isAgentConfigured(id: string) {
+              return id === 'claude';
+            },
+          }),
+          {
+            listByTaskId: async () => [],
+          },
+        ) as AgentSessionCoordinator,
+      },
+    );
+    expect(result).toBe('claude');
+  });
+
+  it('throws AgentNotConfiguredError when no plugin bindings and no explicit agent', async () => {
+    const mockAdapter: AgentAdapter = {
+      identity: Object.freeze({ displayName: 'Mock', id: 'mock' }),
+      async inspect() {
+        return Object.freeze({ capabilities: [], executablePath: 'C:\\mock.exe', kind: 'available' as const });
+      },
+      async buildLaunchCommand(request: AgentLaunchRequest) {
+        return Object.freeze({ ...request, arguments: [], executablePath: 'C:\\mock.exe' });
+      },
+    };
+    await expect(
+      resolveAgentForTask('task-1', undefined, TaskPhase.PLANNING, {
+        agents: new ConfiguredAgentCatalog([mockAdapter]),
+        sessionCoordinator: Object.assign(
+          Object.create({ isAgentConfigured() { return false; } }),
+          { listByTaskId: async () => [] },
+        ) as AgentSessionCoordinator,
+      }),
+    ).rejects.toMatchObject({ agentId: 'default', name: 'AgentNotConfiguredError' });
+  });
+
+  it('throws AgentNotConfiguredError when pluginBindings is absent (backward-compat for existing tests)', async () => {
+    const mockAdapter: AgentAdapter = {
+      identity: Object.freeze({ displayName: 'Mock', id: 'mock' }),
+      async inspect() {
+        return Object.freeze({ capabilities: [], executablePath: 'C:\\mock.exe', kind: 'available' as const });
+      },
+      async buildLaunchCommand(request: AgentLaunchRequest) {
+        return Object.freeze({ ...request, arguments: [], executablePath: 'C:\\mock.exe' });
+      },
+    };
+    await expect(
+      resolveAgentForTask('task-1', undefined, TaskPhase.PLANNING, {
+        // no pluginBindings, no workflowPluginConfigurator
+        agents: new ConfiguredAgentCatalog([mockAdapter]),
+        sessionCoordinator: Object.assign(
+          Object.create({ isAgentConfigured() { return false; } }),
+          { listByTaskId: async () => [] },
+        ) as AgentSessionCoordinator,
+      }),
+    ).rejects.toMatchObject({ agentId: 'default', name: 'AgentNotConfiguredError' });
+  });
+});
 
 function taskAt(phase: TaskPhaseValue): Task {
   let task = createTask({ id: primaryWorktree.taskId, projectId: project.id, title: 'Execute' });
