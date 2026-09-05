@@ -1343,7 +1343,11 @@ export function AgentWorkspaceView({
                   blocked={selected.blocked}
                   phase={selected.task.phase as TaskPhaseToken}
                 />
-                <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
+                <TaskDependencies
+                  blocked={selected.blocked}
+                  dependencies={selected.dependencies}
+                  dependents={selected.dependents}
+                />
                 <DependencyEditor
                   candidates={selectedProject.tasks.map((entry) => entry.task)}
                   currentTask={selected.task}
@@ -1352,6 +1356,7 @@ export function AgentWorkspaceView({
                     phase: entry.phase,
                     title: entry.title,
                   }))}
+                  dependents={selected.dependents}
                   disabled={snapshot.activeAction !== undefined}
                   onAdd={onAddDependency}
                   onRemove={onRemoveDependency}
@@ -2496,11 +2501,13 @@ function artifactHeadingLabel(kind: WorkspaceTaskOverview['artifacts'][number]['
 function TaskDependencies({
   blocked,
   dependencies,
+  dependents,
 }: {
   readonly blocked: boolean;
   readonly dependencies: WorkspaceTaskOverview['dependencies'];
+  readonly dependents: WorkspaceTaskOverview['dependents'];
 }) {
-  if (dependencies.length === 0) return null;
+  if (dependencies.length === 0 && dependents.length === 0) return null;
   return (
     <section className="task-dependencies" aria-labelledby="task-dependencies-heading">
       <header>
@@ -2508,20 +2515,44 @@ function TaskDependencies({
           <p className="eyebrow">Execution readiness</p>
           <h3 id="task-dependencies-heading">Task dependencies</h3>
         </div>
-        <span>{blocked ? 'Blocked' : 'Ready'}</span>
+        <span data-task-blocked={blocked ? 'true' : 'false'}>
+          {blocked ? 'Blocked' : 'Ready'}
+        </span>
       </header>
-      <ul>
-        {dependencies.map((dependency) => (
-          <li key={dependency.id}>
-            <strong>{dependency.title}</strong>
-            <span>
-              {dependency.phase}
-              {' \u00b7 '}
-              {dependency.satisfied ? 'Complete' : 'Required'}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {dependencies.length > 0 ? (
+        <div className="task-dependencies__group" data-dependency-direction="blocks-on">
+          <h4>Blocks on</h4>
+          <ul>
+            {dependencies.map((dependency) => (
+              <li key={dependency.id}>
+                <strong>{dependency.title}</strong>
+                <span>
+                  {dependency.phase}
+                  {' \u00b7 '}
+                  {dependency.satisfied ? 'Complete' : 'Required'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {dependents.length > 0 ? (
+        <div className="task-dependencies__group" data-dependency-direction="blocks-these">
+          <h4>Blocks these</h4>
+          <ul>
+            {dependents.map((dependent) => (
+              <li key={dependent.id}>
+                <strong>{dependent.title}</strong>
+                <span>
+                  {dependent.phase}
+                  {' \u00b7 '}
+                  {dependent.ready ? 'Satisfied' : 'Waiting'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }
