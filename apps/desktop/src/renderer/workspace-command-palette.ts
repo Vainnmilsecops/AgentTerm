@@ -36,6 +36,8 @@ export interface WorkspaceCommandTask {
   readonly canStartPlanning: boolean;
   readonly dependencies: readonly WorkspaceCommandDependency[];
   readonly id: string;
+  readonly phase: WorkspaceCommandTaskPhase;
+  readonly pluginActivePhaseId: string | undefined;
   readonly projectId: string;
   readonly title: string;
 }
@@ -81,6 +83,7 @@ export interface WorkspaceCommandActions {
   selectTask(taskId: string): void;
   startExecution(): Promise<void> | void;
   startPlanning(): Promise<void> | void;
+  startResearch(): Promise<void> | void;
   unregisterQualityGate(gateId: string): Promise<boolean> | boolean;
   importQualityGateConfig(): Promise<unknown> | unknown;
   exportQualityGateConfig(): Promise<void> | void;
@@ -149,6 +152,17 @@ export function buildWorkspaceCommands(
   }
 
   if (!context.actionBusy && context.selectedAgentId !== undefined) {
+    if (selected.phase === 'BACKLOG' && selected.pluginActivePhaseId === 'research') {
+      commands.push(
+        command({
+          category: 'Task',
+          id: 'research:start',
+          keywords: ['agent research discover investigate explore'],
+          label: 'Start research',
+          run: actions.startResearch,
+        }),
+      );
+    }
     if (selected.canStartPlanning || selected.canRevisePlan) {
       commands.push(
         command({

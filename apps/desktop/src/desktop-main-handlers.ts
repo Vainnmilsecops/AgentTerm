@@ -233,6 +233,11 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.startPlanning],
         );
         return null;
+      case desktopIpcChannels.startResearch:
+        await application.startTaskResearch(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.startResearch],
+        );
+        return null;
       case desktopIpcChannels.acceptPlan:
         await application.acceptTaskPlan(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.acceptPlan],

@@ -399,6 +399,7 @@ function createApplication(
     stopAgentSession: vi.fn(unavailable),
     startTaskExecution: vi.fn(unavailable),
     startTaskPlanning: vi.fn(unavailable),
+    startTaskResearch: vi.fn(unavailable),
     updateSettings: vi.fn(unavailable),
     ...overrides,
   } as DesktopIpcApplication & Record<string, ReturnType<typeof vi.fn>>;

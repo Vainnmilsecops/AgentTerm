@@ -33,9 +33,10 @@ import {
   retryTaskExecution,
   runQualityGate,
   saveWorkspaceLayout,
-  summarizeTaskReview,
   startTaskExecution,
   startTaskPlanning,
+  startTaskResearch,
+  summarizeTaskReview,
   transitionTask,
   tryReattachAgentSession,
   tryResumeAgentSession,
@@ -502,6 +503,18 @@ export async function createProductionDesktopApplication(
       startTaskPlanning: async (input): Promise<void> => {
         requireOpen();
         await startTaskPlanning(
+          {
+            ...input,
+            environment,
+            initialSize: initialTerminalSize,
+            sessionId: newId(),
+          },
+          executionDependencies,
+        );
+      },
+      startTaskResearch: async (input): Promise<void> => {
+        requireOpen();
+        await startTaskResearch(
           {
             ...input,
             environment,

@@ -42,6 +42,7 @@ describe('resolveWorkspaceMnemonic', () => {
     canRetryExecution: true,
     canStartExecution: true,
     canStartPlanning: true,
+    canStartResearch: true,
     canRevisePlan: false,
   } as const;
 

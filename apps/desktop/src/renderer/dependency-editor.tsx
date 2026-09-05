@@ -18,6 +18,12 @@ export interface DependencyEditorProps {
     readonly title: string;
     readonly phase: string;
   }[];
+  readonly dependents: readonly {
+    readonly id: string;
+    readonly phase: string;
+    readonly ready: boolean;
+    readonly title: string;
+  }[];
   readonly disabled: boolean;
   readonly onAdd: (input: { readonly dependencyTaskId: string; readonly taskId: string }) => void;
   readonly onRemove: (input: {
@@ -30,6 +36,7 @@ export function DependencyEditor({
   candidates,
   currentTask,
   dependencies,
+  dependents,
   disabled,
   onAdd,
   onRemove,
@@ -72,6 +79,27 @@ export function DependencyEditor({
           {dependencies.length === 0 ? 'No required Tasks' : `${dependencies.length} required`}
         </span>
       </header>
+      {dependents.length > 0 ? (
+        <section
+          aria-label="Tasks waiting on this Task"
+          className="dependency-editor__dependents"
+          data-dependency-dependents
+        >
+          <h4>Blocks these</h4>
+          <ul>
+            {dependents.map((dependent) => (
+              <li data-dependency-dependent-row key={dependent.id}>
+                <strong>{dependent.title}</strong>
+                <span>
+                  {dependent.phase}
+                  {' \u00b7 '}
+                  {dependent.ready ? 'Satisfied' : 'Waiting'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <ul className="dependency-editor__list" data-dependency-list>
         {dependencies.map((dependency) => (
           <li className="dependency-editor__item" data-dependency-row key={dependency.id}>

@@ -26,6 +26,7 @@ export interface ArtifactProducerProps {
     readonly taskId: string;
   }) => Promise<ExecutionArtifact>;
   readonly overview: WorkspaceTaskOverview;
+  readonly pluginRequiresResearch: boolean;
   readonly task: Task;
 }
 
@@ -34,9 +35,10 @@ export function ArtifactProducer({
   disabled,
   onProduce,
   overview,
+  pluginRequiresResearch,
   task,
 }: ArtifactProducerProps): ReactNode {
-  const initialKind = selectArtifactKindForPhase(task.phase);
+  const initialKind = selectArtifactKindForPhase(task.phase, pluginRequiresResearch);
   const [draft, setDraft] = useState<ArtifactDraft>(() =>
     defaultArtifactDraft(task, initialKind, activeSessionId),
   );
@@ -47,16 +49,19 @@ export function ArtifactProducer({
   );
 
   const validation = useMemo(() => validateArtifactDraft(draft), [draft]);
-  const kindOptions: ReadonlyArray<ExecutionArtifact['kind']> = useMemo(
-    () => [
+  const kindOptions: ReadonlyArray<ExecutionArtifact['kind']> = useMemo(() => {
+    const base: ExecutionArtifact['kind'][] = [
       ExecutionArtifactKindValue.PLAN,
       ExecutionArtifactKindValue.EXECUTION_SUMMARY,
       ExecutionArtifactKindValue.REVIEW,
-    ],
-    [],
-  );
+    ];
+    if (pluginRequiresResearch && !base.includes(ExecutionArtifactKindValue.RESEARCH)) {
+      return [ExecutionArtifactKindValue.RESEARCH, ...base];
+    }
+    return base;
+  }, [pluginRequiresResearch]);
 
-  if (!isProducerAvailable(task.phase)) {
+  if (!isProducerAvailable(task.phase, pluginRequiresResearch)) {
     return null;
   }
 
@@ -188,6 +193,13 @@ export function ArtifactProducer({
   );
 }
 
-function isProducerAvailable(phase: Task['phase']): boolean {
-  return phase === 'PLANNING' || phase === 'RUNNING' || phase === 'REVIEW';
+function isProducerAvailable(phase: Task['phase'], pluginRequiresResearch: boolean): boolean {
+  if (phase === 'PLANNING' || phase === 'RUNNING' || phase === 'REVIEW') {
+    return true;
+  }
+  // BACKLOG is eligible only when the Task's WorkflowPlugin requires a
+  // research phase. Manual RESEARCH persistence is the offline-recovery
+  // fallback for the agent-driven path that the inspector exposes via the
+  // 'Start research' button.
+  return phase === 'BACKLOG' && pluginRequiresResearch;
 }

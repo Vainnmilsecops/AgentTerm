@@ -117,6 +117,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onStopAgent?: (sessionId: string) => void;
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
+  readonly onStartResearch: () => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
   readonly onImportQualityGateConfig: () => Promise<
     import('@agentterm/application').ImportQualityGateConfigResult | undefined
@@ -189,6 +190,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onStopAgent={(sessionId) => controller?.stopAgentSession(sessionId)}
       onStartTask={() => void controller?.startSelectedTask()}
       onStartPlanning={() => void controller?.startSelectedPlanning()}
+      onStartResearch={() => void controller?.startSelectedResearch()}
       onUnregisterQualityGate={(gateId) =>
         controller?.unregisterQualityGate(gateId) ?? Promise.resolve(false)
       }
@@ -241,6 +243,7 @@ export function AgentWorkspaceView({
   onStopAgent,
   onStartTask,
   onStartPlanning,
+  onStartResearch,
   onUnregisterQualityGate,
   onImportQualityGateConfig,
   onExportQualityGateConfig,
@@ -497,7 +500,20 @@ export function AgentWorkspaceView({
           metaKey: event.metaKey,
           shiftKey: event.shiftKey,
         },
-        selected,
+        {
+          canAcceptPlan: selected.canAcceptPlan,
+          canApproveReview: selected.canApproveReview,
+          canBeginPlanning: selected.canBeginPlanning,
+          canRequestChanges: selected.canRequestChanges,
+          canRequestReview: selected.canRequestReview,
+          canRetryExecution: selected.canRetryExecution,
+          canRevisePlan: selected.canRevisePlan,
+          canStartExecution: selected.canStartExecution,
+          canStartPlanning: selected.canStartPlanning,
+          canStartResearch:
+            selected.task.phase === 'BACKLOG' &&
+            selected.workflowPlugin?.activePhaseId === 'research',
+        },
       );
       if (action === undefined) return;
       event.preventDefault();
@@ -507,6 +523,9 @@ export function AgentWorkspaceView({
           return;
         case 'start-planning':
           onStartPlanning();
+          return;
+        case 'start-research':
+          onStartResearch();
           return;
         case 'start-task':
           onStartTask();
@@ -611,6 +630,8 @@ export function AgentWorkspaceView({
                 title: dependency.title,
               })),
               id: selected.task.id,
+              phase: selected.task.phase as 'BACKLOG' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING',
+              pluginActivePhaseId: selected.workflowPlugin?.activePhaseId,
               projectId: selectedProject?.project.id ?? '',
               title: selected.task.title,
             },
@@ -641,6 +662,7 @@ export function AgentWorkspaceView({
       },
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
+      startResearch: onStartResearch,
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
       importQualityGateConfig: () => onImportQualityGateConfig(),
       exportQualityGateConfig: () =>
@@ -1108,6 +1130,28 @@ export function AgentWorkspaceView({
                   <p className="task-id">{selected.task.id}</p>
                 </div>
                 <div className="task-actions" aria-busy={actionsBusy}>
+                  {selected.task.phase === 'BACKLOG' &&
+                  selected.workflowPlugin?.activePhaseId === 'research' ? (
+                    <button
+                      className="primary-action button-with-hint"
+                      data-action-hint="start-research"
+                      disabled={
+                        actionsBusy ||
+                        !canStartAttempt(selected, snapshot.selectedAgentId) ||
+                        (snapshot.selectedAgentId === undefined &&
+                          selected.workflowPlugin?.phaseAgentId === undefined)
+                      }
+                      onClick={onStartResearch}
+                      title={startAttemptTitle(selected, snapshot.selectedAgentId)}
+                      type="button"
+                    >
+                      <span>
+                        {isSelectedAction(snapshot, selected.task.id, 'start-research')
+                          ? 'Starting research…'
+                          : 'Start research'}
+                      </span>
+                    </button>
+                  ) : null}
                   {selected.canBeginPlanning ? (
                     <button
                       className="primary-action button-with-hint"
@@ -1343,7 +1387,11 @@ export function AgentWorkspaceView({
                   blocked={selected.blocked}
                   phase={selected.task.phase as TaskPhaseToken}
                 />
-                <TaskDependencies blocked={selected.blocked} dependencies={selected.dependencies} />
+                <TaskDependencies
+                  blocked={selected.blocked}
+                  dependencies={selected.dependencies}
+                  dependents={selected.dependents}
+                />
                 <DependencyEditor
                   candidates={selectedProject.tasks.map((entry) => entry.task)}
                   currentTask={selected.task}
@@ -1352,6 +1400,7 @@ export function AgentWorkspaceView({
                     phase: entry.phase,
                     title: entry.title,
                   }))}
+                  dependents={selected.dependents}
                   disabled={snapshot.activeAction !== undefined}
                   onAdd={onAddDependency}
                   onRemove={onRemoveDependency}
@@ -1402,6 +1451,9 @@ export function AgentWorkspaceView({
                     })
                   }
                   overview={selected}
+                  pluginRequiresResearch={
+                    selected.workflowPlugin?.activePhaseId === 'research'
+                  }
                   task={selected.task}
                 />
                 <ArtifactHistory artifacts={selected.artifacts} />
@@ -2447,10 +2499,18 @@ function ArtifactHistory({
       ) : (
         <ol className="artifact-list">
           {artifacts.map((artifact) => (
-            <li className="artifact-card" key={artifact.id}>
+            <li
+              className={`artifact-card artifact-card--${artifact.kind}`}
+              data-artifact-card
+              data-artifact-kind={artifact.kind}
+              key={artifact.id}
+            >
               <header>
                 <div>
-                  <strong>{artifact.kind}</strong>
+                  <strong>{artifactHeadingLabel(artifact.kind)}</strong>
+                  <span className="artifact-card__kind" data-artifact-kind-label>
+                    {artifact.kind}
+                  </span>
                   <span>{artifact.canonicalName}</span>
                 </div>
                 <div className="artifact-card__provenance">
@@ -2467,14 +2527,31 @@ function ArtifactHistory({
   );
 }
 
+function artifactHeadingLabel(kind: WorkspaceTaskOverview['artifacts'][number]['kind']): string {
+  switch (kind) {
+    case 'research':
+      return 'Research';
+    case 'plan':
+      return 'Plan';
+    case 'execution-summary':
+      return 'Execution summary';
+    case 'review':
+      return 'Review';
+    default:
+      return kind;
+  }
+}
+
 function TaskDependencies({
   blocked,
   dependencies,
+  dependents,
 }: {
   readonly blocked: boolean;
   readonly dependencies: WorkspaceTaskOverview['dependencies'];
+  readonly dependents: WorkspaceTaskOverview['dependents'];
 }) {
-  if (dependencies.length === 0) return null;
+  if (dependencies.length === 0 && dependents.length === 0) return null;
   return (
     <section className="task-dependencies" aria-labelledby="task-dependencies-heading">
       <header>
@@ -2482,20 +2559,44 @@ function TaskDependencies({
           <p className="eyebrow">Execution readiness</p>
           <h3 id="task-dependencies-heading">Task dependencies</h3>
         </div>
-        <span>{blocked ? 'Blocked' : 'Ready'}</span>
+        <span data-task-blocked={blocked ? 'true' : 'false'}>
+          {blocked ? 'Blocked' : 'Ready'}
+        </span>
       </header>
-      <ul>
-        {dependencies.map((dependency) => (
-          <li key={dependency.id}>
-            <strong>{dependency.title}</strong>
-            <span>
-              {dependency.phase}
-              {' \u00b7 '}
-              {dependency.satisfied ? 'Complete' : 'Required'}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {dependencies.length > 0 ? (
+        <div className="task-dependencies__group" data-dependency-direction="blocks-on">
+          <h4>Blocks on</h4>
+          <ul>
+            {dependencies.map((dependency) => (
+              <li key={dependency.id}>
+                <strong>{dependency.title}</strong>
+                <span>
+                  {dependency.phase}
+                  {' \u00b7 '}
+                  {dependency.satisfied ? 'Complete' : 'Required'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {dependents.length > 0 ? (
+        <div className="task-dependencies__group" data-dependency-direction="blocks-these">
+          <h4>Blocks these</h4>
+          <ul>
+            {dependents.map((dependent) => (
+              <li key={dependent.id}>
+                <strong>{dependent.title}</strong>
+                <span>
+                  {dependent.phase}
+                  {' \u00b7 '}
+                  {dependent.ready ? 'Satisfied' : 'Waiting'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -128,6 +128,27 @@ describe('desktop IPC contract validation', () => {
     ).toEqual({ taskId: 'task-1' });
   });
 
+  it('accepts startResearch with optional agentId like startPlanning', () => {
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.startResearch, { taskId: 'task-1' }),
+    ).toEqual({ taskId: 'task-1' });
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.startResearch, {
+        agentId: 'codex',
+        taskId: 'task-1',
+      }),
+    ).toEqual({ agentId: 'codex', taskId: 'task-1' });
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.startResearch, {
+        agentId: ' ',
+        taskId: 'task-1',
+      }),
+    ).toThrow(DesktopIpcRequestValidationError);
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.startResearch, { agentId: 'codex' }),
+    ).toThrow(DesktopIpcRequestValidationError);
+  });
+
   it('accepts a loadWorkspaceLayout empty payload and a bounded saveWorkspaceLayout payload', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.loadWorkspaceLayout, {})).toEqual({});
     expect(
@@ -163,6 +184,7 @@ describe('desktop IPC contract validation', () => {
 
   it.each([
     [desktopIpcChannels.startExecution, { agentId: 'claude', taskId: ' ', token: 'secret' }],
+    [desktopIpcChannels.startResearch, { agentId: 'claude', taskId: ' ', token: 'secret' }],
     [desktopIpcChannels.getTaskFileDiff, { area: 'UNSTAGED', path: '../secret', taskId: 'task-1' }],
     [desktopIpcChannels.terminalResize, { columns: 0, rows: 24, subscriptionId: 'sub-1' }],
     [desktopIpcChannels.updateSettings, { expectedRevision: -1 }],

@@ -66,6 +66,7 @@ function emptyTask(
     canStartExecution: false,
     canStartPlanning: false,
     dependencies: [],
+    dependents: [],
     latestPlan: undefined,
     latestReview: undefined,
     latestSession: undefined,

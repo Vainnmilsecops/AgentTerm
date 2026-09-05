@@ -309,6 +309,7 @@ export {
   type TaskReviewQualityGateSummary,
   type TaskReviewSummary,
   type TaskDependencySummary,
+  type TaskDependentSummary,
   type WorkflowPluginProjection,
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,

@@ -52,6 +52,7 @@ export interface WorkspaceTaskOverview {
   readonly canStartPlanning: boolean;
   readonly blocked: boolean;
   readonly dependencies: readonly TaskDependencySummary[];
+  readonly dependents: readonly TaskDependentSummary[];
   readonly latestSession: AgentSessionSummary | undefined;
   readonly latestReview: TaskReviewSummary | undefined;
   readonly latestPlan: ExecutionArtifact | undefined;
@@ -73,6 +74,18 @@ export interface TaskDependencySummary {
   readonly id: string;
   readonly phase: Task['phase'];
   readonly satisfied: boolean;
+  readonly title: string;
+}
+
+/**
+ * Reverse direction of {@link TaskDependencySummary}: Tasks that list the
+ * current Task as a required dependency. Derived in {@link loadAgentWorkspace}
+ * from the project's dependency edges; never persisted on its own.
+ */
+export interface TaskDependentSummary {
+  readonly id: string;
+  readonly phase: Task['phase'];
+  readonly ready: boolean;
   readonly title: string;
 }
 
@@ -195,6 +208,18 @@ export async function loadAgentWorkspace(
   const projectOverviews = await Promise.all(
     recentProjects.map(async (project): Promise<WorkspaceProjectOverview> => {
       const projectTasks = await tasks.listByProjectId(project.id);
+      const projectEdges = await taskDependencies.listByProjectId(project.id);
+      const dependentsByDependencyId = new Map<string, readonly string[]>();
+      for (const edge of projectEdges) {
+        if (edge.taskId === edge.dependencyTaskId) continue;
+        const existing = dependentsByDependencyId.get(edge.dependencyTaskId);
+        dependentsByDependencyId.set(
+          edge.dependencyTaskId,
+          existing === undefined
+            ? Object.freeze([edge.taskId])
+            : Object.freeze([...existing, edge.taskId]),
+        );
+      }
       const taskOverviews = await Promise.all(
         projectTasks.map(async (task): Promise<WorkspaceTaskOverview> => {
           const [
@@ -227,6 +252,24 @@ export async function loadAgentWorkspace(
                 title: dependency.title,
               });
             }),
+          );
+          const dependentIds = dependentsByDependencyId.get(task.id) ?? Object.freeze([]);
+          const dependentSummaries = Object.freeze(
+            dependentIds
+              .map((dependentId): TaskDependentSummary | undefined => {
+                const dependent = projectTasks.find(({ id }) => id === dependentId);
+                if (dependent === undefined || dependent.projectId !== task.projectId) {
+                  throw new Error('Task dependency state is inconsistent with its Project.');
+                }
+                return Object.freeze({
+                  id: dependent.id,
+                  phase: dependent.phase,
+                  ready: dependent.phase === TaskPhase.DONE,
+                  title: dependent.title,
+                });
+              })
+              .filter((entry): entry is TaskDependentSummary => entry !== undefined)
+              .sort((left, right) => left.title.localeCompare(right.title)),
           );
           const blocked = dependencySummaries.some(({ satisfied }) => !satisfied);
           const latestPlan = await artifacts.findLatestByTaskIdAndKind(
@@ -304,6 +347,7 @@ export async function loadAgentWorkspace(
               activeSession === undefined &&
               latestSession === undefined,
             dependencies: dependencySummaries,
+            dependents: dependentSummaries,
             latestPlan,
             latestSession: summarizeSession(latestSession),
             latestReview: reviewHistory[0],

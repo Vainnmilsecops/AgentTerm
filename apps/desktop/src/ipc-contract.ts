@@ -68,6 +68,7 @@ export const desktopIpcChannels = Object.freeze({
   selectQualityGateConfigPath: 'agentterm:quality-gates:select-config-path',
   startExecution: 'agentterm:execution:start',
   startPlanning: 'agentterm:planning:start',
+  startResearch: 'agentterm:research:start',
   terminalAttach: 'agentterm:terminal:attach',
   terminalDetach: 'agentterm:terminal:detach',
   terminalResize: 'agentterm:terminal:resize',
@@ -255,6 +256,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: EmptyRequest;
   readonly [desktopIpcChannels.startExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.startPlanning]: AgentTaskRequest;
+  readonly [desktopIpcChannels.startResearch]: AgentTaskRequest;
   readonly [desktopIpcChannels.terminalAttach]: TerminalAttachRequest;
   readonly [desktopIpcChannels.terminalDetach]: TerminalSubscriptionRequest;
   readonly [desktopIpcChannels.terminalResize]: TerminalResizeRequest;
@@ -302,6 +304,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: SelectQualityGateConfigPathResponse;
   readonly [desktopIpcChannels.startExecution]: null;
   readonly [desktopIpcChannels.startPlanning]: null;
+  readonly [desktopIpcChannels.startResearch]: null;
   readonly [desktopIpcChannels.terminalAttach]: null;
   readonly [desktopIpcChannels.terminalDetach]: null;
   readonly [desktopIpcChannels.terminalResize]: null;
@@ -373,6 +376,7 @@ export interface AgentTermDesktopApi {
   selectQualityGateConfigPath(): Promise<SelectQualityGateConfigPathResponse>;
   startTaskExecution(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   startTaskPlanning(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
+  startTaskResearch(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   unregisterQualityGate(input: QualityGateIdRequest): Promise<boolean>;
   updateSettings(input: UpdateApplicationSettingsInput): Promise<ApplicationSettingsView>;
 }
@@ -429,7 +433,8 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     }
     case desktopIpcChannels.startExecution:
     case desktopIpcChannels.retryExecution:
-    case desktopIpcChannels.startPlanning: {
+    case desktopIpcChannels.startPlanning:
+    case desktopIpcChannels.startResearch: {
       const record = recordWithOptionalKey(input, 'taskId', 'agentId');
       const agentId = record.agentId;
       if (agentId === undefined) {
