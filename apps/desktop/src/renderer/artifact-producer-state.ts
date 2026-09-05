@@ -31,7 +31,13 @@ const phaseToKind: Readonly<Record<TaskPhaseValue, ExecutionArtifactKind>> = Obj
 
 const maximumArtifactBytes = 1_048_576;
 
-export function selectArtifactKindForPhase(phase: TaskPhaseValue): ExecutionArtifactKind {
+export function selectArtifactKindForPhase(
+  phase: TaskPhaseValue,
+  pluginRequiresResearch: boolean = false,
+): ExecutionArtifactKind {
+  if (phase === TaskPhase.BACKLOG && pluginRequiresResearch) {
+    return ExecutionArtifactKindValue.RESEARCH;
+  }
   return phaseToKind[phase];
 }
 

@@ -1402,6 +1402,9 @@ export function AgentWorkspaceView({
                     })
                   }
                   overview={selected}
+                  pluginRequiresResearch={
+                    selected.workflowPlugin?.activePhaseId === 'research'
+                  }
                   task={selected.task}
                 />
                 <ArtifactHistory artifacts={selected.artifacts} />
@@ -2447,10 +2450,18 @@ function ArtifactHistory({
       ) : (
         <ol className="artifact-list">
           {artifacts.map((artifact) => (
-            <li className="artifact-card" key={artifact.id}>
+            <li
+              className={`artifact-card artifact-card--${artifact.kind}`}
+              data-artifact-card
+              data-artifact-kind={artifact.kind}
+              key={artifact.id}
+            >
               <header>
                 <div>
-                  <strong>{artifact.kind}</strong>
+                  <strong>{artifactHeadingLabel(artifact.kind)}</strong>
+                  <span className="artifact-card__kind" data-artifact-kind-label>
+                    {artifact.kind}
+                  </span>
                   <span>{artifact.canonicalName}</span>
                 </div>
                 <div className="artifact-card__provenance">
@@ -2465,6 +2476,21 @@ function ArtifactHistory({
       )}
     </section>
   );
+}
+
+function artifactHeadingLabel(kind: WorkspaceTaskOverview['artifacts'][number]['kind']): string {
+  switch (kind) {
+    case 'research':
+      return 'Research';
+    case 'plan':
+      return 'Plan';
+    case 'execution-summary':
+      return 'Execution summary';
+    case 'review':
+      return 'Review';
+    default:
+      return kind;
+  }
 }
 
 function TaskDependencies({
