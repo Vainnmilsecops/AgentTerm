@@ -118,6 +118,7 @@ export {
 } from "./agent-catalog";
 export {
   bindPhaseAgent,
+  resolveAgentForTask,
   selectPhaseArtifactContract,
   type BindPhaseAgentInput,
   type SelectArtifactContractInput,

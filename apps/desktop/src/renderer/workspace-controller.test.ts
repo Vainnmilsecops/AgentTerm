@@ -2,6 +2,10 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  decideStartActionAgentId,
+} from './workspace-controller';
+
 import type {
   AgentWorkspaceOverview,
   ApplicationSettingsView,
@@ -2925,6 +2929,28 @@ describe('AgentWorkspaceView', () => {
     expect(backlog).toContain('Task brief');
     expect(backlog).toContain('Nối terminal an toàn');
     expect(backlog).not.toContain('Start planning');
+  });
+});
+
+describe('decideStartActionAgentId', () => {
+  it('returns undefined (let resolver pick) when task has plugin binding and user has no override', () => {
+    expect(decideStartActionAgentId('gemini', undefined)).toBeUndefined();
+  });
+
+  it('returns undefined (let resolver pick) when task has plugin binding and user picks the same agent', () => {
+    expect(decideStartActionAgentId('gemini', 'gemini')).toBeUndefined();
+  });
+
+  it('returns user override when task has plugin binding but user picked a different agent', () => {
+    expect(decideStartActionAgentId('gemini', 'claude')).toBe('claude');
+  });
+
+  it('returns user selected when task has no plugin binding', () => {
+    expect(decideStartActionAgentId(undefined, 'claude')).toBe('claude');
+  });
+
+  it('returns undefined when task has no plugin binding and user has no selection', () => {
+    expect(decideStartActionAgentId(undefined, undefined)).toBeUndefined();
   });
 });
 

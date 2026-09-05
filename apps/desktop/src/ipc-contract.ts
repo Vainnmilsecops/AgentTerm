@@ -99,7 +99,7 @@ export interface CreateDesktopTaskResult {
 export type OpenDesktopProjectResult = 'CANCELLED' | 'OPENED';
 
 interface AgentTaskRequest extends TaskRequest {
-  readonly agentId: string;
+  readonly agentId?: string;
 }
 
 interface StopAgentSessionRequest {
@@ -365,14 +365,14 @@ export interface AgentTermDesktopApi {
   removeTaskDependency(input: TaskDependencyEdgeRequest): Promise<boolean>;
   requestTaskChanges(input: ReviewRequest): Promise<void>;
   requestTaskReview(input: TaskRequest): Promise<void>;
-  retryTaskExecution(input: AgentTaskRequest): Promise<void>;
+  retryTaskExecution(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   runQualityGate(input: QualityGateRequest): Promise<void>;
   stopAgentSession(input: StopAgentSessionRequest): Promise<void>;
   saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>;
   saveWorkspaceLayout(input: SaveWorkspaceLayoutRequest): Promise<WorkspaceLayoutReadModel>;
   selectQualityGateConfigPath(): Promise<SelectQualityGateConfigPathResponse>;
-  startTaskExecution(input: AgentTaskRequest): Promise<void>;
-  startTaskPlanning(input: AgentTaskRequest): Promise<void>;
+  startTaskExecution(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
+  startTaskPlanning(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   unregisterQualityGate(input: QualityGateIdRequest): Promise<boolean>;
   updateSettings(input: UpdateApplicationSettingsInput): Promise<ApplicationSettingsView>;
 }
@@ -430,9 +430,13 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.startExecution:
     case desktopIpcChannels.retryExecution:
     case desktopIpcChannels.startPlanning: {
-      const record = exactRecord(input, ['agentId', 'taskId']);
+      const record = recordWithOptionalKey(input, 'taskId', 'agentId');
+      const agentId = record.agentId;
+      if (agentId === undefined) {
+        return Object.freeze({ taskId: readIdentity(record.taskId) }) as DesktopIpcRequestMap[C];
+      }
       return Object.freeze({
-        agentId: readAgentId(record.agentId),
+        agentId: readAgentId(agentId),
         taskId: readIdentity(record.taskId),
       }) as DesktopIpcRequestMap[C];
     }
@@ -749,6 +753,26 @@ function exactRecord(
 ): Readonly<Record<string, unknown>> {
   const record = readRecord(input);
   assertExactKeys(Object.keys(record), expectedKeys);
+  return record;
+}
+
+/**
+ * Like `exactRecord` but adds an optional key that may or may not be present.
+ * Used by IPC channels whose payload may omit a defaulted field (such as
+ * `agentId`, which the renderer can leave unset so Application resolves it
+ * from a Workflow Plugin binding).
+ */
+function recordWithOptionalKey(
+  input: unknown,
+  requiredKey: string,
+  optionalKey: string,
+): Readonly<Record<string, unknown>> {
+  const record = readRecord(input);
+  const keys = Object.keys(record);
+  for (const key of keys) {
+    if (key !== requiredKey && key !== optionalKey) fail();
+  }
+  if (!keys.includes(requiredKey)) fail();
   return record;
 }
 

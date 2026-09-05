@@ -16,6 +16,7 @@ import {
   TaskResearchPhaseError,
 } from './errors';
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
+import { resolveAgentForTask } from './workflow-plugin-use-cases';
 import type {
   AgentSessionRepository,
   ExecutionArtifactRepository,
@@ -62,7 +63,11 @@ export async function recordResearchArtifact(
 }
 
 export interface StartTaskResearchInput {
-  readonly agentId: string;
+  /**
+   * Explicit coding-agent override. When omitted the use case consults the
+   * Task's Workflow Plugin binding and resolves the agent for the research phase.
+   */
+  readonly agentId?: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: import('./ports').PtyRuntimeEventSink;
   readonly initialSize: import('./ports').PtyTerminalSize;
@@ -71,11 +76,15 @@ export interface StartTaskResearchInput {
 }
 
 export interface StartTaskResearchDependencies {
+  readonly agents?: import('./ports').AgentCatalog;
+  readonly applicationSettings?: import('./ports').ApplicationSettingsRepository;
   readonly git: import('./ports').GitTaskWorktreeLifecycle;
   readonly localProjects: import('./ports').LocalProjectLocator;
+  readonly pluginBindings?: import('./ports').WorkflowPluginBindingRepository;
   readonly sessionCoordinator: AgentSessionCoordinator;
   readonly tasks: TaskRepository;
   readonly worktrees: import('./ports').TaskWorktreeRepository;
+  readonly workflowPluginConfigurator?: import('./ports').WorkflowPluginConfigurator;
 }
 
 export interface TaskResearchStartResult {
@@ -90,17 +99,23 @@ export async function startTaskResearch(
 ): Promise<TaskResearchStartResult> {
   return serializeTaskWorkflow(input.taskId, async () => {
     assertNewSessionId(input.sessionId);
-    assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
+    const agentId = await resolveAgentForTask(
+      input.taskId,
+      input.agentId,
+      TaskPhase.BACKLOG,
+      dependencies,
+    );
+    assertConfiguredAgent(agentId, dependencies.sessionCoordinator);
     const task = await requireResearchTask(input.taskId, dependencies.tasks);
     await assertUnusedSessionId(input.sessionId, dependencies.sessionCoordinator);
     const history = await dependencies.sessionCoordinator.listByTaskId(input.taskId);
     assertNoActiveSession(history, input.taskId, input.sessionId);
-    return executeResearchAttempt(input, dependencies, task);
+    return executeResearchAttempt({ ...input, agentId }, dependencies, task);
   });
 }
 
 async function executeResearchAttempt(
-  input: StartTaskResearchInput,
+  input: StartTaskResearchInput & { readonly agentId: string },
   dependencies: StartTaskResearchDependencies,
   task: Task,
 ): Promise<TaskResearchStartResult> {

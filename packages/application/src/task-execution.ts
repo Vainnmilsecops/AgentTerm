@@ -13,7 +13,10 @@ import {
   TaskDependencyBlockedError,
   TaskPlanningPhaseError,
 } from './errors';
+import { resolveAgentForTask } from './workflow-plugin-use-cases';
 import type {
+  AgentCatalog,
+  ApplicationSettingsRepository,
   GitTaskWorktreeLifecycle,
   LocalProjectLocator,
   PtyRuntimeEventSink,
@@ -22,12 +25,20 @@ import type {
   TaskDependencyRepository,
   TaskWorktreeEnsureResult,
   TaskWorktreeRepository,
+  WorkflowPluginBindingRepository,
+  WorkflowPluginConfigurator,
 } from './ports';
 import { ensureTaskWorktree } from './task-worktree-use-cases';
 import { serializeTaskWorkflow } from './task-workflow-serialization';
 
 export interface StartTaskExecutionInput {
-  readonly agentId: string;
+  /**
+   * Explicit coding-agent override. When omitted the use case consults the
+   * Task's Workflow Plugin binding and resolves the agent through
+   * {@link bindPhaseAgent}. When no binding exists, an explicit override is
+   * still required (the resolver throws `AgentNotConfiguredError`).
+   */
+  readonly agentId?: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
   readonly initialSize: PtyTerminalSize;
@@ -36,7 +47,7 @@ export interface StartTaskExecutionInput {
 }
 
 export interface RetryTaskExecutionInput {
-  readonly agentId: string;
+  readonly agentId?: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
   readonly initialSize: PtyTerminalSize;
@@ -45,12 +56,36 @@ export interface RetryTaskExecutionInput {
 }
 
 export interface StartTaskExecutionDependencies {
+  /**
+   * Agent catalog used by the resolver. Only consulted when the caller omits
+   * `input.agentId`. Existing call sites that always pass an explicit
+   * `agentId` can omit this field.
+   */
+  readonly agents?: AgentCatalog;
+  /**
+   * Optional Application Settings repository. Required when callers want the
+   * use case to resolve an agent from a Workflow Plugin binding without an
+   * explicit override. Falls back to {@link createApplicationSettings} when
+   * absent (useful for test seams that only exercise the explicit-agent path).
+   */
+  readonly applicationSettings?: ApplicationSettingsRepository;
   readonly git: GitTaskWorktreeLifecycle;
   readonly localProjects: LocalProjectLocator;
+  /**
+   * Optional plugin binding repository. When supplied together with
+   * `workflowPluginConfigurator`, the resolver can look up a Task's binding
+   * and pick the plugin-bound agent for the expected phase.
+   */
+  readonly pluginBindings?: WorkflowPluginBindingRepository;
   readonly sessionCoordinator: AgentSessionCoordinator;
   readonly taskDependencies: TaskDependencyRepository;
   readonly tasks: TaskRepository;
   readonly worktrees: TaskWorktreeRepository;
+  /**
+   * Optional plugin configurator (trust-root gated). Required together with
+   * `pluginBindings` to resolve a plugin-bound agent.
+   */
+  readonly workflowPluginConfigurator?: WorkflowPluginConfigurator;
 }
 
 export interface TaskExecutionStartResult {
@@ -82,7 +117,13 @@ export async function retryTaskExecution(
 ): Promise<TaskExecutionRetryResult> {
   return serializeTaskWorkflow(input.taskId, async () => {
     assertNewSessionId(input.sessionId);
-    assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
+    const agentId = await resolveAgentForTask(
+      input.taskId,
+      input.agentId,
+      TaskPhase.RUNNING,
+      dependencies,
+    );
+    assertConfiguredAgent(agentId, dependencies.sessionCoordinator);
     const task = await requireExecutionTask(input.taskId, dependencies);
     validateExecutionPhase(task);
     await assertTaskDependenciesComplete(task.id, dependencies);
@@ -94,7 +135,11 @@ export async function retryTaskExecution(
     if (previousSession === undefined || !isTerminalSession(previousSession)) {
       throw new TaskExecutionRetryError('NO_RETRYABLE_SESSION', input.taskId, input.sessionId);
     }
-    const execution = await executeTaskAttempt(input, dependencies, TaskPhase.RUNNING);
+    const execution = await executeTaskAttempt(
+      { ...input, agentId },
+      dependencies,
+      TaskPhase.RUNNING,
+    );
     return Object.freeze({ ...execution, previousSession });
   });
 }
@@ -105,7 +150,13 @@ export async function startTaskPlanning(
 ): Promise<TaskPlanningStartResult> {
   return serializeTaskWorkflow(input.taskId, async () => {
     assertNewSessionId(input.sessionId);
-    assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
+    const agentId = await resolveAgentForTask(
+      input.taskId,
+      input.agentId,
+      TaskPhase.PLANNING,
+      dependencies,
+    );
+    assertConfiguredAgent(agentId, dependencies.sessionCoordinator);
     const task = await requireExecutionTask(input.taskId, dependencies);
     validatePlanningPhase(task);
     await assertTaskDependenciesComplete(task.id, dependencies);
@@ -114,7 +165,11 @@ export async function startTaskPlanning(
     const history = await dependencies.sessionCoordinator.listByTaskId(input.taskId);
     assertNoActiveSession(history, input.taskId, input.sessionId);
     const previousSession = history.at(-1);
-    const execution = await executeTaskAttempt(input, dependencies, TaskPhase.PLANNING);
+    const execution = await executeTaskAttempt(
+      { ...input, agentId },
+      dependencies,
+      TaskPhase.PLANNING,
+    );
     return Object.freeze({ ...execution, previousSession });
   });
 }
@@ -124,7 +179,13 @@ async function startTaskExecutionExclusive(
   dependencies: StartTaskExecutionDependencies,
 ): Promise<TaskExecutionStartResult> {
   assertNewSessionId(input.sessionId);
-  assertConfiguredAgent(input.agentId, dependencies.sessionCoordinator);
+  const agentId = await resolveAgentForTask(
+    input.taskId,
+    input.agentId,
+    TaskPhase.RUNNING,
+    dependencies,
+  );
+  assertConfiguredAgent(agentId, dependencies.sessionCoordinator);
   const initialTask = await requireExecutionTask(input.taskId, dependencies);
   validateExecutionPhase(initialTask);
   await assertTaskDependenciesComplete(initialTask.id, dependencies);
@@ -136,7 +197,11 @@ async function startTaskExecutionExclusive(
     throw new TaskExecutionRetryError('RETRY_REQUIRED', input.taskId, input.sessionId);
   }
 
-  return executeTaskAttempt(input, dependencies, TaskPhase.RUNNING);
+  return executeTaskAttempt(
+    { ...input, agentId },
+    dependencies,
+    TaskPhase.RUNNING,
+  );
 }
 
 async function assertNoOwnedRuntime(
@@ -152,7 +217,7 @@ async function assertNoOwnedRuntime(
 }
 
 async function executeTaskAttempt(
-  input: StartTaskExecutionInput,
+  input: StartTaskExecutionInput & { readonly agentId: string },
   dependencies: StartTaskExecutionDependencies,
   expectedPhase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING,
 ): Promise<TaskExecutionStartResult> {
@@ -242,7 +307,6 @@ function assertConfiguredAgent(agentId: string, coordinator: AgentSessionCoordin
     throw new AgentNotConfiguredError(agentId);
   }
 }
-
 async function requireExecutionTask(
   taskId: string,
   dependencies: StartTaskExecutionDependencies,
