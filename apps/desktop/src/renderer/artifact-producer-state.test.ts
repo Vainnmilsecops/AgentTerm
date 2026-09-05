@@ -101,6 +101,15 @@ describe('selectArtifactKindForPhase', () => {
     );
     expect(selectArtifactKindForPhase(TaskPhase.DONE)).toBe(ExecutionArtifactKindValue.REVIEW);
   });
+
+  it('returns RESEARCH for a BACKLOG task only when its plugin requires research', () => {
+    expect(selectArtifactKindForPhase(TaskPhase.BACKLOG, true)).toBe(
+      ExecutionArtifactKindValue.RESEARCH,
+    );
+    expect(selectArtifactKindForPhase(TaskPhase.PLANNING, true)).toBe(
+      ExecutionArtifactKindValue.PLAN,
+    );
+  });
 });
 
 describe('validateArtifactDraft', () => {

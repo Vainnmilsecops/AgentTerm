@@ -88,6 +88,7 @@ describe('workspace command registry', () => {
       'task:task-vietnamese',
       'task:task-review',
       'task:task-blocker',
+      'research:start',
       'execution:retry',
       'review:request',
       'focus:sidebar',
@@ -120,6 +121,7 @@ describe('workspace command registry', () => {
     await commands.find(({ id }) => id === 'dependency:remove:task-blocker')?.run();
     await commands.find(({ id }) => id === 'gate:register')?.run();
     await commands.find(({ id }) => id === 'view:open-board')?.run();
+    await commands.find(({ id }) => id === 'research:start')?.run();
 
     expect(actions.selectTask).toHaveBeenCalledWith('task-review');
     expect(actions.retryExecution).toHaveBeenCalledOnce();
@@ -134,6 +136,7 @@ describe('workspace command registry', () => {
     expect(actions.removeDependency).toHaveBeenCalledWith('task-blocker', 'task-vietnamese');
     expect(actions.focus).toHaveBeenCalledWith('checks');
     expect(actions.openBoardWindow).toHaveBeenCalledOnce();
+    expect(actions.startResearch).toHaveBeenCalledOnce();
   });
 
   it('hides Quality Gate palette entries when the Task cannot run gates or the workspace is busy', () => {

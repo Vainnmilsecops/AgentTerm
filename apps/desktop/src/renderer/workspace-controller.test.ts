@@ -1340,6 +1340,104 @@ describe('WorkspaceController', () => {
     });
   });
 
+  it('starts research via the BACKLOG plugin path and skips when no binding or selection is available', async () => {
+    const researchTask: WorkspaceTaskOverview['task'] = Object.freeze({
+      ...planningTask,
+      phase: 'BACKLOG',
+    });
+    const researchOverview = Object.freeze({
+      agents: availableAgents,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...eligibleReviewOverview.projects[0]!.tasks[0]!,
+              task: researchTask,
+              workflowPlugin: Object.freeze({
+                activePhaseId: 'research',
+                phaseAgentId: 'codex',
+                pluginId: 'agtx',
+                pluginName: 'agtx',
+              }),
+            },
+          ],
+        },
+      ],
+    }) as AgentWorkspaceOverview;
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [researchOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    await controller.startSelectedResearch();
+
+    expect(client.startTaskResearch).toHaveBeenCalledOnce();
+    expect(client.startTaskResearch).toHaveBeenCalledWith({ taskId: 'task-1' });
+
+    client.startTaskResearch.mockClear();
+    const noBinding: AgentWorkspaceOverview = {
+      ...researchOverview,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...researchOverview.projects[0]!.tasks[0]!,
+              workflowPlugin: undefined,
+            },
+          ],
+        },
+      ],
+    };
+    client.loadResults = [noBinding];
+    await controller.refresh();
+    const controllerWithoutAgent = new WorkspaceController(client);
+    await controllerWithoutAgent.load();
+    await controllerWithoutAgent.startSelectedResearch();
+    expect(client.startTaskResearch).not.toHaveBeenCalled();
+  });
+
+  it('starts research with the user-selected Agent when it differs from the plugin', async () => {
+    const researchTask: WorkspaceTaskOverview['task'] = Object.freeze({
+      ...planningTask,
+      phase: 'BACKLOG',
+    });
+    const researchOverview = Object.freeze({
+      agents: availableAgents,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...eligibleReviewOverview.projects[0]!.tasks[0]!,
+              task: researchTask,
+              workflowPlugin: Object.freeze({
+                activePhaseId: 'research',
+                phaseAgentId: 'codex',
+                pluginId: 'agtx',
+                pluginName: 'agtx',
+              }),
+            },
+          ],
+        },
+      ],
+    }) as AgentWorkspaceOverview;
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [researchOverview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    controller.selectAgent('future-agent');
+    await controller.startSelectedResearch();
+
+    expect(client.startTaskResearch).toHaveBeenCalledOnce();
+    expect(client.startTaskResearch).toHaveBeenCalledWith({
+      agentId: 'future-agent',
+      taskId: 'task-1',
+    });
+  });
+
   it('accepts the exact latest Plan and reloads the RUNNING Task', async () => {
     const plan = Object.freeze({
       canonicalName: 'planning/plan.md' as const,
@@ -2248,6 +2346,102 @@ describe('AgentWorkspaceView', () => {
       'title="Complete all required Task dependencies before starting another Agent Session."',
     );
     expect(markup).toContain('disabled=""');
+  });
+
+  it('renders the bidirectional dependency readiness graph and a RESEARCH-tagged ArtifactHistory card', () => {
+    const researchArtifact = Object.freeze({
+      canonicalName: 'research/research.md' as const,
+      content: '# Research\n\nFindings about the API surface.',
+      createdAt: 1_800_000_000_300,
+      format: 'markdown' as const,
+      id: 'artifact-research',
+      kind: 'research' as const,
+      phase: 'BACKLOG' as const,
+      schemaVersion: 1 as const,
+      sessionId: 'session-research',
+      taskId: planningTask.id,
+      validation: 'VALID' as const,
+    });
+    const planArtifact = Object.freeze({
+      canonicalName: 'planning/plan.md' as const,
+      content: '# Plan\n\nApproach for the design.',
+      createdAt: 1_800_000_000_200,
+      format: 'markdown' as const,
+      id: 'artifact-plan',
+      kind: 'plan' as const,
+      phase: 'PLANNING' as const,
+      schemaVersion: 1 as const,
+      sessionId: 'session-plan',
+      taskId: planningTask.id,
+      validation: 'VALID' as const,
+    });
+    const bidirectionalOverview: AgentWorkspaceOverview = {
+      ...planningOverview,
+      projects: [
+        {
+          project,
+          tasks: [
+            {
+              ...planningOverview.projects[0]!.tasks[0]!,
+              artifacts: [researchArtifact, planArtifact],
+              dependencies: [
+                {
+                  id: 'task-required',
+                  phase: 'BACKLOG',
+                  satisfied: false,
+                  title: 'Upstream discovery',
+                },
+              ],
+              dependents: [
+                {
+                  id: 'task-down',
+                  phase: 'BACKLOG',
+                  ready: false,
+                  title: 'Downstream Task',
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectAgent: () => undefined,
+        onSelectTask: () => undefined,
+        onStartPlanning: () => undefined,
+        onStartResearch: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          activeAction: undefined,
+          kind: 'ready',
+          layout: defaultWorkspaceLayout,
+          overview: bidirectionalOverview,
+          selectedAgentId: 'codex',
+          selectedTaskId: planningTask.id,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+    expect(markup).toContain('Blocks on');
+    expect(markup).toContain('Blocks these');
+    expect(markup).toContain('Upstream discovery');
+    expect(markup).toContain('Downstream Task');
+    expect(markup).toContain('data-task-blocked="false"');
+    expect(markup).toContain('data-dependency-direction="blocks-on"');
+    expect(markup).toContain('data-dependency-direction="blocks-these"');
+    expect(markup).toContain('data-artifact-kind="research"');
+    expect(markup).toContain('data-artifact-kind="plan"');
+    expect(markup).toMatch(/class="artifact-card artifact-card--research"/u);
+    expect(markup).toMatch(/class="artifact-card artifact-card--plan"/u);
   });
 
   it('enables the accessible agent selector for Retry and labels current and historical identities', () => {

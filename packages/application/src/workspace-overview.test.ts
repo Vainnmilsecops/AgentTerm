@@ -122,13 +122,17 @@ class FakeTaskDependencyRepository implements TaskDependencyRepository {
     return this.dependencies.filter((dependency) => dependency.taskId === taskId);
   }
 
+  /**
+   * Mirrors the real SQLite repository by filtering on the dependency's
+   * `projectId` field. Test callers annotate each dependency with the
+   * owning Project so the workspace overview can derive reverse dependents
+   * from project-wide edges without ad-hoc casting.
+   */
   public async listByProjectId(projectId: string): Promise<readonly TaskDependency[]> {
-    const taskIds = new Set(
-      this.dependencies.flatMap((dependency) => [dependency.taskId, dependency.dependencyTaskId]),
+    if (projectId.length === 0) return [];
+    return this.dependencies.filter(
+      (dependency) => (dependency as { projectId?: string }).projectId === projectId,
     );
-    return projectId.length === 0
-      ? []
-      : this.dependencies.filter((dependency) => taskIds.has(dependency.taskId));
   }
 }
 
@@ -339,8 +343,64 @@ describe('loadAgentWorkspace', () => {
           title: 'Required',
         },
       ],
+      dependents: [],
       task: { id: 'task-dependent', phase: 'RUNNING' },
     });
+  });
+
+  it('publishes reverse dependents derived from same-Project edges', async () => {
+    const project: LocalProject = {
+      id: 'project-reverse',
+      name: 'Reverse dependents',
+      rootPath: 'D:\\Repositories\\Reverse',
+    };
+    const upstream = createTask({ id: 'task-up', projectId: project.id, title: 'Upstream' });
+    const dependentA = createTask({ id: 'task-down-a', projectId: project.id, title: 'Consumer A' });
+    const dependentB = createTask({ id: 'task-down-b', projectId: project.id, title: 'Consumer B' });
+    const otherProject: LocalProject = {
+      id: 'project-other',
+      name: 'Other',
+      rootPath: 'D:\\Repositories\\Other',
+    };
+    const outside = createTask({ id: 'task-outside', projectId: otherProject.id, title: 'Other' });
+    const edges = [
+      { dependencyTaskId: upstream.id, projectId: project.id, taskId: dependentA.id },
+      { dependencyTaskId: upstream.id, projectId: project.id, taskId: dependentB.id },
+      { dependencyTaskId: upstream.id, projectId: otherProject.id, taskId: outside.id },
+    ] as const;
+    const workspace = await loadAgentWorkspace(
+      new FakeProjectCatalog([project, otherProject]),
+      new FakeTaskCatalog([upstream, dependentA, dependentB, outside]),
+      new FakeSessionRepository([]),
+      new FakeArtifactRepository([]),
+      new FakeQualityGateRunRepository([]),
+      new FakeTaskReviewRepository([]),
+      defaultAgents,
+      new FakeTaskDependencyRepository(edges),
+    );
+    const upstreamOverview = workspace.projects[0]?.tasks.find(
+      ({ task }) => task.id === upstream.id,
+    );
+    const dependentOverview = workspace.projects[0]?.tasks.find(
+      ({ task }) => task.id === dependentA.id,
+    );
+    expect(upstreamOverview).toBeDefined();
+    expect(dependentOverview).toBeDefined();
+    expect(upstreamOverview?.dependents).toEqual([
+      expect.objectContaining({ id: dependentA.id, phase: 'BACKLOG', ready: false, title: 'Consumer A' }),
+      expect.objectContaining({ id: dependentB.id, phase: 'BACKLOG', ready: false, title: 'Consumer B' }),
+    ]);
+    expect(upstreamOverview?.dependencies).toEqual([]);
+    expect(dependentOverview?.dependencies).toEqual([
+      expect.objectContaining({ id: upstream.id, phase: 'BACKLOG', satisfied: false, title: 'Upstream' }),
+    ]);
+    expect(dependentOverview?.dependents).toEqual([]);
+    const outsideProject = workspace.projects.find(({ project }) => project.id === otherProject.id);
+    const outsideOverview = outsideProject?.tasks.find(({ task }) => task.id === outside.id);
+    expect(outsideOverview?.dependencies).toEqual([
+      expect.objectContaining({ id: upstream.id, phase: 'BACKLOG', satisfied: false, title: 'Upstream' }),
+    ]);
+    expect(outsideOverview?.dependents).toEqual([]);
   });
 
   it('groups Tasks under recent Projects and keeps Task phase separate from active/latest Session status', async () => {
