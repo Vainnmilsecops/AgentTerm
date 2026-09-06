@@ -1,9 +1,10 @@
 # M13 — OSC 52 clipboard read/write integration
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-23
 Owner: AgentTerm desktop renderer + domain
 Branch: `cursor/m13-osc52-clipboard`
+Shipped: PR #42 (commit `015506b`) merged on 2026-08-23
 
 ## Context
 

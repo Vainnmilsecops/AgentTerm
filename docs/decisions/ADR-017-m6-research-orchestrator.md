@@ -1,9 +1,11 @@
 # ADR-017: M6 — Minimal research orchestrator (auto-advance BACKLOG → PLANNING)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-05
 Owner: AgentTerm Application + Desktop
 Supersedes scope item: ADR-009 §"M6 — Orchestrator agent" (deferred)
+Shipped: PR #45 (merge commit `1d8301e`) on 2026-09-06;
+feature branch `feat/m6-research-orchestrator` commit `319de50`.
 
 ## Context
 
