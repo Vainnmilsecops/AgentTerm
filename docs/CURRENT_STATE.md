@@ -326,3 +326,19 @@ via `AT_DESKTOP_PLUGIN_ROOT`, a SQLite binding repository with compare-and-set
 upserts, and the two built-in plugins. The M1 desktop composition intentionally
 adds no IPC handlers; renderer workflow and Settings entry point are deferred
 to M2.
+
+## Recently Shipped
+
+- **M13 — OSC 52 clipboard read/write** (ADR-015): shipped via PR #42 on
+  2026-08-23. Renderer + Domain handle `ESC ] 52 ; c ; <base64> BEL` for TUI
+  clipboard integration.
+- **Artifact + dependency renderer workflow** (ADR-016): shipped via PR #44
+  on 2026-09-05. Aggregates `feat/art-dep-foundation` … `feat/art-dep-verify`
+  and adds the bidirectional readiness graph, RESEARCH kind in the producer,
+  and the Start-research entry point.
+- **M6 — Minimal research orchestrator** (ADR-017): shipped via PR #45 on
+  2026-09-06. Opt-in `ApplicationSettings.researchAutoAdvance` flag advances
+  a `BACKLOG` Task to `PLANNING` after a `VALID` `research/research.md`
+  artifact is recorded; transitions are appended to
+  `task_transition_audit` (migration 19) with `RESEARCH_AUTO_ADVANCE` vs
+  `MANUAL` triggers.

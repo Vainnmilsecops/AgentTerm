@@ -1,8 +1,12 @@
 # ADR-016: Complete the artifact + dependency renderer workflow (post-M5 polish)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-05
 Owner: AgentTerm desktop renderer
+Shipped: PR #44 (merge commit `bf86965`) on 2026-09-05; aggregated from
+`feat/art-dep-foundation`, `feat/art-dep-artifact-ui`,
+`feat/art-dep-dependency-ui`, `feat/art-dep-entry-points`,
+`feat/art-dep-tests`, `feat/art-dep-verify`.
 
 ## Context
 
