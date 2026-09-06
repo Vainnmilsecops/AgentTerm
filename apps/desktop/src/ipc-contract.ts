@@ -66,6 +66,8 @@ export const desktopIpcChannels = Object.freeze({
   saveQualityGateConfig: 'agentterm:quality-gates:save-config',
   saveWorkspaceLayout: 'agentterm:workspace-layout:save',
   selectQualityGateConfigPath: 'agentterm:quality-gates:select-config-path',
+  recordBrainstormArtifact: 'agentterm:artifact:brainstorm:record',
+  recordSweepArtifact: 'agentterm:artifact:sweep:record',
   startExecution: 'agentterm:execution:start',
   startPlanning: 'agentterm:planning:start',
   startResearch: 'agentterm:research:start',
@@ -101,6 +103,14 @@ export type OpenDesktopProjectResult = 'CANCELLED' | 'OPENED';
 
 interface AgentTaskRequest extends TaskRequest {
   readonly agentId?: string;
+}
+
+interface RecordSessionNoteRequest {
+  readonly content: string;
+  readonly createdAt: number;
+  readonly id: string;
+  readonly sessionId: string;
+  readonly taskId: string;
 }
 
 interface StopAgentSessionRequest {
@@ -224,6 +234,8 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.beginTaskPlanning]: TaskRequest;
   readonly [desktopIpcChannels.createArtifact]: CreateArtifactRequest;
   readonly [desktopIpcChannels.createTask]: CreateTaskRequest;
+  readonly [desktopIpcChannels.recordBrainstormArtifact]: RecordSessionNoteRequest;
+  readonly [desktopIpcChannels.recordSweepArtifact]: RecordSessionNoteRequest;
   readonly [desktopIpcChannels.createPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.getTaskFileDiff]: GetTaskFileDiffInput;
   readonly [desktopIpcChannels.importQualityGateConfig]: QualityGateConfigPathRequest;
@@ -254,6 +266,8 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigRequest;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: SaveWorkspaceLayoutRequest;
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: EmptyRequest;
+  readonly [desktopIpcChannels.recordBrainstormArtifact]: RecordSessionNoteRequest;
+  readonly [desktopIpcChannels.recordSweepArtifact]: RecordSessionNoteRequest;
   readonly [desktopIpcChannels.startExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.startPlanning]: AgentTaskRequest;
   readonly [desktopIpcChannels.startResearch]: AgentTaskRequest;
@@ -272,6 +286,8 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.beginTaskPlanning]: null;
   readonly [desktopIpcChannels.createArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.createTask]: CreateDesktopTaskResult;
+  readonly [desktopIpcChannels.recordBrainstormArtifact]: ExecutionArtifact;
+  readonly [desktopIpcChannels.recordSweepArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.createPullRequest]: null;
   readonly [desktopIpcChannels.getTaskFileDiff]: TaskFileDiff;
   readonly [desktopIpcChannels.importQualityGateConfig]: ImportQualityGateConfigResponse;
@@ -302,6 +318,8 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigResponse;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: WorkspaceLayoutReadModel;
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: SelectQualityGateConfigPathResponse;
+  readonly [desktopIpcChannels.recordBrainstormArtifact]: ExecutionArtifact;
+  readonly [desktopIpcChannels.recordSweepArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.startExecution]: null;
   readonly [desktopIpcChannels.startPlanning]: null;
   readonly [desktopIpcChannels.startResearch]: null;
@@ -344,6 +362,8 @@ export interface AgentTermDesktopApi {
   beginTaskPlanning(input: TaskRequest): Promise<void>;
   createArtifact(input: CreateArtifactRequest): Promise<ExecutionArtifact>;
   createTask(input: CreateTaskRequest): Promise<CreateDesktopTaskResult>;
+  recordBrainstormArtifact(input: RecordSessionNoteRequest): Promise<ExecutionArtifact>;
+  recordSweepArtifact(input: RecordSessionNoteRequest): Promise<ExecutionArtifact>;
   createTaskPullRequest(input: TaskRequest): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
   importQualityGateConfig(input: QualityGateConfigPathRequest): Promise<ImportQualityGateConfigResponse>;
@@ -442,6 +462,17 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       }
       return Object.freeze({
         agentId: readAgentId(agentId),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.recordBrainstormArtifact:
+    case desktopIpcChannels.recordSweepArtifact: {
+      const record = exactRecord(input, ['content', 'createdAt', 'id', 'sessionId', 'taskId']);
+      return Object.freeze({
+        content: readBoundedString(record.content, 1_048_576),
+        createdAt: readNonnegativeSafeInteger(record.createdAt),
+        id: readIdentity(record.id),
+        sessionId: readIdentity(record.sessionId),
         taskId: readIdentity(record.taskId),
       }) as DesktopIpcRequestMap[C];
     }

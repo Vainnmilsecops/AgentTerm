@@ -60,6 +60,8 @@ describe('desktop preload bridge', () => {
       'openProject',
       'openWorktreeFile',
       'pushTaskBranch',
+      'recordBrainstormArtifact',
+      'recordSweepArtifact',
       'refreshTaskPullRequest',
       'registerQualityGate',
       'removeTaskDependency',

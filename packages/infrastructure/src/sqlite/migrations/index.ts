@@ -18,6 +18,7 @@ import { applicationSettingsMcpTokenMigration } from './0017-application-setting
 import { applicationSettingsClipboardAccessMigration } from './0018-application-settings-clipboard-access';
 import { taskTransitionAuditMigration } from './0019-task-transition-audit';
 import { applicationSettingsResearchAutoAdvanceMigration } from './0020-application-settings-research-auto-advance';
+import { executionArtifactBrainstormSweepKindMigration } from './0021-execution-artifact-brainstorm-sweep-kind';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -46,4 +47,5 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   applicationSettingsClipboardAccessMigration,
   taskTransitionAuditMigration,
   applicationSettingsResearchAutoAdvanceMigration,
+  executionArtifactBrainstormSweepKindMigration,
 ];

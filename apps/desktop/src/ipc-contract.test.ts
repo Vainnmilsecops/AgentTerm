@@ -149,6 +149,41 @@ describe('desktop IPC contract validation', () => {
     ).toThrow(DesktopIpcRequestValidationError);
   });
 
+  it.each([
+    desktopIpcChannels.recordBrainstormArtifact,
+    desktopIpcChannels.recordSweepArtifact,
+  ])('accepts %s with a complete provenance envelope', (channel) => {
+    expect(
+      validateDesktopIpcRequest(channel, {
+        content: '# Brainstorm\n\nBody.',
+        createdAt: 1_700_000_000_000,
+        id: 'artifact-1',
+        sessionId: 'session-1',
+        taskId: 'task-1',
+      }),
+    ).toEqual({
+      content: '# Brainstorm\n\nBody.',
+      createdAt: 1_700_000_000_000,
+      id: 'artifact-1',
+      sessionId: 'session-1',
+      taskId: 'task-1',
+    });
+  });
+
+  it.each([
+    desktopIpcChannels.recordBrainstormArtifact,
+    desktopIpcChannels.recordSweepArtifact,
+  ])('rejects %s with a missing field', (channel) => {
+    expect(() =>
+      validateDesktopIpcRequest(channel, {
+        content: '# Brainstorm\n\nBody.',
+        createdAt: 1_700_000_000_000,
+        id: 'artifact-1',
+        taskId: 'task-1',
+      }),
+    ).toThrow(DesktopIpcRequestValidationError);
+  });
+
   it('accepts a loadWorkspaceLayout empty payload and a bounded saveWorkspaceLayout payload', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.loadWorkspaceLayout, {})).toEqual({});
     expect(
@@ -185,6 +220,9 @@ describe('desktop IPC contract validation', () => {
   it.each([
     [desktopIpcChannels.startExecution, { agentId: 'claude', taskId: ' ', token: 'secret' }],
     [desktopIpcChannels.startResearch, { agentId: 'claude', taskId: ' ', token: 'secret' }],
+    [desktopIpcChannels.recordBrainstormArtifact, { content: 'no heading', createdAt: 1, id: 'a', sessionId: ' ', taskId: 't' }],
+    [desktopIpcChannels.recordSweepArtifact, { content: '# Brainstorm\n\nBody.', createdAt: -1, id: 'a', sessionId: 's', taskId: 't' }],
+    [desktopIpcChannels.recordBrainstormArtifact, { content: '# Brainstorm\n\nBody.', createdAt: 1, id: ' ', sessionId: 's', taskId: 't' }],
     [desktopIpcChannels.getTaskFileDiff, { area: 'UNSTAGED', path: '../secret', taskId: 'task-1' }],
     [desktopIpcChannels.terminalResize, { columns: 0, rows: 24, subscriptionId: 'sub-1' }],
     [desktopIpcChannels.updateSettings, { expectedRevision: -1 }],

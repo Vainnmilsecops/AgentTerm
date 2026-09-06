@@ -169,6 +169,8 @@ export function createDesktopBridge(
     saveQualityGateConfig: (input) => invoke(desktopIpcChannels.saveQualityGateConfig, input),
     saveWorkspaceLayout: (input) => invoke(desktopIpcChannels.saveWorkspaceLayout, input),
     selectQualityGateConfigPath: () => invoke(desktopIpcChannels.selectQualityGateConfigPath, {}),
+    recordBrainstormArtifact: (input) => invoke(desktopIpcChannels.recordBrainstormArtifact, input),
+    recordSweepArtifact: (input) => invoke(desktopIpcChannels.recordSweepArtifact, input),
     startTaskExecution: (input) => invokeVoid(desktopIpcChannels.startExecution, input),
     startTaskPlanning: (input) => invokeVoid(desktopIpcChannels.startPlanning, input),
     startTaskResearch: (input) => invokeVoid(desktopIpcChannels.startResearch, input),

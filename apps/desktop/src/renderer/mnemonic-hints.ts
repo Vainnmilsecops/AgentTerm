@@ -8,6 +8,8 @@ export type WorkspaceMnemonicAction =
   | 'accept-plan'
   | 'approve-review'
   | 'begin-planning'
+  | 'capture-brainstorm'
+  | 'capture-sweep'
   | 'request-changes'
   | 'request-review'
   | 'retry-task'
@@ -29,6 +31,7 @@ export interface WorkspaceMnemonicContext {
   readonly canAcceptPlan: boolean;
   readonly canApproveReview: boolean;
   readonly canBeginPlanning: boolean;
+  readonly canCaptureSessionNote: boolean;
   readonly canRequestChanges: boolean;
   readonly canRequestReview: boolean;
   readonly canRetryExecution: boolean;
@@ -50,6 +53,10 @@ export function mnemonicFor(id: string): MnemonicHint | undefined {
       return { key: 'S', label: 'Start execution', modifiers: ['Alt'] };
     case 'start-research':
       return { key: 'E', label: 'Start research', modifiers: ['Alt', 'Shift'] };
+    case 'capture-brainstorm':
+      return { key: 'B', label: 'Capture brainstorm', modifiers: ['Alt', 'Shift'] };
+    case 'capture-sweep':
+      return { key: 'W', label: 'Capture sweep', modifiers: ['Alt', 'Shift'] };
     case 'retry-task':
       return { key: 'R', label: 'Retry execution', modifiers: ['Alt'] };
     case 'accept-plan':
@@ -91,6 +98,10 @@ export function resolveWorkspaceMnemonic(
       return context.canRetryExecution ? 'retry-task' : undefined;
     case 'e':
       return key.shiftKey && context.canStartResearch ? 'start-research' : undefined;
+    case 'b':
+      return key.shiftKey && context.canCaptureSessionNote ? 'capture-brainstorm' : undefined;
+    case 'w':
+      return key.shiftKey && context.canCaptureSessionNote ? 'capture-sweep' : undefined;
     case 'a':
       return !key.shiftKey && context.canAcceptPlan ? 'accept-plan' : undefined;
     case 'c':

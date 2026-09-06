@@ -55,6 +55,8 @@ export type WorkspaceActionKind =
   | 'add-dependency'
   | 'approve-review'
   | 'begin-planning'
+  | 'capture-brainstorm'
+  | 'capture-sweep'
   | 'create-pull-request'
   | 'produce-artifact'
   | 'push-branch'
@@ -77,6 +79,14 @@ export type WorkspaceAction =
   | {
       readonly dependencyTaskId: string;
       readonly kind: 'add-dependency' | 'remove-dependency';
+      readonly taskId: string;
+    }
+  | {
+      readonly content: string;
+      readonly createdAt: number;
+      readonly id: string;
+      readonly kind: 'capture-brainstorm' | 'capture-sweep';
+      readonly sessionId: string;
       readonly taskId: string;
     }
   | {
@@ -457,6 +467,20 @@ export class WorkspaceController {
     return this.executeSelectedAction('start-research');
   }
 
+  public captureSelectedBrainstormNote(input: {
+    readonly content: string;
+    readonly id: string;
+  }): Promise<void> {
+    return this.executeSelectedNoteCapture('capture-brainstorm', input);
+  }
+
+  public captureSelectedSweepNote(input: {
+    readonly content: string;
+    readonly id: string;
+  }): Promise<void> {
+    return this.executeSelectedNoteCapture('capture-sweep', input);
+  }
+
   public acceptSelectedPlan(): Promise<void> {
     return this.executeSelectedAction('accept-plan');
   }
@@ -801,6 +825,48 @@ export class WorkspaceController {
           ? createPullRequestRefreshAction(taskId, this.snapshot.pullRequestInspection)
           : { kind, taskId };
     const attempt = this.performAction(action, evidenceId, effectiveAgentId);
+    this.actionAttempt = attempt;
+    void attempt
+      .finally(() => {
+        if (this.actionAttempt === attempt) {
+          this.actionAttempt = undefined;
+        }
+      })
+      .catch(() => undefined);
+    return attempt;
+  }
+
+  private executeSelectedNoteCapture(
+    kind: 'capture-brainstorm' | 'capture-sweep',
+    input: { readonly content: string; readonly id: string },
+  ): Promise<void> {
+    if (this.actionAttempt !== undefined) {
+      return this.actionAttempt;
+    }
+    if (this.snapshot.kind !== 'ready' || this.snapshot.selectedTaskId === undefined) {
+      return Promise.resolve();
+    }
+    const taskId = this.snapshot.selectedTaskId;
+    const selected = findTask(this.snapshot.overview, taskId);
+    if (
+      selected === undefined ||
+      !canRunAction(selected, kind, this.snapshot.pullRequestInspection)
+    ) {
+      return Promise.resolve();
+    }
+    const sessionId = selected.activeSession?.id;
+    if (sessionId === undefined) {
+      return Promise.resolve();
+    }
+    const action: WorkspaceAction = {
+      content: input.content,
+      createdAt: Date.now(),
+      id: input.id,
+      kind,
+      sessionId,
+      taskId,
+    };
+    const attempt = this.performAction(action, undefined, undefined);
     this.actionAttempt = attempt;
     void attempt
       .finally(() => {
@@ -1313,6 +1379,40 @@ async function runWorkspaceAction(
         await client.startTaskResearch({ agentId, taskId: action.taskId });
       }
       return;
+    case 'capture-brainstorm': {
+      const noteAction = action as unknown as {
+        readonly content: string;
+        readonly createdAt: number;
+        readonly id: string;
+        readonly sessionId: string;
+        readonly taskId: string;
+      };
+      await client.recordBrainstormArtifact({
+        content: noteAction.content,
+        createdAt: noteAction.createdAt,
+        id: noteAction.id,
+        sessionId: noteAction.sessionId,
+        taskId: noteAction.taskId,
+      });
+      return;
+    }
+    case 'capture-sweep': {
+      const noteAction = action as unknown as {
+        readonly content: string;
+        readonly createdAt: number;
+        readonly id: string;
+        readonly sessionId: string;
+        readonly taskId: string;
+      };
+      await client.recordSweepArtifact({
+        content: noteAction.content,
+        createdAt: noteAction.createdAt,
+        id: noteAction.id,
+        sessionId: noteAction.sessionId,
+        taskId: noteAction.taskId,
+      });
+      return;
+    }
     case 'accept-plan':
       await client.acceptTaskPlan({ planId: requirePlanId(evidenceId), taskId: action.taskId });
       return;
@@ -1435,6 +1535,9 @@ function canRunAction(
       return task.canAcceptPlan && task.latestPlan !== undefined;
     case 'start-execution':
       return task.canStartExecution;
+    case 'capture-brainstorm':
+    case 'capture-sweep':
+      return task.activeSession !== undefined;
     case 'retry-execution':
       return task.canRetryExecution;
     case 'request-review':
@@ -1535,6 +1638,10 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task dependency could not be added.';
     case 'remove-dependency':
       return 'Task dependency could not be removed.';
+    case 'capture-brainstorm':
+      return 'Brainstorm note could not be persisted to the active Agent Session.';
+    case 'capture-sweep':
+      return 'Sweep note could not be persisted to the active Agent Session.';
   }
 }
 
@@ -1571,6 +1678,10 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Task dependency added, but workspace status could not be refreshed.';
     case 'remove-dependency':
       return 'Task dependency removed, but workspace status could not be refreshed.';
+    case 'capture-brainstorm':
+      return 'Brainstorm note persisted, but workspace status could not be refreshed.';
+    case 'capture-sweep':
+      return 'Sweep note persisted, but workspace status could not be refreshed.';
   }
 }
 

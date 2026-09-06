@@ -118,6 +118,8 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
   readonly onStartResearch: () => void;
+  readonly onCaptureBrainstormNote: (input: { readonly content: string; readonly id: string }) => void;
+  readonly onCaptureSweepNote: (input: { readonly content: string; readonly id: string }) => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
   readonly onImportQualityGateConfig: () => Promise<
     import('@agentterm/application').ImportQualityGateConfigResult | undefined
@@ -191,6 +193,8 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onStartTask={() => void controller?.startSelectedTask()}
       onStartPlanning={() => void controller?.startSelectedPlanning()}
       onStartResearch={() => void controller?.startSelectedResearch()}
+      onCaptureBrainstormNote={(input) => void controller?.captureSelectedBrainstormNote(input)}
+      onCaptureSweepNote={(input) => void controller?.captureSelectedSweepNote(input)}
       onUnregisterQualityGate={(gateId) =>
         controller?.unregisterQualityGate(gateId) ?? Promise.resolve(false)
       }
@@ -244,6 +248,8 @@ export function AgentWorkspaceView({
   onStartTask,
   onStartPlanning,
   onStartResearch,
+  onCaptureBrainstormNote,
+  onCaptureSweepNote,
   onUnregisterQualityGate,
   onImportQualityGateConfig,
   onExportQualityGateConfig,
@@ -504,6 +510,7 @@ export function AgentWorkspaceView({
           canAcceptPlan: selected.canAcceptPlan,
           canApproveReview: selected.canApproveReview,
           canBeginPlanning: selected.canBeginPlanning,
+          canCaptureSessionNote: selected.activeSession !== undefined,
           canRequestChanges: selected.canRequestChanges,
           canRequestReview: selected.canRequestReview,
           canRetryExecution: selected.canRetryExecution,
@@ -629,6 +636,7 @@ export function AgentWorkspaceView({
                 projectId: selectedProject?.project.id ?? '',
                 title: dependency.title,
               })),
+              hasActiveSession: selected.activeSession !== undefined,
               id: selected.task.id,
               phase: selected.task.phase as 'BACKLOG' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING',
               pluginActivePhaseId: selected.workflowPlugin?.activePhaseId,
@@ -663,6 +671,14 @@ export function AgentWorkspaceView({
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
       startResearch: onStartResearch,
+      captureBrainstormNote: () => {
+        const input = promptForBrainstormNote();
+        if (input !== undefined) onCaptureBrainstormNote(input);
+      },
+      captureSweepNote: () => {
+        const input = promptForSweepNote();
+        if (input !== undefined) onCaptureSweepNote(input);
+      },
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
       importQualityGateConfig: () => onImportQualityGateConfig(),
       exportQualityGateConfig: () =>
@@ -2543,6 +2559,8 @@ function ArtifactHistory({
 
 function artifactHeadingLabel(kind: WorkspaceTaskOverview['artifacts'][number]['kind']): string {
   switch (kind) {
+    case 'brainstorm':
+      return 'Brainstorm note';
     case 'research':
       return 'Research';
     case 'plan':
@@ -2551,6 +2569,8 @@ function artifactHeadingLabel(kind: WorkspaceTaskOverview['artifacts'][number]['
       return 'Execution summary';
     case 'review':
       return 'Review';
+    case 'sweep':
+      return 'Sweep note';
     default:
       return kind;
   }
@@ -3027,4 +3047,42 @@ function trapFocusWithin(event: KeyboardEvent, container: HTMLElement): void {
     event.preventDefault();
     first.focus({ preventScroll: true });
   }
+}
+
+function promptForBrainstormNote():
+  | { readonly content: string; readonly id: string }
+  | undefined {
+  return promptForSessionNote('brainstorm');
+}
+
+function promptForSweepNote():
+  | { readonly content: string; readonly id: string }
+  | undefined {
+  return promptForSessionNote('sweep');
+}
+
+function promptForSessionNote(
+  kind: 'brainstorm' | 'sweep',
+): { readonly content: string; readonly id: string } | undefined {
+  const heading = kind === 'brainstorm' ? '# Brainstorm' : '# Sweep';
+  const hint =
+    kind === 'brainstorm'
+      ? 'Capture the rough idea, the constraint, and the question before the agent replies.'
+      : 'Capture the final takeaways, open risks, and next concrete step before the session exits.';
+  const raw = window.prompt(`${heading}\n\n${hint}`, `${heading}\n\n`);
+  if (raw === null) {
+    return undefined;
+  }
+  if (!raw.startsWith(`${heading}\n\n`)) {
+    window.alert(`The note must start with the ${heading} heading followed by a blank line.`);
+    return undefined;
+  }
+  if (raw.slice(heading.length + 2).trim() === '') {
+    window.alert('The note body must not be empty.');
+    return undefined;
+  }
+  return {
+    content: raw,
+    id: `note-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  };
 }

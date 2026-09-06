@@ -180,6 +180,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-clipboard-access', version: 18 },
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
+          { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -412,6 +413,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-clipboard-access', version: 18 },
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
+          { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
         ]);
       } finally {
         migrated.close();
@@ -496,6 +498,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-clipboard-access', version: 18 },
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
+          { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
         ]);
       } finally {
         migrated.close();
@@ -599,6 +602,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-clipboard-access', version: 18 },
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
+          { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
         ]);
       } finally {
         migrated.close();
@@ -673,6 +677,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-clipboard-access', version: 18 },
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
+          { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
         ]);
       } finally {
         migrated.close();
@@ -797,6 +802,7 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'application-settings-clipboard-access', version: 18 }),
           expect.objectContaining({ name: 'task-transition-audit', version: 19 }),
           expect.objectContaining({ name: 'application-settings-research-auto-advance', version: 20 }),
+          expect.objectContaining({ name: 'execution-artifact-brainstorm-sweep-kind', version: 21 }),
         ]);
       } finally {
         migrated.close();

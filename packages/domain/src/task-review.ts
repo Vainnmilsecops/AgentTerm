@@ -295,7 +295,14 @@ function createArtifactEvidence(
       'Task Review Artifact kind',
     );
     assertEnumValue(artifact.phase, Object.values(TaskPhase), 'Task Review Artifact phase');
-    if (artifact.phase !== artifactPhase[artifact.kind as ExecutionArtifactKindValue]) {
+    const reviewContractPhase =
+      artifact.kind in artifactPhase
+        ? artifactPhase[artifact.kind as Exclude<ExecutionArtifactKindValue, 'brainstorm' | 'sweep'>]
+        : undefined;
+    if (
+      reviewContractPhase !== undefined &&
+      artifact.phase !== reviewContractPhase
+    ) {
       throw new TypeError('Task Review Artifact kind does not match its producing phase.');
     }
     if (artifact.sessionId !== undefined) {
@@ -317,7 +324,7 @@ function createArtifactEvidence(
   return Object.freeze(artifacts);
 }
 
-const artifactPhase: Readonly<Record<ExecutionArtifactKindValue, TaskPhaseValue>> = {
+const artifactPhase: Readonly<Record<Exclude<ExecutionArtifactKindValue, 'brainstorm' | 'sweep'>, TaskPhaseValue>> = {
   [ExecutionArtifactKind.EXECUTION_SUMMARY]: TaskPhase.RUNNING,
   [ExecutionArtifactKind.PLAN]: TaskPhase.PLANNING,
   [ExecutionArtifactKind.RESEARCH]: TaskPhase.BACKLOG,
