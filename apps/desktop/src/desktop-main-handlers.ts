@@ -238,6 +238,14 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.startResearch],
         );
         return null;
+      case desktopIpcChannels.recordBrainstormArtifact:
+        return application.recordBrainstormArtifact(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.recordBrainstormArtifact],
+        );
+      case desktopIpcChannels.recordSweepArtifact:
+        return application.recordSweepArtifact(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.recordSweepArtifact],
+        );
       case desktopIpcChannels.acceptPlan:
         await application.acceptTaskPlan(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.acceptPlan],

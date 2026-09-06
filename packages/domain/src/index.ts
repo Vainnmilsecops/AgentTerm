@@ -10,8 +10,11 @@ export {
 } from './application-settings';
 export {
   createExecutionArtifact,
+  dynamicPhaseArtifactKinds,
   ExecutionArtifactKind,
+  isDynamicPhaseArtifactKind,
   type CreateExecutionArtifactInput,
+  type DynamicPhaseArtifactKind,
   type ExecutionArtifact,
   type ExecutionArtifactKind as ExecutionArtifactKindValue,
 } from './execution-artifact';

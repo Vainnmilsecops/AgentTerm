@@ -15,10 +15,12 @@ export type ArtifactValidation =
   { readonly ok: false; readonly reason: string } | { readonly ok: true };
 
 const artifactHeadings: Readonly<Record<ExecutionArtifactKind, string>> = Object.freeze({
+  [ExecutionArtifactKindValue.BRAINSTORM]: '# Brainstorm',
   [ExecutionArtifactKindValue.EXECUTION_SUMMARY]: '# Execution Summary',
   [ExecutionArtifactKindValue.PLAN]: '# Plan',
   [ExecutionArtifactKindValue.RESEARCH]: '# Research',
   [ExecutionArtifactKindValue.REVIEW]: '# Review',
+  [ExecutionArtifactKindValue.SWEEP]: '# Sweep',
 });
 
 const phaseToKind: Readonly<Record<TaskPhaseValue, ExecutionArtifactKind>> = Object.freeze({

@@ -27,6 +27,19 @@ describe('mnemonicFor', () => {
     });
   });
 
+  it('returns Alt+Shift mnemonic for brainstorm and sweep capture', () => {
+    expect(mnemonicFor('capture-brainstorm')).toEqual({
+      key: 'B',
+      label: 'Capture brainstorm',
+      modifiers: ['Alt', 'Shift'],
+    });
+    expect(mnemonicFor('capture-sweep')).toEqual({
+      key: 'W',
+      label: 'Capture sweep',
+      modifiers: ['Alt', 'Shift'],
+    });
+  });
+
   it('returns undefined for unknown action', () => {
     expect(mnemonicFor('unknown-action')).toBeUndefined();
   });
@@ -37,6 +50,7 @@ describe('resolveWorkspaceMnemonic', () => {
     canAcceptPlan: true,
     canApproveReview: true,
     canBeginPlanning: true,
+    canCaptureSessionNote: true,
     canRequestChanges: true,
     canRequestReview: true,
     canRetryExecution: true,
@@ -80,5 +94,26 @@ describe('resolveWorkspaceMnemonic', () => {
     const key = { altKey: true, ctrlKey: false, key: 's', metaKey: false, shiftKey: false };
     expect(resolveWorkspaceMnemonic({ ...key, composing: true }, ready)).toBeUndefined();
     expect(resolveWorkspaceMnemonic({ ...key, editable: true }, ready)).toBeUndefined();
+  });
+
+  it('gates brainstorm / sweep capture on canCaptureSessionNote', () => {
+    expect(
+      resolveWorkspaceMnemonic(
+        { altKey: true, ctrlKey: false, key: 'b', metaKey: false, shiftKey: true },
+        ready,
+      ),
+    ).toBe('capture-brainstorm');
+    expect(
+      resolveWorkspaceMnemonic(
+        { altKey: true, ctrlKey: false, key: 'w', metaKey: false, shiftKey: true },
+        ready,
+      ),
+    ).toBe('capture-sweep');
+    expect(
+      resolveWorkspaceMnemonic(
+        { altKey: true, ctrlKey: false, key: 'b', metaKey: false, shiftKey: true },
+        { ...ready, canCaptureSessionNote: false },
+      ),
+    ).toBeUndefined();
   });
 });

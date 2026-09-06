@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { createExecutionArtifact, ExecutionArtifactKind, TaskPhase } from './index';
+import {
+  createExecutionArtifact,
+  ExecutionArtifactKind,
+  isDynamicPhaseArtifactKind,
+  TaskPhase,
+} from './index';
 
 describe('ExecutionArtifact', () => {
   it.each([
@@ -91,5 +96,100 @@ describe('ExecutionArtifact', () => {
         taskId: field === 'taskId' ? value : 'task-1',
       }),
     ).toThrow(TypeError);
+  });
+
+  describe('dynamic-phase brainstorm/sweep artifacts', () => {
+    it('exposes brainstorm and sweep in the dynamic-phase kind set', () => {
+      expect(isDynamicPhaseArtifactKind(ExecutionArtifactKind.BRAINSTORM)).toBe(true);
+      expect(isDynamicPhaseArtifactKind(ExecutionArtifactKind.SWEEP)).toBe(true);
+      expect(isDynamicPhaseArtifactKind(ExecutionArtifactKind.RESEARCH)).toBe(false);
+      expect(isDynamicPhaseArtifactKind(ExecutionArtifactKind.PLAN)).toBe(false);
+    });
+
+    it('creates a brainstorm artifact with a per-task canonical name', () => {
+      const artifact = createExecutionArtifact({
+        content: '# Brainstorm\n\nTry a row-level lock instead of a Task-wide lock.',
+        createdAt: 1_700_000_000_000,
+        id: 'artifact-brainstorm-1',
+        kind: ExecutionArtifactKind.BRAINSTORM,
+        phase: TaskPhase.PLANNING,
+        sessionId: 'session-1',
+        taskId: 'task-7',
+      });
+      expect(artifact).toMatchObject({
+        canonicalName: 'brainstorm/task-7-session-1-1700000000000.md',
+        kind: ExecutionArtifactKind.BRAINSTORM,
+        phase: TaskPhase.PLANNING,
+        sessionId: 'session-1',
+        validation: 'VALID',
+      });
+    });
+
+    it('creates a sweep artifact with a per-task canonical name', () => {
+      const artifact = createExecutionArtifact({
+        content: '# Sweep\n\nFinal notes before close.',
+        createdAt: 1_700_000_000_500,
+        id: 'artifact-sweep-1',
+        kind: ExecutionArtifactKind.SWEEP,
+        phase: TaskPhase.REVIEW,
+        sessionId: 'session-2',
+        taskId: 'task-9',
+      });
+      expect(artifact.canonicalName).toBe('sweep/task-9-session-2-1700000000500.md');
+      expect(artifact.phase).toBe(TaskPhase.REVIEW);
+    });
+
+    it('refuses a brainstorm artifact without a session id', () => {
+      expect(() =>
+        createExecutionArtifact({
+          content: '# Brainstorm\n\nBody.',
+          createdAt: 1,
+          id: 'artifact-b1',
+          kind: ExecutionArtifactKind.BRAINSTORM,
+          phase: TaskPhase.PLANNING,
+          taskId: 'task-1',
+        }),
+      ).toThrow(TypeError);
+    });
+
+    it('refuses a brainstorm artifact without an explicit phase', () => {
+      expect(() =>
+        createExecutionArtifact({
+          content: '# Brainstorm\n\nBody.',
+          createdAt: 1,
+          id: 'artifact-b2',
+          kind: ExecutionArtifactKind.BRAINSTORM,
+          sessionId: 'session-1',
+          taskId: 'task-1',
+        }),
+      ).toThrow(TypeError);
+    });
+
+    it('refuses a static-kind artifact with an inconsistent phase override', () => {
+      expect(() =>
+        createExecutionArtifact({
+          content: '# Plan\n\nBody.',
+          createdAt: 1,
+          id: 'artifact-plan-mismatch',
+          kind: ExecutionArtifactKind.PLAN,
+          phase: TaskPhase.RUNNING,
+          sessionId: 'session-1',
+          taskId: 'task-1',
+        }),
+      ).toThrow(TypeError);
+    });
+
+    it('accepts a static-kind artifact when phase matches the contract', () => {
+      const artifact = createExecutionArtifact({
+        content: '# Plan\n\nBody.',
+        createdAt: 1,
+        id: 'artifact-plan-ok',
+        kind: ExecutionArtifactKind.PLAN,
+        phase: TaskPhase.PLANNING,
+        sessionId: 'session-1',
+        taskId: 'task-1',
+      });
+      expect(artifact.phase).toBe(TaskPhase.PLANNING);
+    });
   });
 });

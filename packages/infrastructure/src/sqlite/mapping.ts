@@ -421,7 +421,17 @@ export function mapExecutionArtifactRow(row: SqliteRow): ExecutionArtifact {
     );
   }
   const kind = readText(row, 'kind', 'Execution Artifact');
-  if (!['execution-summary', 'plan', 'research', 'review'].includes(kind)) {
+  const phase = readText(row, 'phase', 'Execution Artifact');
+  if (
+    ![
+      'execution-summary',
+      'plan',
+      'research',
+      'review',
+      'brainstorm',
+      'sweep',
+    ].includes(kind)
+  ) {
     throw new SqlitePersistenceError(`Execution Artifact row contains an invalid kind: ${kind}.`);
   }
 
@@ -432,6 +442,7 @@ export function mapExecutionArtifactRow(row: SqliteRow): ExecutionArtifact {
       createdAt: readSafeNonNegativeInteger(row, 'created_at', 'Execution Artifact'),
       id: readNonBlankText(row, 'id', 'Execution Artifact'),
       kind: kind as ExecutionArtifact['kind'],
+      phase: phase as TaskPhase,
       ...(sessionValue === null ? {} : { sessionId: sessionValue }),
       taskId: readNonBlankText(row, 'task_id', 'Execution Artifact'),
     });

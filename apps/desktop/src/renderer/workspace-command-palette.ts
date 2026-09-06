@@ -35,6 +35,7 @@ export interface WorkspaceCommandTask {
   readonly canStartExecution: boolean;
   readonly canStartPlanning: boolean;
   readonly dependencies: readonly WorkspaceCommandDependency[];
+  readonly hasActiveSession: boolean;
   readonly id: string;
   readonly phase: WorkspaceCommandTaskPhase;
   readonly pluginActivePhaseId: string | undefined;
@@ -84,6 +85,8 @@ export interface WorkspaceCommandActions {
   startExecution(): Promise<void> | void;
   startPlanning(): Promise<void> | void;
   startResearch(): Promise<void> | void;
+  captureBrainstormNote(): Promise<void> | void;
+  captureSweepNote(): Promise<void> | void;
   unregisterQualityGate(gateId: string): Promise<boolean> | boolean;
   importQualityGateConfig(): Promise<unknown> | unknown;
   exportQualityGateConfig(): Promise<void> | void;
@@ -152,6 +155,24 @@ export function buildWorkspaceCommands(
   }
 
   if (!context.actionBusy && context.selectedAgentId !== undefined) {
+    if (selected.hasActiveSession) {
+      commands.push(
+        command({
+          category: 'Task',
+          id: 'task:capture-brainstorm',
+          keywords: ['brainstorm note capture idea thought mid-session'],
+          label: 'Capture brainstorm note',
+          run: actions.captureBrainstormNote,
+        }),
+        command({
+          category: 'Task',
+          id: 'task:capture-sweep',
+          keywords: ['sweep note capture finalisation wrap-up summary'],
+          label: 'Capture sweep note',
+          run: actions.captureSweepNote,
+        }),
+      );
+    }
     if (selected.phase === 'BACKLOG' && selected.pluginActivePhaseId === 'research') {
       commands.push(
         command({

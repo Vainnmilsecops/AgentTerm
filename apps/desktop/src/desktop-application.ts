@@ -23,7 +23,9 @@ import {
   loadWorkspaceLayout,
   openProject as openApplicationProject,
   pushTaskBranch,
+  recordBrainstormArtifact,
   recordResearchArtifact,
+  recordSweepArtifact,
   refreshTaskPullRequest,
   registerQualityGate,
   removeTaskDependency,
@@ -322,6 +324,22 @@ export async function createProductionDesktopApplication(
           persistence.artifacts,
           persistence.taskTransitions,
         );
+      },
+      recordBrainstormArtifact: async (input) => {
+        requireOpen();
+        return recordBrainstormArtifact(input, {
+          artifacts: persistence.artifacts,
+          sessions: persistence.sessions,
+          tasks: persistence.tasks,
+        });
+      },
+      recordSweepArtifact: async (input) => {
+        requireOpen();
+        return recordSweepArtifact(input, {
+          artifacts: persistence.artifacts,
+          sessions: persistence.sessions,
+          tasks: persistence.tasks,
+        });
       },
       createArtifact: async (input) => {
         requireOpen();

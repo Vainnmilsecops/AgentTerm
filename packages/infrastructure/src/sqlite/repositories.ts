@@ -1963,6 +1963,7 @@ function assertExecutionArtifactContract(artifact: ExecutionArtifact): void {
     createdAt: artifact.createdAt,
     id: artifact.id,
     kind: artifact.kind,
+    phase: artifact.phase,
     ...(artifact.sessionId === undefined ? {} : { sessionId: artifact.sessionId }),
     taskId: artifact.taskId,
   });

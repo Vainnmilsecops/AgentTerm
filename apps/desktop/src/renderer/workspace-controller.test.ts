@@ -55,6 +55,8 @@ type TestWorkspaceViewProps = Omit<
   | 'onSplitTerminal'
   | 'onStartPlanning'
   | 'onStartResearch'
+  | 'onCaptureBrainstormNote'
+  | 'onCaptureSweepNote'
   | 'onStopAgent'
   | 'onUnregisterQualityGate'
   | 'onImportQualityGateConfig'
@@ -138,6 +140,32 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onSplitTerminal: () => undefined,
     onStartPlanning: () => undefined,
     onStartResearch: () => undefined,
+    onCaptureBrainstormNote: async (input) => ({
+      canonicalName: `brainstorm/${input.id}.md`,
+      content: input.content,
+      createdAt: Date.now(),
+      format: 'markdown',
+      id: input.id,
+      kind: 'brainstorm',
+      phase: 'RUNNING',
+      schemaVersion: 1,
+      sessionId: 'session-fixture',
+      taskId: 'task-fixture',
+      validation: 'VALID',
+    }),
+    onCaptureSweepNote: async (input) => ({
+      canonicalName: `sweep/${input.id}.md`,
+      content: input.content,
+      createdAt: Date.now(),
+      format: 'markdown',
+      id: input.id,
+      kind: 'sweep',
+      phase: 'RUNNING',
+      schemaVersion: 1,
+      sessionId: 'session-fixture',
+      taskId: 'task-fixture',
+      validation: 'VALID',
+    }),
     onUnregisterQualityGate: async () => true,
     onImportQualityGateConfig: async () => undefined as never,
     onExportQualityGateConfig: async () => undefined,
@@ -678,6 +706,16 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   );
   public readonly startTaskResearch = vi.fn<AgentWorkspaceClient['startTaskResearch']>(
     async () => undefined,
+  );
+  public readonly recordBrainstormArtifact = vi.fn<
+    AgentWorkspaceClient['recordBrainstormArtifact']
+  >(async () => {
+    throw new Error('recordBrainstormArtifact mock must be overridden per test.');
+  });
+  public readonly recordSweepArtifact = vi.fn<AgentWorkspaceClient['recordSweepArtifact']>(
+    async () => {
+      throw new Error('recordSweepArtifact mock must be overridden per test.');
+    },
   );
   public readonly acceptTaskPlan = vi.fn<AgentWorkspaceClient['acceptTaskPlan']>(
     async () => undefined,
@@ -1454,6 +1492,72 @@ describe('WorkspaceController', () => {
       agentId: 'claude',
       taskId: 'task-1',
     });
+  });
+
+  it('routes captureBrainstormArtifact through the workspace controller', async () => {
+    const client = new FakeWorkspaceClient();
+    const baseOverview = client.loadResults[0] ?? (await client.loadWorkspace());
+    const overview = Object.freeze({
+      ...baseOverview,
+      projects: Object.freeze([
+        {
+          ...baseOverview.projects[0]!,
+          tasks: Object.freeze([
+            {
+              ...baseOverview.projects[0]!.tasks[0]!,
+              activeSession: workingSession,
+              latestSession: workingSession,
+            },
+          ]),
+        },
+      ]),
+    }) as AgentWorkspaceOverview;
+    client.loadResults = [overview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+    await controller.captureSelectedBrainstormNote({
+      content: '# Brainstorm\n\n- Row-level locking\n- Backoff',
+      id: 'note-brainstorm-1',
+    });
+    expect(client.recordBrainstormArtifact).toHaveBeenCalledOnce();
+    const call = client.recordBrainstormArtifact.mock.calls[0]?.[0];
+    expect(call?.id).toBe('note-brainstorm-1');
+    expect(call?.content).toContain('# Brainstorm');
+    expect(call?.sessionId).toBe('session-working');
+    expect(call?.taskId).toBe(baseOverview.projects[0]!.tasks[0]!.task.id);
+  });
+
+  it('routes captureSweepArtifact through the workspace controller', async () => {
+    const client = new FakeWorkspaceClient();
+    const baseOverview = client.loadResults[0] ?? (await client.loadWorkspace());
+    const overview = Object.freeze({
+      ...baseOverview,
+      projects: Object.freeze([
+        {
+          ...baseOverview.projects[0]!,
+          tasks: Object.freeze([
+            {
+              ...baseOverview.projects[0]!.tasks[0]!,
+              activeSession: workingSession,
+              latestSession: workingSession,
+            },
+          ]),
+        },
+      ]),
+    }) as AgentWorkspaceOverview;
+    client.loadResults = [overview];
+    const controller = new WorkspaceController(client);
+    await controller.load();
+    await controller.captureSelectedSweepNote({
+      content: '# Sweep\n\nFinal answer.',
+      id: 'note-sweep-1',
+    });
+    expect(client.recordSweepArtifact).toHaveBeenCalledOnce();
+    const call = client.recordSweepArtifact.mock.calls[0]?.[0];
+    expect(call?.id).toBe('note-sweep-1');
+    expect(call?.content).toContain('# Sweep');
+    expect(call?.sessionId).toBe('session-working');
+    expect(call?.taskId).toBe(baseOverview.projects[0]!.tasks[0]!.task.id);
   });
 
   it('accepts the exact latest Plan and reloads the RUNNING Task', async () => {

@@ -390,6 +390,12 @@ export {
   type TaskResearchStartResult,
 } from "./research-use-cases";
 export {
+  recordBrainstormArtifact,
+  recordSweepArtifact,
+  type RecordSessionNoteDependencies,
+  type RecordSessionNoteInput,
+} from "./note-capture-use-cases";
+export {
   MAX_MCP_PANE_LINES,
   MAX_MCP_PROJECT_LIMIT,
   MAX_MCP_TASK_LIMIT,

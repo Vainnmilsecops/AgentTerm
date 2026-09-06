@@ -30,6 +30,7 @@ const baseContext: WorkspaceCommandContext = {
     dependencies: [
       { id: 'task-blocker', phase: 'RUNNING', projectId: 'project-1', title: 'Blocker' },
     ],
+    hasActiveSession: false,
     id: 'task-vietnamese',
     phase: 'BACKLOG',
     pluginActivePhaseId: 'research',
@@ -57,6 +58,8 @@ function createActions() {
     startExecution: vi.fn<WorkspaceCommandActions['startExecution']>(),
     startPlanning: vi.fn<WorkspaceCommandActions['startPlanning']>(),
     startResearch: vi.fn<WorkspaceCommandActions['startResearch']>(),
+    captureBrainstormNote: vi.fn<WorkspaceCommandActions['captureBrainstormNote']>(),
+    captureSweepNote: vi.fn<WorkspaceCommandActions['captureSweepNote']>(),
     unregisterQualityGate: vi.fn<WorkspaceCommandActions['unregisterQualityGate']>(),
     importQualityGateConfig: vi.fn<WorkspaceCommandActions['importQualityGateConfig']>(),
     exportQualityGateConfig: vi.fn<WorkspaceCommandActions['exportQualityGateConfig']>(),
@@ -137,6 +140,35 @@ describe('workspace command registry', () => {
     expect(actions.focus).toHaveBeenCalledWith('checks');
     expect(actions.openBoardWindow).toHaveBeenCalledOnce();
     expect(actions.startResearch).toHaveBeenCalledOnce();
+  });
+
+  it('exposes brainstorm / sweep capture commands when the Task has an active session', () => {
+    const actions = createActions();
+    const commands = buildWorkspaceCommands(
+      { ...baseContext, selectedTask: { ...baseContext.selectedTask!, hasActiveSession: true } },
+      actions,
+    );
+    const ids = commands.map((command) => command.id);
+    expect(ids).toContain('task:capture-brainstorm');
+    expect(ids).toContain('task:capture-sweep');
+
+    const brainstorm = commands.find((c) => c.id === 'task:capture-brainstorm');
+    brainstorm?.run();
+    expect(actions.captureBrainstormNote).toHaveBeenCalledOnce();
+
+    const sweep = commands.find((c) => c.id === 'task:capture-sweep');
+    sweep?.run();
+    expect(actions.captureSweepNote).toHaveBeenCalledOnce();
+  });
+
+  it('omits brainstorm / sweep capture commands when no Agent Session is attached', () => {
+    const actions = createActions();
+    const commands = buildWorkspaceCommands(baseContext, actions);
+    const ids = commands.map((command) => command.id);
+    expect(ids).not.toContain('task:capture-brainstorm');
+    expect(ids).not.toContain('task:capture-sweep');
+    expect(actions.captureBrainstormNote).not.toHaveBeenCalled();
+    expect(actions.captureSweepNote).not.toHaveBeenCalled();
   });
 
   it('hides Quality Gate palette entries when the Task cannot run gates or the workspace is busy', () => {
