@@ -90,7 +90,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
 
   public constructor(private readonly database: DatabaseSync) {
     this.readSettingsStatement = database.prepare(
-      `SELECT schema_version, revision, default_agent_id, terminal_font_size, mcp_server_token, allow_clipboard_read_write
+      `SELECT schema_version, revision, default_agent_id, terminal_font_size, mcp_server_token, allow_clipboard_read_write, research_auto_advance
        FROM application_settings WHERE singleton_id = 1`,
     );
     this.readExecutablesStatement = database.prepare(
@@ -99,7 +99,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
     );
     this.updateSettingsStatement = database.prepare(
       `UPDATE application_settings
-       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?, mcp_server_token = ?, allow_clipboard_read_write = ?
+       SET schema_version = ?, revision = ?, default_agent_id = ?, terminal_font_size = ?, mcp_server_token = ?, allow_clipboard_read_write = ?, research_auto_advance = ?
        WHERE singleton_id = 1 AND revision = ?`,
     );
     this.deleteExecutablesStatement = database.prepare(
@@ -128,6 +128,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
         ...(row.mcp_server_token === null
           ? {}
           : { mcpServerToken: readSettingsText(row.mcp_server_token) }),
+        researchAutoAdvance: readSettingsInteger(row.research_auto_advance) === 1,
         revision: readSettingsInteger(row.revision),
         schemaVersion: readSettingsSchemaVersion(row.schema_version),
         terminalFontSize: readSettingsInteger(row.terminal_font_size),
@@ -150,6 +151,7 @@ export class SqliteApplicationSettingsRepository implements ApplicationSettingsR
         settings.terminalFontSize,
         settings.mcpServerToken ?? null,
         settings.allowClipboardReadWrite ? 1 : 0,
+        settings.researchAutoAdvance ? 1 : 0,
         expectedRevision,
       );
       if (updated.changes !== 1 && updated.changes !== 1n) {
@@ -2319,8 +2321,8 @@ function readSettingsInteger(value: unknown): number {
   return value;
 }
 
-function readSettingsSchemaVersion(value: unknown): 2 {
-  if (value !== 2) {
+function readSettingsSchemaVersion(value: unknown): 3 {
+  if (value !== 3) {
     throw new TypeError('Unsupported Application Settings schema version.');
   }
   return value;

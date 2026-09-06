@@ -17,12 +17,16 @@ export function SettingsPanel({ error, onSave, saving, view }: SettingsPanelProp
     view.settings.allowClipboardReadWrite,
   );
   const [defaultAgentId, setDefaultAgentId] = useState(view.settings.defaultAgentId);
+  const [researchAutoAdvance, setResearchAutoAdvance] = useState(
+    view.settings.researchAutoAdvance,
+  );
   const [terminalFontSize, setTerminalFontSize] = useState(view.settings.terminalFontSize);
   const [executables, setExecutables] = useState(() => executableMap(view));
 
   useEffect(() => {
     setAllowClipboardReadWrite(view.settings.allowClipboardReadWrite);
     setDefaultAgentId(view.settings.defaultAgentId);
+    setResearchAutoAdvance(view.settings.researchAutoAdvance);
     setTerminalFontSize(view.settings.terminalFontSize);
     setExecutables(executableMap(view));
   }, [view]);
@@ -37,6 +41,7 @@ export function SettingsPanel({ error, onSave, saving, view }: SettingsPanelProp
       allowClipboardReadWrite,
       defaultAgentId,
       expectedRevision: view.settings.revision,
+      researchAutoAdvance,
       terminalFontSize,
     });
   };
@@ -92,6 +97,22 @@ export function SettingsPanel({ error, onSave, saving, view }: SettingsPanelProp
             <small>
               Disabled by default. When enabled, every active terminal pane will honour the
               OSC 52 escape sequences that TUIs use to exchange text with the system clipboard.
+            </small>
+          </label>
+          <label className="settings-form__flag">
+            <input
+              aria-label="Research auto-advance"
+              checked={researchAutoAdvance}
+              onChange={(event) => setResearchAutoAdvance(event.currentTarget.checked)}
+              type="checkbox"
+            />
+            <span>
+              Auto-advance BACKLOG tasks to PLANNING after a valid research/research.md artifact.
+            </span>
+            <small>
+              Disabled by default. When enabled, the M6 research orchestrator transitions a
+              qualifying BACKLOG Task to PLANNING immediately after a VALID research artifact is
+              persisted; each transition is recorded in the task audit log.
             </small>
           </label>
         </fieldset>

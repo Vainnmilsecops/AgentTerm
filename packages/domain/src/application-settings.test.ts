@@ -15,14 +15,16 @@ describe('Application Settings', () => {
       allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       mcpServerToken: undefined,
+      researchAutoAdvance: false,
       revision: 0,
-      schemaVersion: 2,
+      schemaVersion: 3,
       terminalFontSize: 14,
     });
     expect(ApplicationSettingsDefaults).toEqual({
       allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       mcpServerToken: undefined,
+      researchAutoAdvance: false,
       terminalFontSize: 14,
     });
     expect(JSON.stringify(settings)).not.toMatch(/token|credential|shell|git/i);
@@ -40,6 +42,7 @@ describe('Application Settings', () => {
       allowClipboardReadWrite: true,
       defaultAgentId: 'gemini',
       mcpServerToken: 'a'.repeat(24),
+      researchAutoAdvance: true,
       revision: 4,
       terminalFontSize: 16,
     });
@@ -53,8 +56,9 @@ describe('Application Settings', () => {
       allowClipboardReadWrite: true,
       defaultAgentId: 'gemini',
       mcpServerToken: 'a'.repeat(24),
+      researchAutoAdvance: true,
       revision: 4,
-      schemaVersion: 2,
+      schemaVersion: 3,
       terminalFontSize: 16,
     });
     expect(Object.isFrozen(settings.agentExecutables[0])).toBe(true);
@@ -67,6 +71,7 @@ describe('Application Settings', () => {
     [{ terminalFontSize: 33 }, 'INVALID_TERMINAL_FONT_SIZE'],
     [{ agentExecutables: [{ agentId: 'codex', executablePath: '   ' }] }, 'INVALID_EXECUTABLE'],
     [{ allowClipboardReadWrite: 'yes' as unknown as boolean }, 'INVALID_CLIPBOARD_ACCESS'],
+    [{ researchAutoAdvance: 'yes' as unknown as boolean }, 'INVALID_RESEARCH_AUTO_ADVANCE'],
     [
       {
         agentExecutables: [

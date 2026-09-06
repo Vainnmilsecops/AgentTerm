@@ -2,6 +2,7 @@ export const ApplicationSettingsDefaults = Object.freeze({
   allowClipboardReadWrite: false,
   defaultAgentId: 'codex',
   mcpServerToken: undefined,
+  researchAutoAdvance: false,
   terminalFontSize: 14,
 });
 
@@ -15,8 +16,9 @@ export interface ApplicationSettings {
   readonly allowClipboardReadWrite: boolean;
   readonly defaultAgentId: string;
   readonly mcpServerToken: string | undefined;
+  readonly researchAutoAdvance: boolean;
   readonly revision: number;
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly terminalFontSize: number;
 }
 
@@ -25,8 +27,9 @@ export interface CreateApplicationSettingsInput {
   readonly allowClipboardReadWrite?: boolean;
   readonly defaultAgentId?: string;
   readonly mcpServerToken?: string | undefined;
+  readonly researchAutoAdvance?: boolean;
   readonly revision?: number;
-  readonly schemaVersion?: 2;
+  readonly schemaVersion?: 3;
   readonly terminalFontSize?: number;
 }
 
@@ -36,6 +39,7 @@ export type InvalidApplicationSettingsReason =
   | 'INVALID_CLIPBOARD_ACCESS'
   | 'INVALID_EXECUTABLE'
   | 'INVALID_MCP_SERVER_TOKEN'
+  | 'INVALID_RESEARCH_AUTO_ADVANCE'
   | 'INVALID_REVISION'
   | 'INVALID_SCHEMA_VERSION'
   | 'INVALID_TERMINAL_FONT_SIZE';
@@ -63,7 +67,7 @@ export function createApplicationSettings(
     throw new InvalidApplicationSettingsError('INVALID_REVISION');
   }
 
-  if (input.schemaVersion !== undefined && input.schemaVersion !== 2) {
+  if (input.schemaVersion !== undefined && input.schemaVersion !== 3) {
     throw new InvalidApplicationSettingsError('INVALID_SCHEMA_VERSION');
   }
 
@@ -80,6 +84,8 @@ export function createApplicationSettings(
   }
 
   const allowClipboardReadWrite = normalizeClipboardAccess(input.allowClipboardReadWrite);
+
+  const researchAutoAdvance = normalizeResearchAutoAdvance(input.researchAutoAdvance);
 
   const mcpServerToken = normalizeMcpServerToken(input.mcpServerToken);
 
@@ -111,8 +117,9 @@ export function createApplicationSettings(
     allowClipboardReadWrite,
     defaultAgentId,
     mcpServerToken,
+    researchAutoAdvance,
     revision,
-    schemaVersion: 2 as const,
+    schemaVersion: 3 as const,
     terminalFontSize,
   });
 }
@@ -151,6 +158,16 @@ function normalizeClipboardAccess(value: unknown): boolean {
   return value;
 }
 
+function normalizeResearchAutoAdvance(value: unknown): boolean {
+  if (value === undefined) {
+    return ApplicationSettingsDefaults.researchAutoAdvance;
+  }
+  if (typeof value !== 'boolean') {
+    throw new InvalidApplicationSettingsError('INVALID_RESEARCH_AUTO_ADVANCE');
+  }
+  return value;
+}
+
 function messageForReason(reason: InvalidApplicationSettingsReason): string {
   switch (reason) {
     case 'DUPLICATE_AGENT':
@@ -163,6 +180,8 @@ function messageForReason(reason: InvalidApplicationSettingsReason): string {
       return 'An agent executable override is invalid.';
     case 'INVALID_MCP_SERVER_TOKEN':
       return 'MCP server token must be 16 to 256 characters without whitespace.';
+    case 'INVALID_RESEARCH_AUTO_ADVANCE':
+      return 'Research auto-advance setting must be a boolean.';
     case 'INVALID_REVISION':
       return 'Application Settings revision is invalid.';
     case 'INVALID_SCHEMA_VERSION':

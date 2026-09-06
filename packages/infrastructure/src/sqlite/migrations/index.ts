@@ -16,6 +16,8 @@ import { workflowPluginBindingsMigration } from './0015-workflow-plugin-bindings
 import { executionArtifactResearchKindMigration } from './0016-execution-artifact-research-kind';
 import { applicationSettingsMcpTokenMigration } from './0017-application-settings-mcp-token';
 import { applicationSettingsClipboardAccessMigration } from './0018-application-settings-clipboard-access';
+import { taskTransitionAuditMigration } from './0019-task-transition-audit';
+import { applicationSettingsResearchAutoAdvanceMigration } from './0020-application-settings-research-auto-advance';
 
 export interface SqliteMigration {
   readonly name: string;
@@ -42,4 +44,6 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   executionArtifactResearchKindMigration,
   applicationSettingsMcpTokenMigration,
   applicationSettingsClipboardAccessMigration,
+  taskTransitionAuditMigration,
+  applicationSettingsResearchAutoAdvanceMigration,
 ];

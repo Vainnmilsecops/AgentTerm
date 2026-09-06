@@ -115,3 +115,9 @@ export {
   type InvalidTaskDependencyReason,
   type TaskDependency,
 } from './task-dependency';
+export {
+  createTaskTransitionAudit,
+  TaskTransitionTrigger,
+  type CreateTaskTransitionAuditInput,
+  type TaskTransitionAudit,
+} from './task-transition-audit';

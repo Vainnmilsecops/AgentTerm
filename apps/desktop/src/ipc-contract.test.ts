@@ -188,6 +188,17 @@ describe('desktop IPC contract validation', () => {
     [desktopIpcChannels.getTaskFileDiff, { area: 'UNSTAGED', path: '../secret', taskId: 'task-1' }],
     [desktopIpcChannels.terminalResize, { columns: 0, rows: 24, subscriptionId: 'sub-1' }],
     [desktopIpcChannels.updateSettings, { expectedRevision: -1 }],
+    [
+      desktopIpcChannels.updateSettings,
+      {
+        agentExecutables: [],
+        allowClipboardReadWrite: false,
+        defaultAgentId: 'codex',
+        expectedRevision: 0,
+        researchAutoAdvance: 'yes',
+        terminalFontSize: 14,
+      },
+    ],
     [desktopIpcChannels.openProject, { path: 'C:\\private\\repository' }],
     [desktopIpcChannels.createTask, { projectId: 'project-1', title: 'Task' }],
     [
