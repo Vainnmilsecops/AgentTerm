@@ -129,7 +129,8 @@ describe('SQLite migrations', () => {
                 'tasks_identity_project_index',
                 'tasks_project_id_index',
                 'project_roots_recent_index',
-                'workflow_plugin_bindings_plugin_idx'
+                'workflow_plugin_bindings_plugin_idx',
+                'task_transition_audit_task_idx'
               )
              ORDER BY name`,
           )
@@ -152,6 +153,7 @@ describe('SQLite migrations', () => {
           'task_review_changed_paths',
           'task_review_quality_gates',
           'task_reviews',
+          'task_transition_audit',
           'task_worktrees',
           'tasks',
           'workflow_plugin_bindings',
@@ -176,6 +178,8 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
           { name: 'application-settings-clipboard-access', version: 18 },
+          { name: 'task-transition-audit', version: 19 },
+          { name: 'application-settings-research-auto-advance', version: 20 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -191,6 +195,7 @@ describe('SQLite migrations', () => {
           { name: 'task_pull_requests_task_updated_index' },
           { name: 'task_reviews_one_pending_per_task_index' },
           { name: 'task_reviews_task_ordinal_index' },
+          { name: 'task_transition_audit_task_idx' },
           { name: 'tasks_identity_project_index' },
           { name: 'tasks_project_id_index' },
           { name: 'workflow_plugin_bindings_plugin_idx' },
@@ -405,6 +410,8 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
           { name: 'application-settings-clipboard-access', version: 18 },
+          { name: 'task-transition-audit', version: 19 },
+          { name: 'application-settings-research-auto-advance', version: 20 },
         ]);
       } finally {
         migrated.close();
@@ -487,6 +494,8 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
           { name: 'application-settings-clipboard-access', version: 18 },
+          { name: 'task-transition-audit', version: 19 },
+          { name: 'application-settings-research-auto-advance', version: 20 },
         ]);
       } finally {
         migrated.close();
@@ -588,6 +597,8 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
           { name: 'application-settings-clipboard-access', version: 18 },
+          { name: 'task-transition-audit', version: 19 },
+          { name: 'application-settings-research-auto-advance', version: 20 },
         ]);
       } finally {
         migrated.close();
@@ -660,6 +671,8 @@ describe('SQLite migrations', () => {
           { name: 'execution-artifact-research-kind', version: 16 },
           { name: 'application-settings-mcp-token', version: 17 },
           { name: 'application-settings-clipboard-access', version: 18 },
+          { name: 'task-transition-audit', version: 19 },
+          { name: 'application-settings-research-auto-advance', version: 20 },
         ]);
       } finally {
         migrated.close();
@@ -782,6 +795,8 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'execution-artifact-research-kind', version: 16 }),
           expect.objectContaining({ name: 'application-settings-mcp-token', version: 17 }),
           expect.objectContaining({ name: 'application-settings-clipboard-access', version: 18 }),
+          expect.objectContaining({ name: 'task-transition-audit', version: 19 }),
+          expect.objectContaining({ name: 'application-settings-research-auto-advance', version: 20 }),
         ]);
       } finally {
         migrated.close();

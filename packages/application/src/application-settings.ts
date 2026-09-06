@@ -48,6 +48,7 @@ export interface UpdateApplicationSettingsInput {
   readonly defaultAgentId: string;
   readonly expectedRevision: number;
   readonly mcpServerToken?: string | undefined;
+  readonly researchAutoAdvance: boolean;
   readonly terminalFontSize: number;
 }
 
@@ -78,6 +79,7 @@ export async function updateApplicationSettings(
           ? {}
           : { mcpServerToken: current.mcpServerToken }
         : { mcpServerToken: input.mcpServerToken }),
+      researchAutoAdvance: input.researchAutoAdvance,
       revision: current.revision + 1,
       terminalFontSize: input.terminalFontSize,
     });

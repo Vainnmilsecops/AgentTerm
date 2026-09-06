@@ -649,6 +649,7 @@ function readSettingsRequest(input: unknown): UpdateApplicationSettingsInput {
     'allowClipboardReadWrite',
     'defaultAgentId',
     'expectedRevision',
+    'researchAutoAdvance',
     'terminalFontSize',
   ]);
   if (!Array.isArray(record.agentExecutables) || record.agentExecutables.length > 32) fail();
@@ -665,6 +666,8 @@ function readSettingsRequest(input: unknown): UpdateApplicationSettingsInput {
   });
   if (typeof record.allowClipboardReadWrite !== 'boolean') fail();
   const allowClipboardReadWrite = record.allowClipboardReadWrite;
+  if (typeof record.researchAutoAdvance !== 'boolean') fail();
+  const researchAutoAdvance = record.researchAutoAdvance;
   const expectedRevision = readNonnegativeSafeInteger(record.expectedRevision);
   const terminalFontSize = record.terminalFontSize;
   if (
@@ -680,6 +683,7 @@ function readSettingsRequest(input: unknown): UpdateApplicationSettingsInput {
     allowClipboardReadWrite,
     defaultAgentId: readAgentId(record.defaultAgentId),
     expectedRevision,
+    researchAutoAdvance,
     terminalFontSize,
   });
 }

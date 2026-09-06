@@ -1,5 +1,6 @@
 import {
   TaskPhase,
+  createApplicationSettings,
   type ApplicationSettings,
   type WorkflowPhase,
   type WorkflowPlugin,
@@ -155,7 +156,8 @@ export async function resolveAgentForTask(
     throw new WorkflowPluginConfiguratorError('INVALID_FORMAT');
   }
   const settings: ApplicationSettings =
-    (await dependencies.applicationSettings?.get()) ?? { agentExecutables: [], allowClipboardReadWrite: false, defaultAgentId: 'codex', mcpServerToken: undefined, revision: 0, schemaVersion: 2, terminalFontSize: 14 };
+    (await dependencies.applicationSettings?.get()) ??
+    createApplicationSettings();
   const phaseId = phaseIdFor(expectedPhase);
   const agent = bindPhaseAgent({ phaseId, plugin: loaded.value.plugin, settings }, agents);
   return agent.id;

@@ -28,8 +28,11 @@ function settings(
     agentExecutables: [],
     defaultAgentId: "codex",
     revision: 1,
-    schemaVersion: 1,
+    schemaVersion: 3,
     terminalFontSize: 14,
+    allowClipboardReadWrite: false,
+    mcpServerToken: undefined,
+    researchAutoAdvance: false,
     ...overrides,
   };
 }

@@ -248,6 +248,7 @@ function settings(
     readonly allowClipboardReadWrite?: boolean;
     readonly defaultAgentId?: string;
     readonly mcpServerToken?: string | undefined;
+    readonly researchAutoAdvance?: boolean;
     readonly revision?: number;
     readonly terminalFontSize?: number;
   } = {},
@@ -257,8 +258,9 @@ function settings(
     allowClipboardReadWrite: overrides.allowClipboardReadWrite ?? false,
     defaultAgentId: overrides.defaultAgentId ?? 'codex',
     mcpServerToken: overrides.mcpServerToken ?? undefined,
+    researchAutoAdvance: overrides.researchAutoAdvance ?? false,
     revision: overrides.revision ?? 0,
-    schemaVersion: 2,
+    schemaVersion: 3,
     terminalFontSize: overrides.terminalFontSize ?? 14,
   });
 }
@@ -882,6 +884,7 @@ describe('WorkspaceController', () => {
       allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       expectedRevision: 0,
+      researchAutoAdvance: false,
       terminalFontSize: 18,
     });
 
@@ -890,6 +893,7 @@ describe('WorkspaceController', () => {
       allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       expectedRevision: 0,
+      researchAutoAdvance: false,
       terminalFontSize: 18,
     });
     expect(controller.snapshot).toMatchObject({
@@ -917,6 +921,7 @@ describe('WorkspaceController', () => {
       allowClipboardReadWrite: false,
       defaultAgentId: 'codex',
       expectedRevision: 0,
+      researchAutoAdvance: false,
       terminalFontSize: 14,
     });
 
