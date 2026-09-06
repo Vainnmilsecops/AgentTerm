@@ -9,7 +9,13 @@ import type { AgentSession } from '@agentterm/domain';
 import type { TaskPhase } from '@agentterm/domain';
 
 export type EntityKind =
-  'AgentSession' | 'ExecutionArtifact' | 'Project' | 'QualityGateRun' | 'Task' | 'TaskReview';
+  | 'AgentSession'
+  | 'ExecutionArtifact'
+  | 'Project'
+  | 'QualityGateRun'
+  | 'Task'
+  | 'TaskReview'
+  | 'TaskTransitionAudit';
 
 export type ApplicationSettingsValidationFailure =
   'AGENT_NOT_CONFIGURED' | 'EXECUTABLE_NOT_AVAILABLE' | 'INVALID_SETTINGS';

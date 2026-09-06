@@ -19,12 +19,15 @@ import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 import { resolveAgentForTask } from './workflow-plugin-use-cases';
 import type {
   AgentSessionRepository,
+  ApplicationSettingsRepository,
   ExecutionArtifactRepository,
   TaskRepository,
+  TaskTransitionLog,
 } from './ports';
 import { AgentSessionCoordinator } from './agent-session-coordinator';
 import { serializeTaskWorkflow } from './task-workflow-serialization';
 import { ensureTaskWorktree } from './task-worktree-use-cases';
+import { autoAdvanceBacklogTaskAfterResearch } from './research-orchestrator';
 
 export interface RecordResearchArtifactInput {
   readonly content: string;
@@ -35,8 +38,10 @@ export interface RecordResearchArtifactInput {
 }
 
 export interface RecordResearchArtifactDependencies {
+  readonly applicationSettings?: ApplicationSettingsRepository;
   readonly artifacts: ExecutionArtifactRepository;
   readonly sessions: AgentSessionRepository;
+  readonly taskTransitions?: TaskTransitionLog;
   readonly tasks: TaskRepository;
 }
 
@@ -44,9 +49,9 @@ export async function recordResearchArtifact(
   input: RecordResearchArtifactInput,
   dependencies: RecordResearchArtifactDependencies,
 ): Promise<ExecutionArtifact> {
-  return serializeTaskWorkflow(input.taskId, async () => {
+  const artifact = await serializeTaskWorkflow(input.taskId, async () => {
     const task = await requireBacklogTask(input.taskId, dependencies.tasks);
-    const artifact = createDomainExecutionArtifact({
+    const newArtifact = createDomainExecutionArtifact({
       ...input,
       kind: ExecutionArtifactKind.RESEARCH,
     });
@@ -55,11 +60,35 @@ export async function recordResearchArtifact(
       throw new EntityNotFoundError('AgentSession', input.sessionId);
     }
     if (session.taskId !== task.id) {
-      throw new ArtifactProvenanceError(artifact.id, artifact.taskId, session.id);
+      throw new ArtifactProvenanceError(newArtifact.id, newArtifact.taskId, session.id);
     }
-    await dependencies.artifacts.insert(artifact, task.phase);
-    return artifact;
+    await dependencies.artifacts.insert(newArtifact, task.phase);
+    return newArtifact;
   });
+
+  // Fire-and-forget auto-advance (M6 RESEARCH_AUTO_ADVANCE). The orchestrator
+  // never raises and serializes through `serializeTaskWorkflow` so it cannot
+  // race with the in-flight `recordResearchArtifact` mutation above.
+  if (
+    dependencies.applicationSettings !== undefined &&
+    dependencies.taskTransitions !== undefined
+  ) {
+    void autoAdvanceBacklogTaskAfterResearch(
+      { artifact },
+      {
+        artifacts: dependencies.artifacts,
+        settings: dependencies.applicationSettings,
+        tasks: dependencies.tasks,
+        transitions: dependencies.taskTransitions,
+      },
+    ).catch(() => {
+      // Orchestrator is fail-safe: every defensive check returns a tagged
+      // reason. Any thrown error indicates a bug, not user input, so we
+      // swallow here rather than poisoning the research-artifact return.
+    });
+  }
+
+  return artifact;
 }
 
 export interface StartTaskResearchInput {

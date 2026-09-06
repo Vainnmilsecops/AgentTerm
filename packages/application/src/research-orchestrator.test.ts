@@ -2,7 +2,6 @@ import {
   ExecutionArtifactKind,
   TaskPhase,
   createExecutionArtifact,
-  createTask,
   type ApplicationSettings,
   type ExecutionArtifact,
   type Task,
@@ -124,14 +123,13 @@ function researchArtifact(taskId: string): ExecutionArtifact {
 }
 
 function backlogTask(taskId: string): Task {
-  return createTask({
+  return {
     brief: 'Test',
-    createdAt: 1,
     id: taskId,
     phase: TaskPhase.BACKLOG,
     projectId: 'project-1',
     title: taskId,
-  });
+  } as Task;
 }
 
 describe('autoAdvanceBacklogTaskAfterResearch', () => {

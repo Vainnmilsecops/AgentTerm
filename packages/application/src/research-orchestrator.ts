@@ -2,6 +2,7 @@ import {
   ExecutionArtifactKind,
   InvalidTaskPhaseTransitionError,
   TaskPhase,
+  TaskTransitionTrigger,
   type ExecutionArtifact,
 } from '@agentterm/domain';
 
@@ -114,7 +115,7 @@ export async function autoAdvanceBacklogTaskAfterResearch(
         artifactId: input.artifact.id,
         taskId: task.id,
         to: TaskPhase.PLANNING,
-        trigger: 'research-auto-advance',
+        trigger: TaskTransitionTrigger.RESEARCH_AUTO_ADVANCE,
       },
       dependencies.tasks,
       dependencies.artifacts,

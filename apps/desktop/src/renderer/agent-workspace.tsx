@@ -1354,6 +1354,20 @@ export function AgentWorkspaceView({
                     value={selected.latestSession?.status ?? 'NONE'}
                     tone="session"
                   />
+                  {selected.autoAdvanceCount > 0 ? (
+                    <div
+                      className="state-strip__auto-advance"
+                      data-testid="task-inspector-auto-advance"
+                      role="note"
+                    >
+                      <span>Auto-advance (M6)</span>
+                      <strong>
+                        {selected.autoAdvanceCount}{' '}
+                        {selected.autoAdvanceCount === 1 ? 'transition' : 'transitions'} from
+                        BACKLOG → PLANNING
+                      </strong>
+                    </div>
+                  ) : null}
                   <div className="session-identity">
                     <span>Agent / Session</span>
                     <strong>

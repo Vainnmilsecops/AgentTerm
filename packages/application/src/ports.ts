@@ -12,6 +12,7 @@ import type {
   TaskReviewArtifactEvidence,
   TaskReviewCodeState,
   TaskReviewQualityGateEvidence,
+  TaskTransitionAudit,
   WorkflowPlugin,
 } from "@agentterm/domain";
 
@@ -824,4 +825,19 @@ export interface WorkflowPluginBindingRecord {
   readonly revision: number;
   readonly sourcePath: string;
   readonly taskId: string;
+}
+
+/**
+ * Append-only, immutable log of Task phase transitions. The Application
+ * layer records a row every time `transitionTask` accepts a move so a
+ * workspace overview or reviewer can distinguish manual transitions from
+ * orchestrator-driven ones (e.g. M6 `RESEARCH_AUTO_ADVANCE`).
+ *
+ * `append` is fail-closed: a duplicate `id` must raise
+ * `EntityAlreadyExistsError`; the orchestrator depends on the row
+ * landing before it returns to the caller.
+ */
+export interface TaskTransitionLog {
+  append(audit: TaskTransitionAudit): Promise<void>;
+  listByTaskId(taskId: string): Promise<readonly TaskTransitionAudit[]>;
 }

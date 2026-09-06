@@ -4,6 +4,7 @@ import {
   TaskPhase,
   TaskReviewEvidenceLimits,
   TaskReviewStatus,
+  TaskTransitionTrigger,
   type AgentSession,
   type ExecutionArtifact,
   type Project,
@@ -23,6 +24,7 @@ import type {
   TaskDependencyRepository,
   TaskPlanningArtifactRepository,
   TaskReviewRepository,
+  TaskTransitionLog,
   WorkflowPluginBindingRepository,
   WorkflowPluginConfigurator,
 } from './ports';
@@ -40,6 +42,7 @@ const maximumWorkspaceReviewChangedPaths = 50;
 export interface WorkspaceTaskOverview {
   readonly activeSession: AgentSessionSummary | undefined;
   readonly artifacts: readonly ExecutionArtifact[];
+  readonly autoAdvanceCount: number;
   readonly canBeginPlanning: boolean;
   readonly canApproveReview: boolean;
   readonly canAcceptPlan: boolean;
@@ -201,6 +204,7 @@ export async function loadAgentWorkspace(
   agents: AgentCatalog,
   taskDependencies: TaskDependencyRepository,
   pluginDeps?: LoadAgentWorkspacePluginDeps,
+  taskTransitions?: TaskTransitionLog,
 ): Promise<AgentWorkspaceOverview> {
   const pluginCache = pluginDeps ? new PluginProjectionCache(pluginDeps) : undefined;
   const agentSummaries = await listAgentSummaries(agents);
@@ -230,6 +234,7 @@ export async function loadAgentWorkspace(
             gateEvidence,
             reviewAttempts,
             dependencyEdges,
+            transitionRows,
           ] = await Promise.all([
             sessions.listByTaskId(task.id),
             artifacts.listRecentByTaskId(task.id, maximumWorkspaceArtifacts),
@@ -238,7 +243,11 @@ export async function loadAgentWorkspace(
             qualityGateRuns.readReviewEvidenceByTaskId(task.id, 0),
             reviews.listRecentByTaskId(task.id, maximumWorkspaceReviewAttempts),
             taskDependencies.listByTaskId(task.id),
+            taskTransitions ? taskTransitions.listByTaskId(task.id) : Promise.resolve([]),
           ]);
+          const autoAdvanceCount = transitionRows.filter(
+            ({ trigger }) => trigger === TaskTransitionTrigger.RESEARCH_AUTO_ADVANCE,
+          ).length;
           const dependencySummaries = Object.freeze(
             dependencyEdges.map(({ dependencyTaskId }): TaskDependencySummary => {
               const dependency = projectTasks.find(({ id }) => id === dependencyTaskId);
@@ -298,6 +307,7 @@ export async function loadAgentWorkspace(
           return Object.freeze({
             activeSession: summarizeSession(activeSession),
             artifacts: Object.freeze([...artifactHistory]),
+            autoAdvanceCount,
             blocked,
             canBeginPlanning: task.phase === TaskPhase.BACKLOG,
             canAcceptPlan:

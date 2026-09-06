@@ -23,6 +23,7 @@ function overview(): WorkspaceTaskOverview {
   return Object.freeze({
     activeSession: undefined,
     artifacts: Object.freeze([]),
+    autoAdvanceCount: 0,
     canAcceptPlan: false,
     canApproveReview: false,
     canBeginPlanning: false,
