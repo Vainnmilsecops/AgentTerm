@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  AgentSessionStatus,
   ExecutionArtifactKind,
   TaskPhase,
   createExecutionArtifact,
@@ -47,7 +48,7 @@ class InMemorySessionRepository implements AgentSessionRepository {
   public async updateOwnership(): Promise<void> {}
 
   public async listActive(): Promise<readonly AgentSession[]> {
-    return Object.freeze([...this.sessions.values()].filter((s) => s.status === 'RUNNING'));
+    return Object.freeze([...this.sessions.values()].filter((s) => s.status === AgentSessionStatus.WORKING));
   }
 
   public async listByTaskId(taskId: string): Promise<readonly AgentSession[]> {
@@ -142,7 +143,7 @@ describe('recordResearchArtifact', () => {
       id: 'session-1',
       status: 'IDLE',
       taskId: 'task-1',
-    } as AgentSession);
+    } as unknown as AgentSession);
 
     const stored = await recordResearchArtifact(
       {
@@ -171,7 +172,7 @@ describe('recordResearchArtifact', () => {
       id: 'session-1',
       status: 'IDLE',
       taskId: 'task-1',
-    } as AgentSession);
+    } as unknown as AgentSession);
     await expect(
       recordResearchArtifact(
         {
@@ -195,7 +196,7 @@ describe('recordResearchArtifact', () => {
       id: 'session-1',
       status: 'IDLE',
       taskId: 'task-2',
-    } as AgentSession);
+    } as unknown as AgentSession);
     await expect(
       recordResearchArtifact(
         {
@@ -237,7 +238,7 @@ describe('recordResearchArtifact', () => {
       id: 'session-1',
       status: 'IDLE',
       taskId: 'task-1',
-    } as AgentSession);
+    } as unknown as AgentSession);
     await expect(
       recordResearchArtifact(
         {
@@ -276,7 +277,7 @@ describe('startTaskResearch preflight', () => {
         {
           agentId: 'agent-1',
           environment: Object.freeze({}),
-          initialSize: { cols: 80, rows: 24 },
+          initialSize: { columns: 80, rows: 24 },
           sessionId: 'session-r1',
           taskId: 'task-1',
         },
@@ -303,7 +304,7 @@ describe('startTaskResearch preflight', () => {
           id: 'session-r1',
           status: 'IDLE',
           taskId: 'task-1',
-        } as AgentSession),
+        } as unknown as AgentSession),
         start: vi.fn(),
       },
       tasks: tasks as never,
@@ -314,7 +315,7 @@ describe('startTaskResearch preflight', () => {
         {
           agentId: 'agent-1',
           environment: Object.freeze({}),
-          initialSize: { cols: 80, rows: 24 },
+          initialSize: { columns: 80, rows: 24 },
           sessionId: 'session-r1',
           taskId: 'task-1',
         },
@@ -345,9 +346,9 @@ describe('startTaskResearch preflight', () => {
               },
             ]),
             id: 'session-active',
-            status: 'RUNNING',
+            status: AgentSessionStatus.WORKING,
             taskId: 'task-1',
-          } as AgentSession,
+          } as unknown as AgentSession,
         ]),
         findOwnedRuntimeByTaskId: vi.fn().mockResolvedValue(undefined),
         findById: vi.fn().mockResolvedValue(undefined),
@@ -361,7 +362,7 @@ describe('startTaskResearch preflight', () => {
         {
           agentId: 'agent-1',
           environment: Object.freeze({}),
-          initialSize: { cols: 80, rows: 24 },
+          initialSize: { columns: 80, rows: 24 },
           sessionId: 'session-r1',
           taskId: 'task-1',
         },

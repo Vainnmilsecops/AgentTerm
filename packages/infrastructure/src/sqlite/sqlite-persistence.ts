@@ -15,6 +15,7 @@ import type {
   TaskReviewRepository,
   TaskCatalog,
   TaskDependencyRepository,
+  TaskTransitionLog,
   TaskWorktreeRepository,
   WorkflowPluginBindingRepository,
   WorkspaceLayoutRepository,
@@ -35,6 +36,7 @@ import {
 } from './repositories';
 import { SqliteWorkflowPluginBindingRepository } from './workflow-plugin-bindings';
 import { SqliteWorkspaceLayoutRepository } from './workspace-layout-repository';
+import { SqliteTaskTransitionLog } from './task-transition-audit';
 
 type NodeSqliteModule = typeof import('node:sqlite');
 
@@ -50,6 +52,7 @@ export interface SqlitePersistence {
   readonly settings: ApplicationSettingsRepository;
   readonly tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
   readonly taskDependencies: TaskDependencyRepository;
+  readonly taskTransitions: TaskTransitionLog;
   readonly reviews: TaskReviewRepository;
   readonly worktrees: TaskWorktreeRepository;
   readonly workspaceLayout: WorkspaceLayoutRepository;
@@ -75,6 +78,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let settings: ApplicationSettingsRepository;
   let tasks: TaskCatalog & TaskPlanningRepository & TaskRepository;
   let taskDependencies: TaskDependencyRepository;
+  let taskTransitions: TaskTransitionLog;
   let reviews: TaskReviewRepository;
   let worktrees: TaskWorktreeRepository;
   let workspaceLayout: WorkspaceLayoutRepository;
@@ -96,6 +100,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     settings = new SqliteApplicationSettingsRepository(database);
     tasks = new SqliteTaskRepository(database);
     taskDependencies = new SqliteTaskDependencyRepository(database);
+    taskTransitions = new SqliteTaskTransitionLog(database);
     reviews = new SqliteTaskReviewRepository(database);
     worktrees = new SqliteTaskWorktreeRepository(database);
     workspaceLayout = new SqliteWorkspaceLayoutRepository(database);
@@ -116,6 +121,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
     settings,
     tasks,
     taskDependencies,
+    taskTransitions,
     reviews,
     worktrees,
     workspaceLayout,

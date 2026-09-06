@@ -23,6 +23,7 @@ import {
   loadWorkspaceLayout,
   openProject as openApplicationProject,
   pushTaskBranch,
+  recordResearchArtifact,
   refreshTaskPullRequest,
   registerQualityGate,
   removeTaskDependency,
@@ -319,10 +320,33 @@ export async function createProductionDesktopApplication(
           { taskId: input.taskId, to: 'PLANNING' },
           persistence.tasks,
           persistence.artifacts,
+          persistence.taskTransitions,
         );
       },
       createArtifact: async (input) => {
         requireOpen();
+        // RESEARCH artifacts take the orchestrator path (M6) only when a
+        // session id is available for provenance. Legacy callers without a
+        // session still use the plain `createExecutionArtifact` path so the
+        // desktop does not break in-process composition tests.
+        if (input.kind === 'research' && input.sessionId !== undefined) {
+          return recordResearchArtifact(
+            {
+              content: input.content,
+              createdAt: input.createdAt,
+              id: input.id,
+              sessionId: input.sessionId,
+              taskId: input.taskId,
+            },
+            {
+              applicationSettings: persistence.settings,
+              artifacts: persistence.artifacts,
+              sessions: persistence.sessions,
+              taskTransitions: persistence.taskTransitions,
+              tasks: persistence.tasks,
+            },
+          );
+        }
         return createExecutionArtifact(
           input,
           persistence.tasks,
@@ -419,6 +443,7 @@ export async function createProductionDesktopApplication(
             configurator: workflowPluginConfigurator,
             pluginBindings: persistence.workflowPluginBindings,
           },
+          persistence.taskTransitions,
         );
       },
       loadWorkspaceLayout: async () => {

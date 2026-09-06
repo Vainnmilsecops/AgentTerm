@@ -255,6 +255,7 @@ export type {
   PullRequestReviewState,
   PullRequestStatus,
   TaskPullRequest,
+  TaskTransitionLog,
   TaskWorktree,
   TaskWorktreeCleanupResult,
   TaskWorktreeEnsureResult,

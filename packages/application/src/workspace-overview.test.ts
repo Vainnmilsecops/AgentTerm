@@ -492,6 +492,7 @@ describe('loadAgentWorkspace', () => {
             {
               activeSession: workingSummary,
               artifacts: [plan, summary],
+              autoAdvanceCount: 0,
               blocked: false,
               canBeginPlanning: false,
               canAcceptPlan: false,
@@ -517,6 +518,7 @@ describe('loadAgentWorkspace', () => {
             {
               activeSession: olderActiveSummary,
               artifacts: [],
+              autoAdvanceCount: 0,
               blocked: false,
               canBeginPlanning: false,
               canAcceptPlan: false,

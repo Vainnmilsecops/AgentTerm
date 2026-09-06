@@ -54,6 +54,7 @@ function emptyTask(
   return {
     activeSession: undefined,
     artifacts: [],
+    autoAdvanceCount: 0,
     blocked: false,
     canAcceptPlan: false,
     canApproveReview: false,

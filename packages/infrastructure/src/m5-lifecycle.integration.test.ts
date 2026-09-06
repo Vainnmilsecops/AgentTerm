@@ -61,6 +61,7 @@ class FixtureAgentAdapter implements AgentAdapter {
 
   public async inspect() {
     return Object.freeze({
+      capabilities: Object.freeze(['SESSION_RESUME']) as readonly ['SESSION_RESUME'],
       executablePath: `C:\\bin\\${this.identity.id}.exe`,
       kind: 'available' as const,
     });

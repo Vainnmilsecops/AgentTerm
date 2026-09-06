@@ -1,5 +1,7 @@
 import {
   createTask as createDomainTask,
+  createTaskTransitionAudit,
+  TaskTransitionTrigger,
   transitionTask as transitionDomainTask,
   type CreateTaskInput,
   type Task,
@@ -13,15 +15,24 @@ import {
   TaskPlanningFlowRequiredError,
   TaskReviewFlowRequiredError,
 } from './errors';
-import type { ExecutionArtifactRepository, ProjectRepository, TaskRepository } from './ports';
+import type {
+  ExecutionArtifactRepository,
+  ProjectRepository,
+  TaskRepository,
+  TaskTransitionLog,
+} from './ports';
 
 export interface TransitionTaskInput {
+  readonly artifactId?: string;
   readonly taskId: string;
   readonly to: TaskPhase;
+  readonly trigger?: TaskTransitionTrigger;
 }
 
 export interface TransitionTaskDependencies {
   readonly artifacts?: ExecutionArtifactRepository;
+  readonly clock?: () => number;
+  readonly taskTransitions?: TaskTransitionLog;
   readonly tasks: TaskRepository;
 }
 
@@ -48,6 +59,8 @@ export async function transitionTask(
   input: TransitionTaskInput,
   tasks: TaskRepository,
   artifacts?: ExecutionArtifactRepository,
+  taskTransitions?: TaskTransitionLog,
+  clock?: () => number,
 ): Promise<Task> {
   const task = await tasks.findById(input.taskId);
 
@@ -76,5 +89,21 @@ export async function transitionTask(
 
   const transitionedTask = transitionDomainTask(task, input.to);
   await tasks.update(transitionedTask, task.phase);
+
+  if (taskTransitions !== undefined) {
+    const createdAt = clock?.() ?? Date.now();
+    await taskTransitions.append(
+      createTaskTransitionAudit({
+        ...(input.artifactId === undefined ? {} : { artifactId: input.artifactId }),
+        createdAt,
+        fromPhase: task.phase,
+        id: `audit-${task.id}-${task.phase}->${input.to}-${createdAt}`,
+        taskId: task.id,
+        toPhase: input.to,
+        trigger: input.trigger ?? TaskTransitionTrigger.MANUAL,
+      }),
+    );
+  }
+
   return transitionedTask;
 }
