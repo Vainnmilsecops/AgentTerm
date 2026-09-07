@@ -57,6 +57,7 @@ export interface TerminalRendererProps {
   readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
   readonly onStopAgent?: (sessionId: string) => void;
+  readonly onSlashCommand?: (kind: 'brainstorm' | 'sweep') => void;
   readonly paneId?: string;
   readonly sessionId?: string;
   readonly taskId?: string;
@@ -76,6 +77,7 @@ export function TerminalRenderer({
   onOpenExternalLink,
   onOpenWorktreeFile,
   onRuntimeEvent,
+  onSlashCommand,
   onStopAgent,
   paneId = 'primary',
   sessionId,
@@ -179,16 +181,20 @@ export function TerminalRenderer({
     );
     controllerRef.current = controller;
     const unsubscribeMouseMode = controller.onMouseModeChange(setMouseMode);
+    const unsubscribeSlash = onSlashCommand
+      ? controller.onSlashCommand((event) => onSlashCommand(event.kind))
+      : undefined;
     controller.mount(container);
     return () => {
       unsubscribeMouseMode();
+      unsubscribeSlash?.();
       if (controllerRef.current === controller) {
         controllerRef.current = undefined;
       }
       surfaceRef.current = undefined;
       controller.dispose();
     };
-  }, [client]);
+  }, [client, onSlashCommand]);
 
   useEffect(() => {
     void controllerRef.current?.setSession(sessionId, client);

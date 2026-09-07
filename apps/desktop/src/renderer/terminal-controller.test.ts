@@ -572,4 +572,74 @@ describe('TerminalController — serialized input queue', () => {
     await controller.flushInputQueue();
     expect((client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0])).toEqual(['a', 'b']);
   });
+
+  describe('slash-command detection', () => {
+    it('emits brainstorm when the user types /agtx:brainstorm + Enter', async () => {
+      const surface = new FakeTerminalSurface();
+      const client = new FakeTerminalSessionClient();
+      const controller = new TerminalController(surface);
+      controller.mount({} as HTMLElement);
+      await controller.setSession('session-1', client);
+
+      const listener = vi.fn();
+      controller.onSlashCommand(listener);
+
+      surface.emitInput('/agtx:brainstorm\r');
+      await Promise.resolve();
+
+      expect(listener).toHaveBeenCalledWith({ kind: 'brainstorm' });
+      expect(client.attachment.write).not.toHaveBeenCalled();
+    });
+
+    it('emits sweep when the user types /agtx:sweep + Enter', async () => {
+      const surface = new FakeTerminalSurface();
+      const client = new FakeTerminalSessionClient();
+      const controller = new TerminalController(surface);
+      controller.mount({} as HTMLElement);
+      await controller.setSession('session-1', client);
+
+      const listener = vi.fn();
+      controller.onSlashCommand(listener);
+
+      surface.emitInput('/agtx:sweep\r');
+      await Promise.resolve();
+
+      expect(listener).toHaveBeenCalledWith({ kind: 'sweep' });
+      expect(client.attachment.write).not.toHaveBeenCalled();
+    });
+
+    it('forwards normal input bytes unchanged', async () => {
+      const surface = new FakeTerminalSurface();
+      const client = new FakeTerminalSessionClient();
+      const controller = new TerminalController(surface);
+      controller.mount({} as HTMLElement);
+      await controller.setSession('session-1', client);
+
+      const listener = vi.fn();
+      controller.onSlashCommand(listener);
+
+      surface.emitInput('echo /agtx:brainstorm\r');
+      await Promise.resolve();
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(client.attachment.write).toHaveBeenCalledWith('echo /agtx:brainstorm\r');
+    });
+
+    it('does not emit slash command when text contains a trailing extra char', async () => {
+      const surface = new FakeTerminalSurface();
+      const client = new FakeTerminalSessionClient();
+      const controller = new TerminalController(surface);
+      controller.mount({} as HTMLElement);
+      await controller.setSession('session-1', client);
+
+      const listener = vi.fn();
+      controller.onSlashCommand(listener);
+
+      surface.emitInput('/agtx:brainstorm!\r');
+      await Promise.resolve();
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(client.attachment.write).toHaveBeenCalledWith('/agtx:brainstorm!\r');
+    });
+  });
 });

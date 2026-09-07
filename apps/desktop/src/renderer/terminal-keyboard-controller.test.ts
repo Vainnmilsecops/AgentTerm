@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   decideKeyOutcome,
+  detectSlashCommand,
   type KeyboardEventLike,
   type Modifier,
   type TerminalKeyOutcome,
@@ -121,5 +122,35 @@ describe('decideKeyOutcome — selector modes', () => {
       shiftKey: false,
     };
     expect(decideKeyOutcome(event, { hasSelection: false })).toBe('PASTE');
+  });
+});
+
+describe('detectSlashCommand', () => {
+  it.each([
+    ['/agtx:brainstorm', 'brainstorm'],
+    ['/agtx:sweep', 'sweep'],
+    ['/agtx:brainstorm ', 'brainstorm'],
+    ['/agtx:sweep ', 'sweep'],
+  ])('matches %s', (input, expected) => {
+    expect(detectSlashCommand(input)).toEqual({ kind: expected });
+  });
+
+  it.each([
+    '',
+    '   ',
+    '/agtx:brainstorm!',
+    '/agtx:sweepx',
+    'echo /agtx:brainstorm',
+    'echo /agtx:brainstorm\n',
+    ' /agtx:brainstorm',
+    '/AGTX:BRAINSTORM',
+    '/agtx:unknown',
+    '/agtx:brainstorm extra',
+  ])('rejects %s', (input) => {
+    expect(detectSlashCommand(input)).toBeUndefined();
+  });
+
+  it('handles trailing carriage return separately from the match boundary', () => {
+    expect(detectSlashCommand('/agtx:brainstorm\r')).toEqual({ kind: 'brainstorm' });
   });
 });

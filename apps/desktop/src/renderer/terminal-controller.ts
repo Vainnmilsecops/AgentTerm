@@ -14,6 +14,7 @@ import {
   type MouseMode,
   parseMouseModeChunk,
 } from './terminal-mouse-mode-parser';
+import { detectSlashCommand } from './terminal-keyboard-controller';
 
 export type MouseModeListener = (mode: MouseMode) => void;
 
@@ -78,6 +79,14 @@ export interface TerminalPasteOutcome {
   readonly status: 'accepted' | 'confirmed' | 'paste-unavailable' | 'rejected';
 }
 
+export type SlashCommandKind = 'brainstorm' | 'sweep';
+
+export interface SlashCommandEvent {
+  readonly kind: SlashCommandKind;
+}
+
+export type SlashCommandListener = (event: SlashCommandEvent) => void;
+
 export class TerminalController {
   private active: ActiveAttachment | undefined;
   private disposed = false;
@@ -90,6 +99,8 @@ export class TerminalController {
   private readonly surface: TerminalSurface;
   private readonly pendingWrites: Array<Promise<unknown>> = [];
   private readonly mouseModeListeners = new Set<MouseModeListener>();
+  private readonly slashCommandListeners = new Set<SlashCommandListener>();
+  private readonly lineBuffer: string[] = [];
   private mouseMode: MouseMode = INITIAL_MOUSE_MODE;
   private mouseModePending: string | null = null;
   public inputUnavailable = false;
@@ -107,13 +118,31 @@ export class TerminalController {
     this.failureSink = failureSink;
   }
 
+  public onSlashCommand(listener: SlashCommandListener): () => void {
+    this.slashCommandListeners.add(listener);
+    return () => {
+      this.slashCommandListeners.delete(listener);
+    };
+  }
+
+  private emitSlashCommand(kind: SlashCommandKind): void {
+    const event: SlashCommandEvent = { kind };
+    for (const listener of this.slashCommandListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Defensive: a misbehaving listener must never break the input pipeline.
+      }
+    }
+  }
+
   public mount(container: HTMLElement): void {
     if (this.disposed || this.inputSubscription !== undefined) {
       return;
     }
     this.surface.open(container);
     this.inputSubscription = this.surface.onInput((data) => {
-      this.enqueueWrite(data, 'write');
+      this.trackInputAndForward(data);
     });
     this.resizeSubscription = this.surface.onResize((size) => {
       const current = this.active;
@@ -179,6 +208,47 @@ export class TerminalController {
       failure: undefined,
       status: paste === undefined ? 'accepted' : 'confirmed',
     };
+  }
+
+  private trackInputAndForward(data: string): void {
+    let cursor = 0;
+    while (cursor < data.length) {
+      const terminatorIndex = this.indexOfLineTerminator(data, cursor);
+      if (terminatorIndex === -1) {
+        // No Enter in this chunk: forward the whole chunk and extend the line
+        // buffer with everything we received. Preserves the existing
+        // write-chunk semantics used by the terminal-input tests.
+        const chunk = data.slice(cursor);
+        this.lineBuffer.push(chunk);
+        this.enqueueWrite(chunk, 'write');
+        return;
+      }
+      const line = `${this.lineBuffer.join('')}${data.slice(cursor, terminatorIndex)}`;
+      const terminator = data[terminatorIndex] as string;
+      this.lineBuffer.length = 0;
+      const detection = detectSlashCommand(line);
+      if (detection !== undefined) {
+        this.emitSlashCommand(detection.kind);
+        // Drop the matched line + its Enter; nothing is forwarded to the PTY.
+        // The user sees the overlay open instead of the literal command
+        // reaching the agent shell.
+        cursor = terminatorIndex + 1;
+        continue;
+      }
+      const forwarded = line.length === 0 ? terminator : `${line}${terminator}`;
+      this.enqueueWrite(forwarded, 'write');
+      cursor = terminatorIndex + 1;
+    }
+  }
+
+  private indexOfLineTerminator(data: string, fromIndex: number): number {
+    for (let index = fromIndex; index < data.length; index += 1) {
+      const char = data[index];
+      if (char === '\r' || char === '\n') {
+        return index;
+      }
+    }
+    return -1;
   }
 
   private enqueueWrite(data: string, operation: 'paste' | 'write'): void {

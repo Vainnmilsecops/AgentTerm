@@ -27,6 +27,7 @@ export interface WorkspaceTerminalsProps {
   readonly onOpenExternalLink?: (url: string) => void;
   readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
   readonly onRuntimeEvent: (event: PtyRuntimeEvent) => void;
+  readonly onSlashCommand?: (kind: 'brainstorm' | 'sweep') => void;
   readonly onSplit: (sessionId: string) => void;
   readonly onStopAgent?: (sessionId: string) => void;
   readonly overview: AgentWorkspaceOverview;
@@ -45,6 +46,7 @@ export function WorkspaceTerminals({
   onOpenExternalLink,
   onOpenWorktreeFile,
   onRuntimeEvent,
+  onSlashCommand,
   onSplit,
   onStopAgent,
   overview,
@@ -185,6 +187,7 @@ export function WorkspaceTerminals({
                   {...(onOpenExternalLink !== undefined ? { onOpenExternalLink } : {})}
                   {...(onOpenWorktreeFile !== undefined ? { onOpenWorktreeFile } : {})}
                   onRuntimeEvent={onRuntimeEvent}
+                  {...(onSlashCommand !== undefined ? { onSlashCommand } : {})}
                   {...(onStopAgent !== undefined ? { onStopAgent } : {})}
                   paneId={pane.id}
                   {...(pane.sessionId === undefined ? {} : { sessionId: pane.sessionId })}
