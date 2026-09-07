@@ -342,3 +342,15 @@ to M2.
   artifact is recorded; transitions are appended to
   `task_transition_audit` (migration 19) with `RESEARCH_AUTO_ADVANCE` vs
   `MANUAL` triggers.
+- **M7 — Brainstorm / Sweep in-session capture** (ADR-018): shipped via PR #49 on
+  2026-09-07. Extends `ExecutionArtifactKind` with `BRAINSTORM` and `SWEEP`;
+  two narrow application use cases (`recordBrainstormArtifact`,
+  `recordSweepArtifact`); new IPC channels; palette commands and
+  `Alt+Shift+B` / `Alt+Shift+W` mnemonic shortcuts; artifact history
+  labels the new kinds with distinct eyebrows.
+- **M7.5 — Slash-command trigger** (ADR-018 AD-1): adds the `/agtx:brainstorm`
+  and `/agtx:sweep` Enter-boundary detector inside `TerminalController`
+  (exact-match regex, zero false-positive on mid-line or extra-char
+  inputs); replaces the `window.prompt` collector with a
+  `SessionNoteCaptureOverlay` React component (multi-line textarea,
+  `Ctrl+Enter` submit, `Esc` cancel, NUL-byte and length validation).

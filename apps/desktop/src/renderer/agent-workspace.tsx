@@ -48,6 +48,7 @@ import {
   type WorkspaceFocusTarget,
 } from './workspace-command-palette';
 import { resolveWorkspaceMnemonic } from './mnemonic-hints';
+import { SessionNoteCaptureOverlay } from './session-note-capture-overlay';
 import {
   WorkspaceController,
   type AgentWorkspaceClient,
@@ -265,6 +266,14 @@ export function AgentWorkspaceView({
   const [compactNavigatorOpen, setCompactNavigatorOpen] = useState(false);
   const [narrowViewport, setNarrowViewport] = useState(false);
   const [navigatedProjectId, setNavigatedProjectId] = useState<string | undefined>(undefined);
+  const [noteCapture, setNoteCapture] = useState<
+    | {
+        readonly busy: boolean;
+        readonly errorMessage: string | undefined;
+        readonly kind: 'brainstorm' | 'sweep';
+      }
+    | undefined
+  >(undefined);
   const [activeTerminalContext, setActiveTerminalContext] = useState<ActiveTerminalContext>(() =>
     Object.freeze({ connectionState: 'empty' }),
   );
@@ -671,14 +680,8 @@ export function AgentWorkspaceView({
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
       startResearch: onStartResearch,
-      captureBrainstormNote: () => {
-        const input = promptForBrainstormNote();
-        if (input !== undefined) onCaptureBrainstormNote(input);
-      },
-      captureSweepNote: () => {
-        const input = promptForSweepNote();
-        if (input !== undefined) onCaptureSweepNote(input);
-      },
+      captureBrainstormNote: () => openNoteCapture('brainstorm'),
+      captureSweepNote: () => openNoteCapture('sweep'),
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
       importQualityGateConfig: () => onImportQualityGateConfig(),
       exportQualityGateConfig: () =>
@@ -699,6 +702,46 @@ export function AgentWorkspaceView({
       const returnTarget = paletteReturnFocus.current;
       queueMicrotask(() => returnTarget?.focus({ preventScroll: true }));
     }
+  };
+
+  const openNoteCapture = (kind: 'brainstorm' | 'sweep'): void => {
+    setNoteCapture({ busy: false, errorMessage: undefined, kind });
+  };
+
+  const cancelNoteCapture = (): void => {
+    setNoteCapture(undefined);
+  };
+
+  const submitNoteCapture = (input: { readonly content: string }): void => {
+    setNoteCapture((current) =>
+      current === undefined ? current : { ...current, busy: true, errorMessage: undefined },
+    );
+    const dispatch =
+      noteCapture?.kind === 'sweep'
+        ? onCaptureSweepNote
+        : noteCapture?.kind === 'brainstorm'
+          ? onCaptureBrainstormNote
+          : undefined;
+    if (dispatch === undefined || noteCapture === undefined) {
+      setNoteCapture(undefined);
+      return;
+    }
+    void Promise.resolve(
+      dispatch({
+        content: input.content,
+        id: `note-${noteCapture.kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      }),
+    ).then(
+      () => {
+        setNoteCapture(undefined);
+      },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Note could not be saved.';
+        setNoteCapture((current) =>
+          current === undefined ? current : { ...current, busy: false, errorMessage: message },
+        );
+      },
+    );
   };
 
   const handlePaletteAction = (action: CommandPaletteAction, resultCount: number): void => {
@@ -766,6 +809,7 @@ export function AgentWorkspaceView({
             onRuntimeEvent={(event) => {
               if (event.kind !== 'output') onRefresh();
             }}
+            onSlashCommand={(kind) => openNoteCapture(kind)}
             onSplit={onSplitTerminal}
             {...(onStopAgent !== undefined ? { onStopAgent } : {})}
             overview={snapshot.overview}
@@ -802,6 +846,15 @@ export function AgentWorkspaceView({
         recents={commandRecents}
         state={paletteState}
       />
+      {noteCapture !== undefined ? (
+        <SessionNoteCaptureOverlay
+          busy={noteCapture.busy}
+          errorMessage={noteCapture.errorMessage}
+          kind={noteCapture.kind}
+          onCancel={cancelNoteCapture}
+          onSubmit={submitNoteCapture}
+        />
+      ) : null}
     </Fragment>
   );
 
@@ -3047,42 +3100,4 @@ function trapFocusWithin(event: KeyboardEvent, container: HTMLElement): void {
     event.preventDefault();
     first.focus({ preventScroll: true });
   }
-}
-
-function promptForBrainstormNote():
-  | { readonly content: string; readonly id: string }
-  | undefined {
-  return promptForSessionNote('brainstorm');
-}
-
-function promptForSweepNote():
-  | { readonly content: string; readonly id: string }
-  | undefined {
-  return promptForSessionNote('sweep');
-}
-
-function promptForSessionNote(
-  kind: 'brainstorm' | 'sweep',
-): { readonly content: string; readonly id: string } | undefined {
-  const heading = kind === 'brainstorm' ? '# Brainstorm' : '# Sweep';
-  const hint =
-    kind === 'brainstorm'
-      ? 'Capture the rough idea, the constraint, and the question before the agent replies.'
-      : 'Capture the final takeaways, open risks, and next concrete step before the session exits.';
-  const raw = window.prompt(`${heading}\n\n${hint}`, `${heading}\n\n`);
-  if (raw === null) {
-    return undefined;
-  }
-  if (!raw.startsWith(`${heading}\n\n`)) {
-    window.alert(`The note must start with the ${heading} heading followed by a blank line.`);
-    return undefined;
-  }
-  if (raw.slice(heading.length + 2).trim() === '') {
-    window.alert('The note body must not be empty.');
-    return undefined;
-  }
-  return {
-    content: raw,
-    id: `note-${kind}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-  };
 }

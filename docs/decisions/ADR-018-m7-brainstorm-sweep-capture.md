@@ -1,7 +1,7 @@
 # ADR-018: M7 — Brainstorm / Sweep in-session capture
 
 Status: Accepted
-Date: 2026-09-06
+Date: 2026-09-07
 Owner: AgentTerm desktop renderer + application
 Depends on: ADR-009 (M3 research artifact contract),
 ADR-011 (terminal input pipeline), ADR-016 (renderer workflow).
@@ -67,14 +67,22 @@ The renderer exposes two capture paths, both keyboard-first:
 - A **mnemonic hint** (`Alt+Shift+B` for brainstorm, `Alt+Shift+W` for
   sweep) on the focused terminal pane, mirroring the existing
   `task:start-research` shortcuts.
+- A **slash command** (`/agtx:brainstorm` or `/agtx:sweep` + `Enter`) inside
+  the xterm buffer. The detector lives inside `TerminalController`:
+  a pure `detectSlashCommand(line)` function (exact-match regex
+  `/^\/agtx:(brainstorm|sweep)\s?$/`) runs at each line-terminator
+  boundary, suppressing PTY forward when the line matches and emitting a
+  `SlashCommandEvent` through a `TerminalController.onSlashCommand`
+  listener. The `TerminalRenderer` wires the listener to open the
+  `SessionNoteCaptureOverlay`. Non-matching lines (including mid-line
+  mentions, leading whitespace, or extra trailing characters) flow through
+  to the PTY unchanged.
 
-The slash-command trigger (`/agtx:brainstorm`, `/agtx:sweep`) is
-intentionally deferred to a follow-up milestone (M7.5) because it
-requires intercepting the xterm input buffer at the Enter boundary —
-which would touch the terminal input pipeline in ways that risk
-introducing a false-positive input intercept for paths that happen to
-start with `/agtx:…`. The keyboard + palette path delivers the same
-user value with zero risk of misrouting real agent input.
+The slash-command detector is renderer-only; no new IPC channel, no
+change to Application or Domain. The `SessionNoteCaptureOverlay` replaces
+the `window.prompt` collector from M7 with a proper modal (multi-line
+textarea, live preview, `Ctrl+Enter` submit, `Esc` cancel, NUL-byte and
+length validation).
 
 The decision to keep these actions in Presentation is consistent with
 ADR-011 (terminal input pipeline) and ADR-016 (renderer workflow):

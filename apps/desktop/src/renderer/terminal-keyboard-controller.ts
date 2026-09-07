@@ -97,3 +97,38 @@ export function buildDecision(
 }
 
 export const ETX_BYTE = ETX;
+
+export type SessionNoteKind = Extract<'brainstorm' | 'sweep', string>;
+
+/**
+ * Pure detector for the M7.5 slash-command trigger.
+ *
+ * The detector consumes the line the user is currently typing inside the
+ * xterm buffer (without the trailing Enter) and reports whether it is one of
+ * the AgentTerm-managed slash commands. The match is intentionally strict:
+ * the line must equal `/agtx:brainstorm` or `/agtx:sweep`, optionally followed
+ * by a single trailing space, and nothing else. Any leading whitespace,
+ * trailing content, mid-line mention, or case mismatch falls through to the
+ * regular PTY write path.
+ *
+ * This is a pure decision — the caller is responsible for the line-buffer
+ * tracking and the byte forwarding. Keeping the detector pure lets both the
+ * terminal-input-glue and the unit tests exercise it without an xterm.
+ */
+const SLASH_COMMAND_REGEX = /^\/agtx:(brainstorm|sweep)\s?$/;
+
+export interface SlashCommandDecision {
+  readonly kind: 'brainstorm' | 'sweep';
+}
+
+export function detectSlashCommand(line: string): SlashCommandDecision | undefined {
+  const trimmed = line.replace(/\r+$/, '');
+  if (trimmed.length === 0) return undefined;
+  const match = SLASH_COMMAND_REGEX.exec(trimmed);
+  if (match === null) return undefined;
+  const token = match[1];
+  if (token !== 'brainstorm' && token !== 'sweep') {
+    return undefined;
+  }
+  return { kind: token };
+}
