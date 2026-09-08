@@ -354,3 +354,12 @@ to M2.
   inputs); replaces the `window.prompt` collector with a
   `SessionNoteCaptureOverlay` React component (multi-line textarea,
   `Ctrl+Enter` submit, `Esc` cancel, NUL-byte and length validation).
+- **M2 — Workflow plugin Settings + IPC** (ADR-010): ships the
+  `WorkflowPluginConfigurator` panel under Settings, the
+  `selectWorkflowPluginPath` + `installWorkflowPluginForTask` IPC channels,
+  and the dedicated main-process installer seam
+  (`WorkflowPluginInstaller`). The renderer never receives an arbitrary
+  filesystem path from untrusted code: the native dialog is owned by the
+  main process and the trust-root check + compare-and-set binding revision
+  enforcement run through `installWorkflowPluginForTask` in
+  `@agentterm/application`.

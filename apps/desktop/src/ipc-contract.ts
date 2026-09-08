@@ -39,6 +39,7 @@ export const desktopIpcChannels = Object.freeze({
   createPullRequest: 'agentterm:pull-request:create',
   getTaskFileDiff: 'agentterm:changes:diff',
   importQualityGateConfig: 'agentterm:quality-gates:import-config',
+  installWorkflowPluginForTask: 'agentterm:workflow-plugin:install',
   inspectPullRequest: 'agentterm:pull-request:inspect',
   listProjectTasks: 'agentterm:project-tasks:list',
   listQualityGateDetails: 'agentterm:quality-gates:list-details',
@@ -66,6 +67,7 @@ export const desktopIpcChannels = Object.freeze({
   saveQualityGateConfig: 'agentterm:quality-gates:save-config',
   saveWorkspaceLayout: 'agentterm:workspace-layout:save',
   selectQualityGateConfigPath: 'agentterm:quality-gates:select-config-path',
+  selectWorkflowPluginPath: 'agentterm:workflow-plugin:select-path',
   recordBrainstormArtifact: 'agentterm:artifact:brainstorm:record',
   recordSweepArtifact: 'agentterm:artifact:sweep:record',
   startExecution: 'agentterm:execution:start',
@@ -169,6 +171,34 @@ export interface SelectQualityGateConfigPathResponse {
   readonly result: SelectQualityGateConfigPathResult;
 }
 
+export type SelectWorkflowPluginPathResult = 'CANCELLED' | 'SELECTED';
+
+export interface SelectWorkflowPluginPathResponse {
+  readonly path: string | undefined;
+  readonly result: SelectWorkflowPluginPathResult;
+}
+
+export interface InstallWorkflowPluginRequest {
+  /**
+   * Revision the renderer expects to be persisted before the install. Pass
+   * `0` for a first-time install; pass the previous binding's `revision`
+   * for an update so the main-process compares it atomically.
+   */
+  readonly expectedRevision: number;
+  /** Path to the trusted plugin file inside `AT_DESKTOP_PLUGIN_ROOT`. */
+  readonly path: string;
+  /** Task for which the plugin binding is installed. */
+  readonly taskId: string;
+}
+
+export interface InstallWorkflowPluginResponse {
+  readonly activePhaseId: string;
+  readonly bindingRevision: number;
+  readonly pluginId: string;
+  readonly pluginName: string;
+  readonly sourcePath: string;
+}
+
 export interface ImportQualityGateConfigResponse {
   readonly configuration: QualityGateConfiguration;
   readonly registered: readonly QualityGate[];
@@ -239,6 +269,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.createPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.getTaskFileDiff]: GetTaskFileDiffInput;
   readonly [desktopIpcChannels.importQualityGateConfig]: QualityGateConfigPathRequest;
+  readonly [desktopIpcChannels.installWorkflowPluginForTask]: InstallWorkflowPluginRequest;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.listProjectTasks]: ProjectTasksRequest;
   readonly [desktopIpcChannels.listQualityGateDetails]: EmptyRequest;
@@ -266,6 +297,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigRequest;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: SaveWorkspaceLayoutRequest;
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: EmptyRequest;
+  readonly [desktopIpcChannels.selectWorkflowPluginPath]: EmptyRequest;
   readonly [desktopIpcChannels.recordBrainstormArtifact]: RecordSessionNoteRequest;
   readonly [desktopIpcChannels.recordSweepArtifact]: RecordSessionNoteRequest;
   readonly [desktopIpcChannels.startExecution]: AgentTaskRequest;
@@ -291,6 +323,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.createPullRequest]: null;
   readonly [desktopIpcChannels.getTaskFileDiff]: TaskFileDiff;
   readonly [desktopIpcChannels.importQualityGateConfig]: ImportQualityGateConfigResponse;
+  readonly [desktopIpcChannels.installWorkflowPluginForTask]: InstallWorkflowPluginResponse;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskPullRequestState;
   readonly [desktopIpcChannels.listProjectTasks]: readonly Task[];
   readonly [desktopIpcChannels.listQualityGateDetails]: readonly QualityGate[];
@@ -318,6 +351,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigResponse;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: WorkspaceLayoutReadModel;
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: SelectQualityGateConfigPathResponse;
+  readonly [desktopIpcChannels.selectWorkflowPluginPath]: SelectWorkflowPluginPathResponse;
   readonly [desktopIpcChannels.recordBrainstormArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.recordSweepArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.startExecution]: null;
@@ -367,6 +401,7 @@ export interface AgentTermDesktopApi {
   createTaskPullRequest(input: TaskRequest): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
   importQualityGateConfig(input: QualityGateConfigPathRequest): Promise<ImportQualityGateConfigResponse>;
+  installWorkflowPluginForTask(input: InstallWorkflowPluginRequest): Promise<InstallWorkflowPluginResponse>;
   inspectTaskPullRequest(input: TaskRequest): Promise<TaskPullRequestState>;
   listProjectTasks(input: ProjectTasksRequest): Promise<readonly Task[]>;
   listQualityGateDetails(): Promise<readonly QualityGate[]>;
@@ -394,6 +429,7 @@ export interface AgentTermDesktopApi {
   saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>;
   saveWorkspaceLayout(input: SaveWorkspaceLayoutRequest): Promise<WorkspaceLayoutReadModel>;
   selectQualityGateConfigPath(): Promise<SelectQualityGateConfigPathResponse>;
+  selectWorkflowPluginPath(): Promise<SelectWorkflowPluginPathResponse>;
   startTaskExecution(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   startTaskPlanning(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   startTaskResearch(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
@@ -431,6 +467,8 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.openProject:
     case desktopIpcChannels.loadWorkspaceLayout:
     case desktopIpcChannels.selectQualityGateConfigPath:
+      return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
+    case desktopIpcChannels.selectWorkflowPluginPath:
       return exactRecord(input, []) as unknown as DesktopIpcRequestMap[C];
     case desktopIpcChannels.openExternalLink: {
       const record = exactRecord(input, ['url']);
@@ -620,6 +658,14 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       const record = exactRecord(input, ['path']);
       return Object.freeze({
         path: readBoundedString(record.path, 32_768),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.installWorkflowPluginForTask: {
+      const record = exactRecord(input, ['expectedRevision', 'path', 'taskId']);
+      return Object.freeze({
+        expectedRevision: readWorkflowPluginExpectedRevision(record.expectedRevision),
+        path: readWorkflowPluginPath(record.path),
+        taskId: readIdentity(record.taskId),
       }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.saveQualityGateConfig: {
@@ -1002,6 +1048,29 @@ function readBoundedString(input: unknown, maximum: number): string {
     input.length > maximum ||
     input.includes('\0')
   ) {
+    fail();
+  }
+  return input;
+}
+
+function readWorkflowPluginPath(input: unknown): string {
+  // Same shape policy as `readWorktreeAbsolutePath`: refuse empty strings,
+  // control bytes, and path-traversal segments. The main-process plugin
+  // configurator re-checks the trust root.
+  if (
+    typeof input !== 'string' ||
+    input.length === 0 ||
+    input.length > 32_768 ||
+    input.includes('\0') ||
+    input.split(/[\\/]+/).some((segment) => segment === '..')
+  ) {
+    fail();
+  }
+  return input;
+}
+
+function readWorkflowPluginExpectedRevision(input: unknown): number {
+  if (typeof input !== 'number' || !Number.isInteger(input) || input < 0 || input > Number.MAX_SAFE_INTEGER) {
     fail();
   }
   return input;

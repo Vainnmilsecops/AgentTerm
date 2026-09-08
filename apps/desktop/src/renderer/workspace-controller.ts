@@ -615,6 +615,32 @@ export class WorkspaceController {
     });
   }
 
+  /**
+   * Hands the user-selected path off to the main process so the trusted
+   * file picker is used. Returns the install summary so the Settings panel
+   * can refresh its binding list.
+   */
+  public async installWorkflowPluginForTask(input: {
+    readonly expectedRevision: number;
+    readonly path: string;
+    readonly taskId: string;
+  }): Promise<{
+    readonly activePhaseId: string;
+    readonly bindingRevision: number;
+    readonly pluginId: string;
+    readonly pluginName: string;
+    readonly sourcePath: string;
+  }> {
+    return this.client.installWorkflowPluginForTask(input);
+  }
+
+  public async selectWorkflowPluginPath(): Promise<{
+    readonly path: string | undefined;
+    readonly result: 'CANCELLED' | 'SELECTED';
+  }> {
+    return this.client.selectWorkflowPluginPath();
+  }
+
   private async refreshQualityGateCatalog(): Promise<void> {
     if (this.snapshot.kind !== 'ready') return;
     try {

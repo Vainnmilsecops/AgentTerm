@@ -11,6 +11,8 @@ import {
   type DesktopIpcErrorCode,
   type DesktopIpcRequestMap,
   type DesktopIpcResponse,
+  type InstallWorkflowPluginRequest,
+  type InstallWorkflowPluginResponse,
   type OpenDesktopProjectResult,
 } from './ipc-contract';
 
@@ -51,10 +53,24 @@ interface RegisterDesktopIpcHandlersInput {
   readonly openBoardWindow: () => void;
   readonly selectProjectDirectory: () => Promise<string | undefined>;
   readonly selectQualityGateConfigFile: () => Promise<string | undefined>;
+  readonly selectWorkflowPluginFile: () => Promise<string | undefined>;
+  readonly workflowPluginInstaller: WorkflowPluginInstaller;
   readonly shell: {
     readonly openExternal: (url: string) => Promise<void>;
     readonly openPath: (absolutePath: string) => Promise<string>;
   };
+}
+
+/**
+ * Main-process seam for installing a workflow plugin binding. Lives on the
+ * IPC handler input because the desktop composition does not own the
+ * trust-root file picker and we want the production wiring to remain the
+ * only path that touches the persisted binding repository.
+ */
+export interface WorkflowPluginInstaller {
+  installWorkflowPluginForTask(
+    input: InstallWorkflowPluginRequest,
+  ): Promise<InstallWorkflowPluginResponse>;
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -221,6 +237,17 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
           return Object.freeze({ path: undefined, result: 'CANCELLED' as const });
         }
         return Object.freeze({ path, result: 'SELECTED' as const });
+      }
+      case desktopIpcChannels.selectWorkflowPluginPath: {
+        const path = await input.selectWorkflowPluginFile();
+        if (path === undefined) {
+          return Object.freeze({ path: undefined, result: 'CANCELLED' as const });
+        }
+        return Object.freeze({ path, result: 'SELECTED' as const });
+      }
+      case desktopIpcChannels.installWorkflowPluginForTask: {
+        const installRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.installWorkflowPluginForTask];
+        return input.workflowPluginInstaller.installWorkflowPluginForTask(installRequest);
       }
       case desktopIpcChannels.loadWorkspaceLayout:
         return application.loadWorkspaceLayout();
