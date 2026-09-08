@@ -61,6 +61,10 @@ type TestWorkspaceViewProps = Omit<
   | 'onUnregisterQualityGate'
   | 'onImportQualityGateConfig'
   | 'onExportQualityGateConfig'
+  | 'onInstallWorkflowPlugin'
+  | 'onSelectWorkflowPluginPath'
+  | 'workflowPluginBindings'
+  | 'workflowPluginError'
 > &
   Partial<
     Pick<
@@ -91,6 +95,10 @@ type TestWorkspaceViewProps = Omit<
       | 'onUnregisterQualityGate'
       | 'onImportQualityGateConfig'
       | 'onExportQualityGateConfig'
+      | 'onInstallWorkflowPlugin'
+      | 'onSelectWorkflowPluginPath'
+      | 'workflowPluginBindings'
+      | 'workflowPluginError'
     >
   >;
 
@@ -169,6 +177,8 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onUnregisterQualityGate: async () => true,
     onImportQualityGateConfig: async () => undefined as never,
     onExportQualityGateConfig: async () => undefined,
+    workflowPluginBindings: Object.freeze([]),
+    workflowPluginError: undefined,
     ...props,
   });
 }
@@ -687,6 +697,20 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly selectQualityGateConfigPath = vi.fn<
     AgentWorkspaceClient['selectQualityGateConfigPath']
   >(async () => Object.freeze({ path: undefined, result: 'CANCELLED' as const }));
+  public readonly selectWorkflowPluginPath = vi.fn<
+    AgentWorkspaceClient['selectWorkflowPluginPath']
+  >(async () => Object.freeze({ path: undefined, result: 'CANCELLED' as const }));
+  public readonly installWorkflowPluginForTask = vi.fn<
+    AgentWorkspaceClient['installWorkflowPluginForTask']
+  >(async () =>
+    Object.freeze({
+      activePhaseId: 'planning',
+      bindingRevision: 1,
+      pluginId: 'void',
+      pluginName: 'Void',
+      sourcePath: 'C:\\fixtures\\plugin.json',
+    }),
+  );
   public readonly registerQualityGate = vi.fn<AgentWorkspaceClient['registerQualityGate']>(
     async () => undefined,
   );

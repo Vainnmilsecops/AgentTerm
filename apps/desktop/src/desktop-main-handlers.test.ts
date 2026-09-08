@@ -68,6 +68,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(7);
@@ -98,6 +108,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(3);
@@ -131,6 +151,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
 
@@ -153,6 +183,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory,
       selectQualityGateConfigFile,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(5);
@@ -180,6 +220,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const sender = new FakeSender(6);
@@ -218,6 +268,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     await expect(
@@ -253,6 +313,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     await expect(
@@ -279,6 +349,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     await expect(
@@ -323,6 +403,16 @@ describe('desktop main IPC handlers', () => {
       openBoardWindow: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
     const owner = new FakeSender(11);
@@ -363,6 +453,144 @@ describe('desktop main IPC handlers', () => {
     owner.destroy();
     expect(attachment.detach).toHaveBeenCalledOnce();
     expect(attachment).not.toHaveProperty('terminate');
+  });
+
+  it('returns CANCELLED when the workflow plugin file picker rejects', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.selectWorkflowPluginPath, event(new FakeSender(1)), {}),
+    ).resolves.toEqual({ ok: true, value: { path: undefined, result: 'CANCELLED' } });
+  });
+
+  it('returns SELECTED when the user picks a workflow plugin file', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => 'C:/trusted/agtx.json',
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: 'planning',
+          bindingRevision: 1,
+          pluginId: 'agtx',
+          pluginName: 'AgentTerm eXtended',
+          sourcePath: input.path,
+        }),
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.selectWorkflowPluginPath, event(new FakeSender(1)), {}),
+    ).resolves.toEqual({
+      ok: true,
+      value: { path: 'C:/trusted/agtx.json', result: 'SELECTED' },
+    });
+  });
+
+  it('routes installWorkflowPluginForTask to the dedicated installer seam', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    const installCalls: unknown[] = [];
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => {
+          installCalls.push(input);
+          return {
+            activePhaseId: 'planning',
+            bindingRevision: 7,
+            pluginId: 'agtx',
+            pluginName: 'AgentTerm eXtended',
+            sourcePath: input.path,
+          };
+        },
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    const result = await ipcMain.invoke(
+      desktopIpcChannels.installWorkflowPluginForTask,
+      event(new FakeSender(9)),
+      { expectedRevision: 0, path: 'C:/trusted/agtx.json', taskId: 'task-1' },
+    );
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        activePhaseId: 'planning',
+        bindingRevision: 7,
+        pluginId: 'agtx',
+        pluginName: 'AgentTerm eXtended',
+        sourcePath: 'C:/trusted/agtx.json',
+      },
+    });
+    expect(installCalls).toEqual([
+      { expectedRevision: 0, path: 'C:/trusted/agtx.json', taskId: 'task-1' },
+    ]);
+  });
+
+  it('rejects installWorkflowPluginForTask with invalid payloads', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    await expect(
+      ipcMain.invoke(
+        desktopIpcChannels.installWorkflowPluginForTask,
+        event(new FakeSender(2)),
+        { expectedRevision: -1, path: 'C:/trusted/agtx.json', taskId: 'task-1' },
+      ),
+    ).resolves.toMatchObject({ error: { code: 'INVALID_REQUEST' }, ok: false });
   });
 });
 

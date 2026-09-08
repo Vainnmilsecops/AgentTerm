@@ -172,6 +172,26 @@ function startDesktopApplication(): void {
       const path = selection.filePaths[0];
       return selection.canceled || path === undefined || path.length === 0 ? undefined : path;
     },
+    selectWorkflowPluginFile: async () => {
+      const window = mainWindow;
+      if (window === null || window.isDestroyed()) return undefined;
+      const selection = await dialog.showOpenDialog(window, {
+        filters: [{ extensions: ['json'], name: 'Workflow Plugin Configuration' }],
+        properties: ['openFile'],
+        title: 'Import Workflow Plugin',
+      });
+      const path = selection.filePaths[0];
+      return selection.canceled || path === undefined || path.length === 0 ? undefined : path;
+    },
+    workflowPluginInstaller: {
+      installWorkflowPluginForTask: async (input) => {
+        const application = applicationInstance ?? (await applicationAttempt);
+        if (application === undefined) {
+          throw new Error('Workflow plugin installer called before the desktop application was ready.');
+        }
+        return application.installWorkflowPluginForTask(input);
+      },
+    },
     shell: {
       openExternal: (url: string) => shell.openExternal(url),
       openPath: (absolutePath: string) => shell.openPath(absolutePath),

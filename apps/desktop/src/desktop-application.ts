@@ -13,6 +13,7 @@ import {
   getTaskFileDiff,
   importQualityGateConfig,
   inspectTaskPullRequest,
+  installWorkflowPluginForTask,
   listQualityGateSummaries,
   listProjectTasks,
   listTaskChanges,
@@ -531,6 +532,31 @@ export async function createProductionDesktopApplication(
         requireOpen();
         return Object.freeze({ path: undefined, result: 'CANCELLED' as const });
       },
+      selectWorkflowPluginPath: async () => {
+        // Mirror of `selectQualityGateConfigPath`: the native dialog is owned
+        // by the main-process IPC handler, never by the desktop composition.
+        requireOpen();
+        return Object.freeze({ path: undefined, result: 'CANCELLED' as const });
+      },
+      installWorkflowPluginForTask: async (input) => {
+        requireOpen();
+        const result = await installWorkflowPluginForTask(
+          { expectedRevision: input.expectedRevision, path: input.path, taskId: input.taskId },
+          {
+            bindingRepository: persistence.workflowPluginBindings,
+            configurator: workflowPluginConfigurator,
+            now: clock,
+          },
+        );
+        const activePhaseId = pickActivePhaseId(result.plugin);
+        return Object.freeze({
+          activePhaseId,
+          bindingRevision: result.binding.revision,
+          pluginId: result.plugin.id,
+          pluginName: result.plugin.name,
+          sourcePath: result.binding.sourcePath,
+        });
+      },
       startTaskExecution: async (input): Promise<void> => {
         requireOpen();
         await startTaskExecution(
@@ -678,4 +704,20 @@ function summarizeSessions(
       );
     },
   };
+}
+
+/**
+ * Picks the first phase id exposed by the plugin so the renderer can pre-fill
+ * the workflow session switcher. The binding itself does not yet know which
+ * phase is active until the user begins a Task; this is a deterministic stub
+ * that satisfies the typed return shape without making policy decisions.
+ */
+function pickActivePhaseId(
+  plugin: import('@agentterm/application').InstallWorkflowPluginResult['plugin'],
+): string {
+  if (plugin.phases.length === 0) {
+    return '';
+  }
+  const first = plugin.phases[0];
+  return first === undefined ? '' : first.id;
 }

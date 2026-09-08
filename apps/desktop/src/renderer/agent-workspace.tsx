@@ -26,6 +26,10 @@ import { DependencyEditor } from './dependency-editor';
 import { QualityGateConfiguration } from './quality-gate-config';
 import { QualityGateConfigurator } from './quality-gate-configurator';
 import {
+  WorkflowPluginConfigurator,
+  type InstalledWorkflowPluginSummary,
+} from './workflow-plugin-configurator';
+import {
   readPersistedLayout,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -122,6 +126,23 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onCaptureBrainstormNote: (input: { readonly content: string; readonly id: string }) => void;
   readonly onCaptureSweepNote: (input: { readonly content: string; readonly id: string }) => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
+  readonly onInstallWorkflowPlugin?: (input: {
+    readonly expectedRevision: number;
+    readonly path: string;
+    readonly taskId: string;
+  }) => Promise<{
+    readonly activePhaseId: string;
+    readonly bindingRevision: number;
+    readonly pluginId: string;
+    readonly pluginName: string;
+    readonly sourcePath: string;
+  }>;
+  readonly onSelectWorkflowPluginPath?: () => Promise<{
+    readonly path: string | undefined;
+    readonly result: 'CANCELLED' | 'SELECTED';
+  }>;
+  readonly workflowPluginBindings: readonly InstalledWorkflowPluginSummary[];
+  readonly workflowPluginError: string | undefined;
   readonly onImportQualityGateConfig: () => Promise<
     import('@agentterm/application').ImportQualityGateConfigResult | undefined
   >;
@@ -139,6 +160,10 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       : { kind: 'loading' },
   );
   const [controller, setController] = useState<WorkspaceController | undefined>();
+  const [workflowPluginBindings, setWorkflowPluginBindings] = useState<
+    readonly InstalledWorkflowPluginSummary[]
+  >(() => Object.freeze([]));
+  const [workflowPluginError, setWorkflowPluginError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (client === undefined) {
@@ -205,6 +230,38 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onExportQualityGateConfig={(input) =>
         controller?.exportQualityGateConfig(input) ?? Promise.resolve()
       }
+      {...(controller?.installWorkflowPluginForTask !== undefined
+        ? {
+            onInstallWorkflowPlugin: async (input: {
+              readonly expectedRevision: number;
+              readonly path: string;
+              readonly taskId: string;
+            }) => {
+              const result = await controller.installWorkflowPluginForTask(input);
+              setWorkflowPluginBindings((current) => {
+                const others = current.filter((entry) => entry.taskId !== input.taskId);
+                return Object.freeze([
+                  ...others,
+                  {
+                    activePhaseId: result.activePhaseId,
+                    bindingRevision: result.bindingRevision,
+                    pluginId: result.pluginId,
+                    pluginName: result.pluginName,
+                    sourcePath: result.sourcePath,
+                    taskId: input.taskId,
+                  },
+                ]);
+              });
+              setWorkflowPluginError(undefined);
+              return result;
+            },
+          }
+        : {})}
+      {...(controller?.selectWorkflowPluginPath !== undefined
+        ? { onSelectWorkflowPluginPath: () => controller.selectWorkflowPluginPath() }
+        : {})}
+      workflowPluginBindings={workflowPluginBindings}
+      workflowPluginError={workflowPluginError}
       onOpenBoardWindow={() => client?.openBoardWindow()}
       onOpenExternalLink={(url) => void client?.openExternalLink({ url })}
       snapshot={snapshot}
@@ -254,7 +311,11 @@ export function AgentWorkspaceView({
   onUnregisterQualityGate,
   onImportQualityGateConfig,
   onExportQualityGateConfig,
+  onInstallWorkflowPlugin = undefined,
+  onSelectWorkflowPluginPath = undefined,
   onOpenBoardWindow = () => undefined,
+  workflowPluginBindings,
+  workflowPluginError,
   snapshot,
 }: AgentWorkspaceViewProps) {
   const [paletteState, setPaletteState] = useState(initialCommandPaletteState);
@@ -683,6 +744,12 @@ export function AgentWorkspaceView({
       captureBrainstormNote: () => openNoteCapture('brainstorm'),
       captureSweepNote: () => openNoteCapture('sweep'),
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
+      ...(onInstallWorkflowPlugin !== undefined
+        ? { installWorkflowPluginForTask: (input: { readonly expectedRevision: number; readonly path: string; readonly taskId: string }) => onInstallWorkflowPlugin(input) }
+        : {}),
+      ...(onSelectWorkflowPluginPath !== undefined
+        ? { selectWorkflowPluginPath: () => onSelectWorkflowPluginPath() }
+        : {}),
       importQualityGateConfig: () => onImportQualityGateConfig(),
       exportQualityGateConfig: () =>
         onExportQualityGateConfig({
@@ -931,6 +998,19 @@ export function AgentWorkspaceView({
               gates={snapshot.qualityGates ?? []}
               onExport={onExportQualityGateConfig}
               onImport={onImportQualityGateConfig}
+            />
+            <WorkflowPluginConfigurator
+              busy={snapshot.activeAction !== undefined}
+              disabledReason={
+                snapshot.selectedTaskId === undefined
+                  ? 'Select a task to install or remove workflow plugin bindings.'
+                  : undefined
+              }
+              error={workflowPluginError}
+              installed={workflowPluginBindings}
+              onInstall={onInstallWorkflowPlugin ?? Promise.reject}
+              onSelectPath={onSelectWorkflowPluginPath ?? Promise.reject}
+              selectedTaskId={snapshot.selectedTaskId}
             />
           </WorkspaceSettingsGear>
         }

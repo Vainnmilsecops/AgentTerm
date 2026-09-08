@@ -1,7 +1,7 @@
-# ADR-010: WorkflowPlugin spec-driven plugin contract (M1)
+# ADR-010: WorkflowPlugin spec-driven plugin contract (M1 + M2)
 
-Status: Accepted
-Date: 2026-08-16
+Status: Accepted (M1 + M2 implemented)
+Date: 2026-09-08
 Owner: AgentTerm desktop + monorepo
 Parent: ADR-009 (Port agtx concepts into AgentTerm)
 
@@ -13,7 +13,12 @@ The plugin model mirrors `fynnfluegge/agtx`'s `plugin.toml` shape but is
 intentionally narrower so Application remains the only entry point for phase
 transitions and PTY/process ownership stays in the runtime.
 
-This ADR documents the M1 cut:
+M2 follows on M1 to add the Settings entry point and the
+main-process installer seam (`WorkflowPluginInstaller`) without revisiting
+the Domain shape. M2 introduces the IPC channels that the renderer Settings
+panel uses to install and surface the binding repository state.
+
+This ADR documents the M1 + M2 cut:
 
 - Plugin = Domain value (not a TOML tree).
 - Built-in `void` and `agtx` plugins ship with the desktop binary.
@@ -76,11 +81,29 @@ loads the file, validates, and persists the binding. Errors map to:
 
 ### Composition
 
-M1 does not introduce a new IPC handler. `DesktopIpcApplication` stays
-identical to its current shape, and the desktop composition root in
-`apps/desktop/src/desktop-application.ts` is untouched. The next milestone
-(M2) will add `selectWorkflowPluginPath` + `loadWorkflowPlugin` IPC
-handlers and the Settings panel entry point.
+M1 does not introduce a new IPC handler. M2 ships:
+
+- `selectWorkflowPluginPath` (`agentterm:workflow-plugin:select-path`) — the
+  native main-process dialog is the only allowed source of a plugin path;
+  the renderer never receives an arbitrary filesystem path from untrusted
+  code.
+- `installWorkflowPluginForTask`
+  (`agentterm:workflow-plugin:install`) — routes through the dedicated
+  `WorkflowPluginInstaller` seam that closes over the production
+  `WorkflowPluginConfigurator` and the SQLite binding repository. The
+  request carries `expectedRevision` so concurrent windows cannot silently
+  overwrite the binding.
+- `WorkflowPluginConfigurator` renderer panel — uses the typed
+  `InstallWorkflowPluginRequest` / `InstallWorkflowPluginResponse` and the
+  `SelectWorkflowPluginPathResponse` shapes from `ipc-contract.ts` and
+  binds the result back into `AgentWorkspaceView` via the
+  `onInstallWorkflowPlugin` / `onSelectWorkflowPluginPath` callbacks.
+
+The desktop composition root in
+`apps/desktop/src/desktop-application.ts` owns the
+`installWorkflowPluginForTask` use case and the trust-root environment
+variable (`AT_DESKTOP_PLUGIN_ROOT`); the renderer never sees the trust
+root.
 
 ## Alternatives Considered
 
