@@ -66,6 +66,7 @@ describe('desktop preload bridge', () => {
       'refreshTaskPullRequest',
       'registerQualityGate',
       'removeTaskDependency',
+      'removeWorkflowPluginBindingForTask',
       'requestTaskChanges',
       'requestTaskReview',
       'retryTaskExecution',

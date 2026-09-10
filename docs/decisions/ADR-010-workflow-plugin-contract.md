@@ -1,7 +1,7 @@
-# ADR-010: WorkflowPlugin spec-driven plugin contract (M1 + M2)
+# ADR-010: WorkflowPlugin spec-driven plugin contract (M1 + M2 + M2.5)
 
-Status: Accepted (M1 + M2 implemented)
-Date: 2026-09-08
+Status: Accepted (M1 + M2 + M2.5 implemented)
+Date: 2026-09-10
 Owner: AgentTerm desktop + monorepo
 Parent: ADR-009 (Port agtx concepts into AgentTerm)
 
@@ -17,6 +17,15 @@ M2 follows on M1 to add the Settings entry point and the
 main-process installer seam (`WorkflowPluginInstaller`) without revisiting
 the Domain shape. M2 introduces the IPC channels that the renderer Settings
 panel uses to install and surface the binding repository state.
+
+M2.5 ships the symmetric removal path so users can drop a binding
+without restarting the desktop: the `WorkflowPluginConfigurator` panel
+gains a per-binding `Remove` button with an inline confirm/cancel pair,
+and the main process exposes a dedicated
+`removeWorkflowPluginBindingForTask` IPC channel. The application
+use case enforces the same compare-and-set discipline as the install
+path so a concurrent reinstall in another surface cannot silently race
+a remove.
 
 This ADR documents the M1 + M2 cut:
 
@@ -79,6 +88,15 @@ loads the file, validates, and persists the binding. Errors map to:
 - `CONFLICT` (revision mismatch)
 - `WorkflowPluginConflictError` (Application-level compare-and-set)
 
+`removeWorkflowPluginBindingForTask({ taskId, expectedRevision }, deps)`
+(M2.5) is the symmetric removal entry point. It re-reads the binding,
+rejects `NOT_FOUND` when the row is missing, rejects `CONFLICT` when
+`expectedRevision` does not match, and otherwise calls
+`bindingRepository.removeByTaskId(taskId)`. The
+`RemoveWorkflowPluginBindingError` is mapped by `desktop-main-handlers`
+to the `CONFLICT` / `NOT_FOUND` IPC error codes so the renderer can
+surface them as inline feedback.
+
 ### Composition
 
 M1 does not introduce a new IPC handler. M2 ships:
@@ -98,6 +116,22 @@ M1 does not introduce a new IPC handler. M2 ships:
   `SelectWorkflowPluginPathResponse` shapes from `ipc-contract.ts` and
   binds the result back into `AgentWorkspaceView` via the
   `onInstallWorkflowPlugin` / `onSelectWorkflowPluginPath` callbacks.
+
+M2.5 extends the composition with a single new IPC channel and a single
+renderer control:
+
+- `removeWorkflowPluginBindingForTask`
+  (`agentterm:workflow-plugin:remove`) — routed through the same
+  `WorkflowPluginInstaller` seam and forwarded to
+  `removeWorkflowPluginBindingForTask` in `@agentterm/application`. The
+  request carries the same `expectedRevision` compare-and-set so a
+  concurrent reinstall in another surface cannot be silently dropped.
+- The `WorkflowPluginConfigurator` panel gains a per-binding `Remove`
+  button plus an inline confirm/cancel pair. The smart wrapper
+  (`AgentWorkspace`) optimistically drops the row on success and the
+  `WorkflowPluginInstaller` seam closes over the production
+  `removeWorkflowPluginBindingForTask` use case so the binding
+  repository remains the only writer.
 
 The desktop composition root in
 `apps/desktop/src/desktop-application.ts` owns the

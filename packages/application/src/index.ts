@@ -127,11 +127,17 @@ export {
 export {
   installWorkflowPluginForTask,
   InstallWorkflowPluginError,
+  RemoveWorkflowPluginBindingError,
   WorkflowPluginConfiguratorError,
+  removeWorkflowPluginBindingForTask,
   type InstallWorkflowPluginInput,
   type InstallWorkflowPluginResult,
   type InstallWorkflowPluginDependencies,
   type InstallWorkflowPluginFailure,
+  type RemoveWorkflowPluginBindingInput,
+  type RemoveWorkflowPluginBindingResult,
+  type RemoveWorkflowPluginBindingDependencies,
+  type RemoveWorkflowPluginBindingFailure,
 } from "./workflow-plugin-loader";
 export {
   listQualityGateRuns,

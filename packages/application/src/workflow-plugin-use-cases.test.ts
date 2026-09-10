@@ -11,7 +11,7 @@ import {
   bindPhaseAgent,
   selectPhaseArtifactContract,
 } from "./workflow-plugin-use-cases";
-import { installWorkflowPluginForTask } from "./workflow-plugin-loader";
+import { installWorkflowPluginForTask, removeWorkflowPluginBindingForTask } from "./workflow-plugin-loader";
 import type {
   AgentCatalog,
   AgentIdentity,
@@ -310,5 +310,101 @@ describe("installWorkflowPluginForTask", () => {
         },
       ),
     ).rejects.toThrow(/trust root/i);
+  });
+});
+
+describe("removeWorkflowPluginBindingForTask", () => {
+  it("removes an existing binding and returns the typed summary", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    const result = await removeWorkflowPluginBindingForTask(
+      { expectedRevision: 1, taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        now: () => 1_700_000_000_500,
+      },
+    );
+    expect(result).toEqual({
+      pluginId: plugin.id,
+      removedAt: 1_700_000_000_500,
+      revision: 1,
+      sourcePath: "C:/plugins/agtx.json",
+    });
+    expect(await repository.findByTaskId("task-1")).toBeUndefined();
+  });
+
+  it("rejects removal when no binding exists for the task", async () => {
+    const repository = fakeBindingRepository();
+    await expect(
+      removeWorkflowPluginBindingForTask(
+        { expectedRevision: 0, taskId: "task-missing" },
+        {
+          bindingRepository: repository,
+          now: () => 1,
+        },
+      ),
+    ).rejects.toThrow(/no workflow plugin binding is installed/i);
+  });
+
+  it("rejects removal when the expected revision does not match", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    await expect(
+      removeWorkflowPluginBindingForTask(
+        { expectedRevision: 99, taskId: "task-1" },
+        {
+          bindingRepository: repository,
+          now: () => 2,
+        },
+      ),
+    ).rejects.toThrow(/changed in another window/i);
+    // The binding must remain in the repository because the call was rejected.
+    expect((await repository.findByTaskId("task-1"))?.revision).toBe(1);
+  });
+
+  it("propagates repository errors from removeByTaskId", async () => {
+    const repository: Parameters<
+      typeof removeWorkflowPluginBindingForTask
+    >[1]["bindingRepository"] = {
+      async findByTaskId() {
+        return {
+          activePhaseId: "planning",
+          installedAt: 1,
+          pluginId: "agtx",
+          revision: 4,
+          sourcePath: "C:/plugins/agtx.json",
+          taskId: "task-1",
+        };
+      },
+      async removeByTaskId() {
+        throw new Error("disk on fire");
+      },
+      async upsert() {
+        throw new Error("not used by this test");
+      },
+    };
+    await expect(
+      removeWorkflowPluginBindingForTask(
+        { expectedRevision: 4, taskId: "task-1" },
+        { bindingRepository: repository, now: () => 5 },
+      ),
+    ).rejects.toThrow(/disk on fire/i);
   });
 });

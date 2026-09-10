@@ -14,7 +14,10 @@ import {
   type InstallWorkflowPluginRequest,
   type InstallWorkflowPluginResponse,
   type OpenDesktopProjectResult,
+  type RemoveWorkflowPluginBindingRequest,
+  type RemoveWorkflowPluginBindingResponse,
 } from './ipc-contract';
+import { RemoveWorkflowPluginBindingError } from '@agentterm/application';
 
 export type DesktopIpcApplication = Omit<AgentTermDesktopApi, 'openProject'> & {
   openProject(input: { readonly path: string }): Promise<void>;
@@ -62,15 +65,19 @@ interface RegisterDesktopIpcHandlersInput {
 }
 
 /**
- * Main-process seam for installing a workflow plugin binding. Lives on the
- * IPC handler input because the desktop composition does not own the
- * trust-root file picker and we want the production wiring to remain the
- * only path that touches the persisted binding repository.
+ * Main-process seam for installing and removing Workflow Plugin bindings.
+ * Lives on the IPC handler input because the desktop composition does
+ * not own the trust-root file picker and we want the production wiring
+ * to remain the only path that touches the persisted binding
+ * repository.
  */
 export interface WorkflowPluginInstaller {
   installWorkflowPluginForTask(
     input: InstallWorkflowPluginRequest,
   ): Promise<InstallWorkflowPluginResponse>;
+  removeWorkflowPluginBindingForTask(
+    input: RemoveWorkflowPluginBindingRequest,
+  ): Promise<RemoveWorkflowPluginBindingResponse>;
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -87,7 +94,10 @@ const conflictErrors = new Set([
   'EntityAlreadyExistsError',
   'TaskWorktreeMetadataConflictError',
 ]);
-const notFoundErrors = new Set(['AgentSessionRuntimeOwnershipError', 'EntityNotFoundError']);
+const notFoundErrors = new Set([
+  'AgentSessionRuntimeOwnershipError',
+  'EntityNotFoundError',
+]);
 const unavailableErrors = new Set(['AgentNotConfiguredError']);
 const expectedApplicationErrors = new Set([
   'AgentAdapterError',
@@ -116,6 +126,7 @@ const expectedApplicationErrors = new Set([
   'TaskReviewReadinessError',
   'TaskWorktreeLifecycleError',
   'TaskWorktreePersistenceError',
+  'RemoveWorkflowPluginBindingError',
   'WorktreeLinkNotFoundError',
   'WorktreeLinkOpenError',
 ]);
@@ -248,6 +259,10 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
       case desktopIpcChannels.installWorkflowPluginForTask: {
         const installRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.installWorkflowPluginForTask];
         return input.workflowPluginInstaller.installWorkflowPluginForTask(installRequest);
+      }
+      case desktopIpcChannels.removeWorkflowPluginBindingForTask: {
+        const removeRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.removeWorkflowPluginBindingForTask];
+        return input.workflowPluginInstaller.removeWorkflowPluginBindingForTask(removeRequest);
       }
       case desktopIpcChannels.loadWorkspaceLayout:
         return application.loadWorkspaceLayout();
@@ -466,6 +481,12 @@ function mapDesktopIpcError(error: unknown): DesktopIpcError {
   }
   if (error instanceof DesktopIpcHandlerError) {
     return Object.freeze(errorForCode(error.code));
+  }
+  if (error instanceof RemoveWorkflowPluginBindingError) {
+    if (error.reason === 'CONFLICT') {
+      return Object.freeze(errorForCode('CONFLICT'));
+    }
+    return Object.freeze(errorForCode('NOT_FOUND'));
   }
   const name = error instanceof Error ? error.name : undefined;
   if (name !== undefined && conflictErrors.has(name))

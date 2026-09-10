@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentWorkspaceOverview, PtyRuntimeEvent } from '@agentterm/application';
+import { RemoveWorkflowPluginBindingError } from '@agentterm/application';
 
 import {
   registerDesktopIpcHandlers,
@@ -77,6 +78,12 @@ describe('desktop main IPC handlers', () => {
           pluginName: '',
           sourcePath: input.path,
         }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -116,6 +123,12 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
           pluginName: '',
           sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
         }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
@@ -160,6 +173,12 @@ describe('desktop main IPC handlers', () => {
           pluginName: '',
           sourcePath: input.path,
         }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -191,6 +210,12 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
           pluginName: '',
           sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
         }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
@@ -228,6 +253,12 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
           pluginName: '',
           sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
         }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
@@ -277,6 +308,12 @@ describe('desktop main IPC handlers', () => {
           pluginName: '',
           sourcePath: input.path,
         }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -322,6 +359,12 @@ describe('desktop main IPC handlers', () => {
           pluginName: '',
           sourcePath: input.path,
         }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -357,6 +400,12 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
           pluginName: '',
           sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
         }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
@@ -411,6 +460,12 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
           pluginName: '',
           sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
         }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
@@ -474,6 +529,12 @@ describe('desktop main IPC handlers', () => {
           pluginName: '',
           sourcePath: input.path,
         }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -501,6 +562,12 @@ describe('desktop main IPC handlers', () => {
           pluginId: 'agtx',
           pluginName: 'AgentTerm eXtended',
           sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: 'agtx',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\trusted\\\\agtx.json',
         }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
@@ -537,6 +604,12 @@ describe('desktop main IPC handlers', () => {
             sourcePath: input.path,
           };
         },
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: 'agtx',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\trusted\\\\agtx.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -580,6 +653,12 @@ describe('desktop main IPC handlers', () => {
           pluginName: '',
           sourcePath: input.path,
         }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+        }),
       },
       shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
     });
@@ -591,6 +670,173 @@ describe('desktop main IPC handlers', () => {
         { expectedRevision: -1, path: 'C:/trusted/agtx.json', taskId: 'task-1' },
       ),
     ).resolves.toMatchObject({ error: { code: 'INVALID_REQUEST' }, ok: false });
+  });
+
+  it('routes removeWorkflowPluginBindingForTask to the dedicated installer seam', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    const removeCalls: unknown[] = [];
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => {
+          removeCalls.push(input);
+          return {
+            pluginId: 'agtx',
+            removedAt: 1_700_000_000_000,
+            revision: input.expectedRevision,
+            sourcePath: 'C:/trusted/agtx.json',
+          };
+        },
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    const result = await ipcMain.invoke(
+      desktopIpcChannels.removeWorkflowPluginBindingForTask,
+      event(new FakeSender(11)),
+      { expectedRevision: 3, taskId: 'task-1' },
+    );
+    expect(removeCalls).toEqual([{ expectedRevision: 3, taskId: 'task-1' }]);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        pluginId: 'agtx',
+        removedAt: 1_700_000_000_000,
+        revision: 3,
+        sourcePath: 'C:/trusted/agtx.json',
+      },
+    });
+  });
+
+  it('rejects removeWorkflowPluginBindingForTask with invalid payloads', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async (input) => ({
+          pluginId: '',
+          removedAt: 1_700_000_000_000,
+          revision: input.expectedRevision,
+          sourcePath: '',
+        }),
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    await expect(
+      ipcMain.invoke(
+        desktopIpcChannels.removeWorkflowPluginBindingForTask,
+        event(new FakeSender(3)),
+        { expectedRevision: 0, taskId: '' },
+      ),
+    ).resolves.toMatchObject({ error: { code: 'INVALID_REQUEST' }, ok: false });
+  });
+
+  it('maps RemoveWorkflowPluginBindingError CONFLICT to the IPC CONFLICT code', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async () => {
+          throw new RemoveWorkflowPluginBindingError('CONFLICT', {
+            existingRevision: 4,
+            expectedRevision: 3,
+          });
+        },
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    await expect(
+      ipcMain.invoke(
+        desktopIpcChannels.removeWorkflowPluginBindingForTask,
+        event(new FakeSender(4)),
+        { expectedRevision: 3, taskId: 'task-1' },
+      ),
+    ).resolves.toMatchObject({
+      error: { code: 'CONFLICT' },
+      ok: false,
+    });
+  });
+
+  it('maps RemoveWorkflowPluginBindingError NOT_FOUND to the IPC NOT_FOUND code', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      workflowPluginInstaller: {
+        installWorkflowPluginForTask: async (input) => ({
+          activePhaseId: '',
+          bindingRevision: 0,
+          pluginId: '',
+          pluginName: '',
+          sourcePath: input.path,
+        }),
+        removeWorkflowPluginBindingForTask: async () => {
+          throw new RemoveWorkflowPluginBindingError('NOT_FOUND', { taskId: 'task-1' });
+        },
+      },
+      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+    });
+
+    await expect(
+      ipcMain.invoke(
+        desktopIpcChannels.removeWorkflowPluginBindingForTask,
+        event(new FakeSender(5)),
+        { expectedRevision: 0, taskId: 'task-1' },
+      ),
+    ).resolves.toMatchObject({
+      error: { code: 'NOT_FOUND' },
+      ok: false,
+    });
   });
 });
 

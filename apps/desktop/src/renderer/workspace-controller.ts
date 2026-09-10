@@ -634,6 +634,24 @@ export class WorkspaceController {
     return this.client.installWorkflowPluginForTask(input);
   }
 
+  /**
+   * Asks the main process to drop the Workflow Plugin binding for a task.
+   * The renderer passes the revision it currently holds so the main
+   * process can refuse with a `CONFLICT` if another window has silently
+   * reinstalled the binding.
+   */
+  public async removeWorkflowPluginBindingForTask(input: {
+    readonly expectedRevision: number;
+    readonly taskId: string;
+  }): Promise<{
+    readonly pluginId: string;
+    readonly removedAt: number;
+    readonly revision: number;
+    readonly sourcePath: string;
+  }> {
+    return this.client.removeWorkflowPluginBindingForTask(input);
+  }
+
   public async selectWorkflowPluginPath(): Promise<{
     readonly path: string | undefined;
     readonly result: 'CANCELLED' | 'SELECTED';

@@ -30,6 +30,7 @@ import {
   refreshTaskPullRequest,
   registerQualityGate,
   removeTaskDependency,
+  removeWorkflowPluginBindingForTask,
   requestTaskChanges,
   requestTaskReview,
   resolveTerminalLinkTarget,
@@ -555,6 +556,22 @@ export async function createProductionDesktopApplication(
           pluginId: result.plugin.id,
           pluginName: result.plugin.name,
           sourcePath: result.binding.sourcePath,
+        });
+      },
+      removeWorkflowPluginBindingForTask: async (input) => {
+        requireOpen();
+        const result = await removeWorkflowPluginBindingForTask(
+          { expectedRevision: input.expectedRevision, taskId: input.taskId },
+          {
+            bindingRepository: persistence.workflowPluginBindings,
+            now: clock,
+          },
+        );
+        return Object.freeze({
+          pluginId: result.pluginId,
+          removedAt: result.removedAt,
+          revision: result.revision,
+          sourcePath: result.sourcePath,
         });
       },
       startTaskExecution: async (input): Promise<void> => {
