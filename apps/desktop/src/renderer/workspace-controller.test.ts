@@ -63,6 +63,7 @@ type TestWorkspaceViewProps = Omit<
   | 'onExportQualityGateConfig'
   | 'onInstallWorkflowPlugin'
   | 'onSelectWorkflowPluginPath'
+  | 'onRemoveWorkflowPluginBinding'
   | 'workflowPluginBindings'
   | 'workflowPluginError'
 > &
@@ -97,6 +98,7 @@ type TestWorkspaceViewProps = Omit<
       | 'onExportQualityGateConfig'
       | 'onInstallWorkflowPlugin'
       | 'onSelectWorkflowPluginPath'
+      | 'onRemoveWorkflowPluginBinding'
       | 'workflowPluginBindings'
       | 'workflowPluginError'
     >
@@ -177,6 +179,12 @@ function AgentWorkspaceView(props: TestWorkspaceViewProps) {
     onUnregisterQualityGate: async () => true,
     onImportQualityGateConfig: async () => undefined as never,
     onExportQualityGateConfig: async () => undefined,
+    onRemoveWorkflowPluginBinding: async (input) => ({
+      pluginId: 'void',
+      removedAt: 1_700_000_000_000,
+      revision: input.expectedRevision,
+      sourcePath: 'C:\\\\fixtures\\\\plugin.json',
+    }),
     workflowPluginBindings: Object.freeze([]),
     workflowPluginError: undefined,
     ...props,
@@ -708,6 +716,16 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
       bindingRevision: 1,
       pluginId: 'void',
       pluginName: 'Void',
+      sourcePath: 'C:\\fixtures\\plugin.json',
+    }),
+  );
+  public readonly removeWorkflowPluginBindingForTask = vi.fn<
+    AgentWorkspaceClient['removeWorkflowPluginBindingForTask']
+  >(async () =>
+    Object.freeze({
+      pluginId: 'void',
+      removedAt: 1_700_000_000_000,
+      revision: 1,
       sourcePath: 'C:\\fixtures\\plugin.json',
     }),
   );

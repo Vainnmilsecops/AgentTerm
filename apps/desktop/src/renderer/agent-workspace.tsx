@@ -141,6 +141,15 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
     readonly path: string | undefined;
     readonly result: 'CANCELLED' | 'SELECTED';
   }>;
+  readonly onRemoveWorkflowPluginBinding?: (input: {
+    readonly expectedRevision: number;
+    readonly taskId: string;
+  }) => Promise<{
+    readonly pluginId: string;
+    readonly removedAt: number;
+    readonly revision: number;
+    readonly sourcePath: string;
+  }>;
   readonly workflowPluginBindings: readonly InstalledWorkflowPluginSummary[];
   readonly workflowPluginError: string | undefined;
   readonly onImportQualityGateConfig: () => Promise<
@@ -260,6 +269,23 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       {...(controller?.selectWorkflowPluginPath !== undefined
         ? { onSelectWorkflowPluginPath: () => controller.selectWorkflowPluginPath() }
         : {})}
+      {...(controller?.removeWorkflowPluginBindingForTask !== undefined
+        ? {
+            onRemoveWorkflowPluginBinding: async (input: {
+              readonly expectedRevision: number;
+              readonly taskId: string;
+            }) => {
+              const result = await controller.removeWorkflowPluginBindingForTask(input);
+              setWorkflowPluginBindings((current) =>
+                Object.freeze(
+                  current.filter((entry) => entry.taskId !== input.taskId),
+                ),
+              );
+              setWorkflowPluginError(undefined);
+              return result;
+            },
+          }
+        : {})}
       workflowPluginBindings={workflowPluginBindings}
       workflowPluginError={workflowPluginError}
       onOpenBoardWindow={() => client?.openBoardWindow()}
@@ -313,6 +339,7 @@ export function AgentWorkspaceView({
   onExportQualityGateConfig,
   onInstallWorkflowPlugin = undefined,
   onSelectWorkflowPluginPath = undefined,
+  onRemoveWorkflowPluginBinding = undefined,
   onOpenBoardWindow = () => undefined,
   workflowPluginBindings,
   workflowPluginError,
@@ -1009,6 +1036,7 @@ export function AgentWorkspaceView({
               error={workflowPluginError}
               installed={workflowPluginBindings}
               onInstall={onInstallWorkflowPlugin ?? Promise.reject}
+              onRemove={onRemoveWorkflowPluginBinding ?? Promise.reject}
               onSelectPath={onSelectWorkflowPluginPath ?? Promise.reject}
               selectedTaskId={snapshot.selectedTaskId}
             />

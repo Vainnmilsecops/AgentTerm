@@ -3,6 +3,8 @@ import { useState, type ReactNode } from 'react';
 import type {
   InstallWorkflowPluginRequest,
   InstallWorkflowPluginResponse,
+  RemoveWorkflowPluginBindingRequest,
+  RemoveWorkflowPluginBindingResponse,
   SelectWorkflowPluginPathResponse,
 } from '../ipc-contract';
 
@@ -14,6 +16,9 @@ export interface WorkflowPluginConfiguratorProps {
   readonly onInstall: (
     input: InstallWorkflowPluginRequest,
   ) => Promise<InstallWorkflowPluginResponse>;
+  readonly onRemove: (
+    input: RemoveWorkflowPluginBindingRequest,
+  ) => Promise<RemoveWorkflowPluginBindingResponse>;
   readonly onSelectPath: () => Promise<SelectWorkflowPluginPathResponse>;
   readonly selectedTaskId: string | undefined;
 }
@@ -33,13 +38,16 @@ export interface InstalledWorkflowPluginSummary {
 }
 
 /**
- * Settings-panel surface that lets the user install a Workflow Plugin file
- * selected through the native main-process dialog and to inspect bindings
- * already persisted for the open Project.
+ * Settings-panel surface that lets the user install and remove Workflow
+ * Plugin files selected through the native main-process dialog and to
+ * inspect bindings already persisted for the open Project.
  *
- * Trust-root enforcement, file parsing, and binding revision control are all
- * owned by the main process; the renderer never receives an arbitrary path
- * from untrusted code and never mutates plugin files directly.
+ * Trust-root enforcement, file parsing, revision control, and persistence
+ * are all owned by the main process; the renderer never receives an
+ * arbitrary path from untrusted code and never mutates plugin files
+ * directly. The renderer mirrors the binding list optimistically so a
+ * remove is reflected immediately on success — the main process is the
+ * source of truth on the next refresh.
  */
 export function WorkflowPluginConfigurator({
   busy,
@@ -47,12 +55,23 @@ export function WorkflowPluginConfigurator({
   error,
   installed,
   onInstall,
+  onRemove,
   onSelectPath,
   selectedTaskId,
 }: WorkflowPluginConfiguratorProps): ReactNode {
   const [installing, setInstalling] = useState(false);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const [installError, setInstallError] = useState<string | undefined>(undefined);
+  /**
+   * The binding the user has clicked "Remove" on. While non-null we
+   * surface an inline confirm/cancel pair instead of the button so
+   * accidental removal requires two clicks. The state is intentionally
+   * per-panel rather than per-row so the panel can swap the prompt
+   * between bindings without a new state slot.
+   */
+  const [pendingRemoval, setPendingRemoval] = useState<string | undefined>(undefined);
+  const [removing, setRemoving] = useState(false);
+  const [removeError, setRemoveError] = useState<string | undefined>(undefined);
 
   const handleInstall = async (): Promise<void> => {
     if (selectedTaskId === undefined) {
@@ -60,6 +79,9 @@ export function WorkflowPluginConfigurator({
     }
     setInstallError(undefined);
     setFeedback(undefined);
+    setRemoving(false);
+    setRemoveError(undefined);
+    setPendingRemoval(undefined);
     setInstalling(true);
     try {
       const selection = await onSelectPath();
@@ -87,6 +109,41 @@ export function WorkflowPluginConfigurator({
     } finally {
       setInstalling(false);
     }
+  };
+
+  const handleRemove = async (entry: InstalledWorkflowPluginSummary): Promise<void> => {
+    setInstallError(undefined);
+    setFeedback(undefined);
+    setRemoveError(undefined);
+    setPendingRemoval(undefined);
+    setRemoving(true);
+    try {
+      const result = await onRemove({
+        expectedRevision: entry.bindingRevision,
+        taskId: entry.taskId,
+      });
+      // Mirror the main-process source of truth so the optimistic UI is
+      // accurate on the next refresh. We do not delete the local row
+      // here because the parent owns `installed`; we surface the result
+      // as feedback so the user knows the removal succeeded.
+      setFeedback(
+        `Removed plugin ${result.pluginId} from task ${entry.taskId}.`,
+      );
+      if (pendingRemoval === entry.taskId) {
+        setPendingRemoval(undefined);
+      }
+    } catch (cause) {
+      setRemoveError(
+        cause instanceof Error ? cause.message : 'Workflow plugin could not be removed.',
+      );
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const handleCancelRemove = (): void => {
+    setPendingRemoval(undefined);
+    setRemoveError(undefined);
   };
 
   return (
@@ -162,26 +219,75 @@ export function WorkflowPluginConfigurator({
               No workflow plugins installed for this Project.
             </li>
           ) : (
-            installed.map((entry) => (
-              <li
-                className="workflow-plugin-configurator__item"
-                data-workflow-plugin-item={entry.taskId}
-                key={`${entry.taskId}:${entry.bindingRevision}`}
-              >
-                <div>
-                  <strong>{entry.pluginName}</strong>
-                  <span className="workflow-plugin-configurator__id"> ({entry.pluginId})</span>
-                  <p className="workflow-plugin-configurator__meta">
-                    Task <code>{entry.taskId}</code> · revision{' '}
-                    <code>{String(entry.bindingRevision)}</code> · active phase{' '}
-                    <code>{entry.activePhaseId || '(none)'}</code>
-                  </p>
-                  <p className="workflow-plugin-configurator__meta">
-                    Source <code>{entry.sourcePath}</code>
-                  </p>
-                </div>
-              </li>
-            ))
+            installed.map((entry) => {
+              const confirming = pendingRemoval === entry.taskId;
+              return (
+                <li
+                  className="workflow-plugin-configurator__item"
+                  data-workflow-plugin-item={entry.taskId}
+                  key={`${entry.taskId}:${entry.bindingRevision}`}
+                >
+                  <div>
+                    <strong>{entry.pluginName}</strong>
+                    <span className="workflow-plugin-configurator__id"> ({entry.pluginId})</span>
+                    <p className="workflow-plugin-configurator__meta">
+                      Task <code>{entry.taskId}</code> · revision{' '}
+                      <code>{String(entry.bindingRevision)}</code> · active phase{' '}
+                      <code>{entry.activePhaseId || '(none)'}</code>
+                    </p>
+                    <p className="workflow-plugin-configurator__meta">
+                      Source <code>{entry.sourcePath}</code>
+                    </p>
+                  </div>
+                  <div className="workflow-plugin-configurator__remove">
+                    {confirming ? (
+                      <>
+                        <button
+                          aria-label={`Confirm remove ${entry.pluginName}`}
+                          className="workflow-plugin-configurator__confirm"
+                          data-workflow-plugin-confirm-remove={entry.taskId}
+                          disabled={removing}
+                          onClick={() => void handleRemove(entry)}
+                          type="button"
+                        >
+                          {removing ? 'Removing…' : 'Confirm remove'}
+                        </button>
+                        <button
+                          aria-label="Cancel remove"
+                          className="workflow-plugin-configurator__cancel"
+                          data-workflow-plugin-cancel-remove
+                          disabled={removing}
+                          onClick={handleCancelRemove}
+                          type="button"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        aria-label={`Remove ${entry.pluginName}`}
+                        className="workflow-plugin-configurator__remove-button"
+                        data-workflow-plugin-remove={entry.taskId}
+                        disabled={removing || installing || busy}
+                        onClick={() => setPendingRemoval(entry.taskId)}
+                        type="button"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  {removeError !== undefined && confirming ? (
+                    <p
+                      className="workflow-plugin-configurator__error"
+                      data-workflow-plugin-remove-error
+                      role="alert"
+                    >
+                      {removeError}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })
           )}
         </ul>
       </section>

@@ -363,3 +363,14 @@ to M2.
   main process and the trust-root check + compare-and-set binding revision
   enforcement run through `installWorkflowPluginForTask` in
   `@agentterm/application`.
+- **M2.5 — Workflow plugin uninstall UX** (ADR-010): adds the symmetric
+  removal path. The Renderer panel gains a per-binding `Remove` button
+  with an inline confirm/cancel pair; the main process exposes a new
+  `removeWorkflowPluginBindingForTask` IPC channel routed through
+  `WorkflowPluginInstaller`. Compare-and-set semantics
+  (`expectedRevision`) and a typed `RemoveWorkflowPluginBindingError`
+  map to `CONFLICT` / `NOT_FOUND` IPC error codes so concurrent
+  reinstalls cannot silently race a remove. The application use case
+  enforces the single-writer discipline, the smart-wrapper
+  (`AgentWorkspace`) optimistically drops the row on success, and the
+  binding repository remains the sole writer.

@@ -40,6 +40,7 @@ export const desktopIpcChannels = Object.freeze({
   getTaskFileDiff: 'agentterm:changes:diff',
   importQualityGateConfig: 'agentterm:quality-gates:import-config',
   installWorkflowPluginForTask: 'agentterm:workflow-plugin:install',
+  removeWorkflowPluginBindingForTask: 'agentterm:workflow-plugin:remove',
   inspectPullRequest: 'agentterm:pull-request:inspect',
   listProjectTasks: 'agentterm:project-tasks:list',
   listQualityGateDetails: 'agentterm:quality-gates:list-details',
@@ -199,6 +200,25 @@ export interface InstallWorkflowPluginResponse {
   readonly sourcePath: string;
 }
 
+export interface RemoveWorkflowPluginBindingRequest {
+  /**
+   * Revision the caller expects to be persisted before the removal.
+   * Mirrors `expectedRevision` from `installWorkflowPluginForTask` so
+   * two windows cannot silently race a remove against an install.
+   */
+  readonly expectedRevision: number;
+  readonly taskId: string;
+}
+
+export interface RemoveWorkflowPluginBindingResponse {
+  readonly pluginId: string;
+  /** Wall-clock timestamp the main process recorded during the removal. */
+  readonly removedAt: number;
+  /** Revision the binding carried immediately before removal. */
+  readonly revision: number;
+  readonly sourcePath: string;
+}
+
 export interface ImportQualityGateConfigResponse {
   readonly configuration: QualityGateConfiguration;
   readonly registered: readonly QualityGate[];
@@ -271,6 +291,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.importQualityGateConfig]: QualityGateConfigPathRequest;
   readonly [desktopIpcChannels.installWorkflowPluginForTask]: InstallWorkflowPluginRequest;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskRequest;
+  readonly [desktopIpcChannels.removeWorkflowPluginBindingForTask]: RemoveWorkflowPluginBindingRequest;
   readonly [desktopIpcChannels.listProjectTasks]: ProjectTasksRequest;
   readonly [desktopIpcChannels.listQualityGateDetails]: EmptyRequest;
   readonly [desktopIpcChannels.listQualityGates]: EmptyRequest;
@@ -325,6 +346,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.importQualityGateConfig]: ImportQualityGateConfigResponse;
   readonly [desktopIpcChannels.installWorkflowPluginForTask]: InstallWorkflowPluginResponse;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskPullRequestState;
+  readonly [desktopIpcChannels.removeWorkflowPluginBindingForTask]: RemoveWorkflowPluginBindingResponse;
   readonly [desktopIpcChannels.listProjectTasks]: readonly Task[];
   readonly [desktopIpcChannels.listQualityGateDetails]: readonly QualityGate[];
   readonly [desktopIpcChannels.listQualityGates]: readonly QualityGateSummary[];
@@ -403,6 +425,9 @@ export interface AgentTermDesktopApi {
   importQualityGateConfig(input: QualityGateConfigPathRequest): Promise<ImportQualityGateConfigResponse>;
   installWorkflowPluginForTask(input: InstallWorkflowPluginRequest): Promise<InstallWorkflowPluginResponse>;
   inspectTaskPullRequest(input: TaskRequest): Promise<TaskPullRequestState>;
+  removeWorkflowPluginBindingForTask(
+    input: RemoveWorkflowPluginBindingRequest,
+  ): Promise<RemoveWorkflowPluginBindingResponse>;
   listProjectTasks(input: ProjectTasksRequest): Promise<readonly Task[]>;
   listQualityGateDetails(): Promise<readonly QualityGate[]>;
   listQualityGates(): Promise<readonly QualityGateSummary[]>;
@@ -665,6 +690,13 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       return Object.freeze({
         expectedRevision: readWorkflowPluginExpectedRevision(record.expectedRevision),
         path: readWorkflowPluginPath(record.path),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.removeWorkflowPluginBindingForTask: {
+      const record = exactRecord(input, ['expectedRevision', 'taskId']);
+      return Object.freeze({
+        expectedRevision: readWorkflowPluginExpectedRevision(record.expectedRevision),
         taskId: readIdentity(record.taskId),
       }) as DesktopIpcRequestMap[C];
     }

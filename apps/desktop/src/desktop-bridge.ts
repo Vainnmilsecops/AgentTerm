@@ -143,6 +143,8 @@ export function createDesktopBridge(
     getTaskFileDiff: (input) => invoke(desktopIpcChannels.getTaskFileDiff, input),
     importQualityGateConfig: (input) => invoke(desktopIpcChannels.importQualityGateConfig, input),
     installWorkflowPluginForTask: (input) => invoke(desktopIpcChannels.installWorkflowPluginForTask, input),
+    removeWorkflowPluginBindingForTask: (input) =>
+      invoke(desktopIpcChannels.removeWorkflowPluginBindingForTask, input),
     inspectTaskPullRequest: (input) => invoke(desktopIpcChannels.inspectPullRequest, input),
     listProjectTasks: (input) => invoke(desktopIpcChannels.listProjectTasks, input),
     listQualityGateDetails: () => invoke(desktopIpcChannels.listQualityGateDetails, {}),

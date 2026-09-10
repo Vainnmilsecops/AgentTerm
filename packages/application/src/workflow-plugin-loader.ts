@@ -22,6 +22,26 @@ export interface InstallWorkflowPluginInput {
   readonly taskId: string;
 }
 
+export interface RemoveWorkflowPluginBindingInput {
+  /**
+   * Revision the caller expects to be persisted before the removal. Pass
+   * the binding's current revision so concurrent windows cannot silently
+   * race a remove against an install in another surface.
+   */
+  readonly expectedRevision: number;
+  /** Task whose plugin binding is being removed. */
+  readonly taskId: string;
+}
+
+export interface RemoveWorkflowPluginBindingResult {
+  readonly pluginId: string;
+  /** Wall-clock timestamp the main process recorded during the removal. */
+  readonly removedAt: number;
+  /** Revision the binding carried immediately before removal. */
+  readonly revision: number;
+  readonly sourcePath: string;
+}
+
 export interface InstallWorkflowPluginDependencies {
   readonly bindingRepository: WorkflowPluginBindingRepository & {
     upsert(
@@ -30,6 +50,13 @@ export interface InstallWorkflowPluginDependencies {
     ): Promise<void>;
   };
   readonly configurator: WorkflowPluginConfigurator;
+  readonly now: () => number;
+}
+
+export interface RemoveWorkflowPluginBindingDependencies {
+  readonly bindingRepository: WorkflowPluginBindingRepository & {
+    removeByTaskId(taskId: string): Promise<boolean>;
+  };
   readonly now: () => number;
 }
 
@@ -43,6 +70,10 @@ export type InstallWorkflowPluginFailure =
   | "NO_BINDING_EXISTS_FOR_EXPECTED_REVISION"
   | WorkflowPluginLoadFailure;
 
+export type RemoveWorkflowPluginBindingFailure =
+  | "CONFLICT"
+  | "NOT_FOUND";
+
 export class InstallWorkflowPluginError extends Error {
   public readonly reason: InstallWorkflowPluginFailure;
   public readonly details: Readonly<Record<string, unknown>>;
@@ -53,6 +84,21 @@ export class InstallWorkflowPluginError extends Error {
   ) {
     super(installMessage(reason, details));
     this.name = "InstallWorkflowPluginError";
+    this.reason = reason;
+    this.details = Object.freeze({ ...details });
+  }
+}
+
+export class RemoveWorkflowPluginBindingError extends Error {
+  public readonly reason: RemoveWorkflowPluginBindingFailure;
+  public readonly details: Readonly<Record<string, unknown>>;
+
+  public constructor(
+    reason: RemoveWorkflowPluginBindingFailure,
+    details: Readonly<Record<string, unknown>>,
+  ) {
+    super(removeMessage(reason, details));
+    this.name = "RemoveWorkflowPluginBindingError";
     this.reason = reason;
     this.details = Object.freeze({ ...details });
   }
@@ -135,6 +181,55 @@ export async function installWorkflowPluginForTask(
   return Object.freeze({ binding, plugin: configuration.plugin });
 }
 
+/**
+ * Removes a Workflow Plugin binding for one Task using compare-and-set
+ * semantics. The repository is the only writer; this use case is the
+ * single Application entry point so the renderer never mutates bindings
+ * directly.
+ *
+ * The `expectedRevision` argument must equal the binding's current
+ * revision. A mismatch surfaces as `RemoveWorkflowPluginBindingError`
+ * with reason `'CONFLICT'` so the caller can reload and retry. A missing
+ * binding surfaces as `'NOT_FOUND'`.
+ */
+export async function removeWorkflowPluginBindingForTask(
+  input: RemoveWorkflowPluginBindingInput,
+  dependencies: RemoveWorkflowPluginBindingDependencies,
+): Promise<RemoveWorkflowPluginBindingResult> {
+  const existing = await dependencies.bindingRepository.findByTaskId(
+    input.taskId,
+  );
+  if (existing === undefined) {
+    throw new RemoveWorkflowPluginBindingError("NOT_FOUND", {
+      taskId: input.taskId,
+    });
+  }
+  if (existing.revision !== input.expectedRevision) {
+    throw new RemoveWorkflowPluginBindingError("CONFLICT", {
+      existingRevision: existing.revision,
+      expectedRevision: input.expectedRevision,
+    });
+  }
+
+  const removed = await dependencies.bindingRepository.removeByTaskId(
+    input.taskId,
+  );
+  if (!removed) {
+    // The binding disappeared between the read and the delete. Surface
+    // this as a `NOT_FOUND` so the caller can refresh its local mirror.
+    throw new RemoveWorkflowPluginBindingError("NOT_FOUND", {
+      taskId: input.taskId,
+    });
+  }
+
+  return Object.freeze({
+    pluginId: existing.pluginId,
+    removedAt: dependencies.now(),
+    revision: existing.revision,
+    sourcePath: existing.sourcePath,
+  });
+}
+
 function expectConfiguration(
   result: WorkflowPluginConfiguratorResult<WorkflowPluginConfiguration>,
 ): WorkflowPluginConfiguration {
@@ -166,6 +261,21 @@ function installMessage(
       return "The Workflow Plugin declared an unknown or unsupported plugin identifier.";
     default:
       return `Workflow Plugin operation failed (${reason})`;
+  }
+  void details;
+}
+
+function removeMessage(
+  reason: RemoveWorkflowPluginBindingFailure,
+  details: Readonly<Record<string, unknown>>,
+): string {
+  switch (reason) {
+    case "CONFLICT":
+      return "The Workflow Plugin binding changed in another window. Reload it and try again.";
+    case "NOT_FOUND":
+      return "No Workflow Plugin binding is installed for this task.";
+    default:
+      return `Workflow Plugin removal failed (${reason})`;
   }
   void details;
 }
