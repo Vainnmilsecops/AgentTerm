@@ -652,6 +652,35 @@ export class WorkspaceController {
     return this.client.removeWorkflowPluginBindingForTask(input);
   }
 
+  public async switchWorkflowPluginBindingForTask(input: {
+    readonly expectedRevision: number;
+    readonly path: string;
+    readonly taskId: string;
+  }): Promise<{
+    readonly activePhaseId: string;
+    readonly bindingRevision: number;
+    readonly pluginId: string;
+    readonly pluginName: string;
+    readonly sourcePath: string;
+  }> {
+    return this.client.switchWorkflowPluginBindingForTask(input);
+  }
+
+  public async advanceWorkflowPluginPhase(input: {
+    readonly direction: 'next' | 'previous' | 'set';
+    readonly expectedRevision: number;
+    readonly force?: boolean;
+    readonly phaseId?: string;
+    readonly taskId: string;
+  }): Promise<{
+    readonly activePhaseId: string;
+    readonly bindingRevision: number;
+    readonly phaseAgentId: string | undefined;
+    readonly pluginId: string;
+  }> {
+    return this.client.advanceWorkflowPluginPhase(input);
+  }
+
   public async selectWorkflowPluginPath(): Promise<{
     readonly path: string | undefined;
     readonly result: 'CANCELLED' | 'SELECTED';

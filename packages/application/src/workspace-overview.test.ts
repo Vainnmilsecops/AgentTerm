@@ -1444,8 +1444,11 @@ describe('loadAgentWorkspace workflowPlugin projection', () => {
     );
 
     expect(workspace.projects[0]?.tasks[0]?.workflowPlugin).toEqual({
+      activePhaseArtifactKind: 'plan',
       activePhaseId: 'planning',
+      availablePhaseIds: ['research', 'planning'],
       phaseAgentId: 'codex',
+      phaseArtifactKinds: ['research', 'plan'],
       pluginId: 'agtx',
       pluginName: 'agtx',
     });

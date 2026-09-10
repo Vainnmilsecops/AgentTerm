@@ -67,8 +67,27 @@ export interface WorkspaceTaskOverview {
 }
 
 export interface WorkflowPluginProjection {
+  /** Per-phase artifact kind for the currently active phase, used to render audit-trail hints. */
+  readonly activePhaseArtifactKind:
+    | "plan"
+    | "research"
+    | "review"
+    | "execution-summary"
+    | "brainstorm"
+    | "sweep";
   readonly activePhaseId: string;
+  /** Ordered list of declared phase ids so the renderer can render prev/next affordances. */
+  readonly availablePhaseIds: readonly string[];
   readonly phaseAgentId: string | undefined;
+  /** Per-phase artifact kind for every declared phase in declared order. */
+  readonly phaseArtifactKinds: readonly (
+    | "plan"
+    | "research"
+    | "review"
+    | "execution-summary"
+    | "brainstorm"
+    | "sweep"
+  )[];
   readonly pluginId: string;
   readonly pluginName: string;
 }
@@ -414,9 +433,17 @@ class PluginProjectionCache {
     } catch {
       phaseAgentId = undefined;
     }
+    const activeKind = plugin.phases.find(
+      (phase) => phase.id === binding.activePhaseId,
+    )?.artifactContract.kind;
     const projection = Object.freeze({
+      activePhaseArtifactKind: mapPhaseKindToArtifact(activeKind) ?? "plan",
       activePhaseId: binding.activePhaseId,
+      availablePhaseIds: Object.freeze(plugin.phases.map((p) => p.id)),
       phaseAgentId,
+      phaseArtifactKinds: Object.freeze(
+        plugin.phases.map((phase) => mapPhaseKindToArtifact(phase.artifactContract.kind) ?? "plan"),
+      ),
       pluginId: plugin.id,
       pluginName: plugin.name,
     }) satisfies WorkflowPluginProjection;
@@ -427,8 +454,7 @@ class PluginProjectionCache {
   private async loadPlugin(path: string): Promise<WorkflowPlugin | undefined> {
     const cached = this.pluginByPath.get(path);
     if (cached !== undefined) return cached;
-    const loaded = await this.deps.configurator.load({ path });
-    if (loaded.failure !== undefined || loaded.value === undefined) return undefined;
+    const loaded = await this.deps.configurator.load({ path });    if (loaded.failure !== undefined || loaded.value === undefined) return undefined;
     this.pluginByPath.set(path, loaded.value.plugin);
     return loaded.value.plugin;
   }
@@ -608,4 +634,29 @@ function findLatestActiveSession(sessions: readonly AgentSession[]): AgentSessio
     }
   }
   return undefined;
+}
+
+function mapPhaseKindToArtifact(
+  kind: "planning" | "research" | "review" | "running" | undefined,
+):
+  | "plan"
+  | "research"
+  | "review"
+  | "execution-summary"
+  | "brainstorm"
+  | "sweep" {
+  switch (kind) {
+    case "planning":
+      return "plan";
+    case "research":
+      return "research";
+    case "review":
+      return "review";
+    case "running":
+      return "execution-summary";
+    default:
+      // Defensive: should be unreachable given WorkflowPluginPhaseKind
+      // is the closed union, but keeps the renderer projection honest.
+      return "plan";
+  }
 }

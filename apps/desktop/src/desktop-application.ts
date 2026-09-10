@@ -31,6 +31,8 @@ import {
   registerQualityGate,
   removeTaskDependency,
   removeWorkflowPluginBindingForTask,
+  updateWorkflowPluginBindingForTask,
+  advanceActivePhaseForTask,
   requestTaskChanges,
   requestTaskReview,
   resolveTerminalLinkTarget,
@@ -572,6 +574,58 @@ export async function createProductionDesktopApplication(
           removedAt: result.removedAt,
           revision: result.revision,
           sourcePath: result.sourcePath,
+        });
+      },
+      switchWorkflowPluginBindingForTask: async (input) => {
+        requireOpen();
+        const result = await updateWorkflowPluginBindingForTask(
+          { expectedRevision: input.expectedRevision, path: input.path, taskId: input.taskId },
+          {
+            bindingRepository: persistence.workflowPluginBindings,
+            configurator: workflowPluginConfigurator,
+            now: clock,
+          },
+        );
+        return Object.freeze({
+          activePhaseId: result.binding.activePhaseId,
+          bindingRevision: result.binding.revision,
+          pluginId: result.plugin.id,
+          pluginName: result.plugin.name,
+          sourcePath: result.binding.sourcePath,
+        });
+      },
+      advanceWorkflowPluginPhase: async (input) => {
+        requireOpen();
+        const settings = await persistence.settings.get();
+        const executableOverrides: Record<string, string> = {};
+        for (const executable of settings.agentExecutables) {
+          executableOverrides[executable.agentId] = executable.executablePath;
+        }
+        const result = await advanceActivePhaseForTask(
+          {
+            direction: input.direction,
+            expectedRevision: input.expectedRevision,
+            ...(input.force !== undefined ? { force: input.force } : {}),
+            ...(input.phaseId !== undefined ? { phaseId: input.phaseId } : {}),
+            taskId: input.taskId,
+          },
+          {
+            agents: { resolveForPhase: () => undefined },
+            artifactRepository: persistence.artifacts,
+            bindingRepository: persistence.workflowPluginBindings,
+            configurator: workflowPluginConfigurator,
+            now: clock,
+            settings: () => ({
+              defaultAgentId: settings.defaultAgentId,
+              executableOverrides,
+            }),
+          },
+        );
+        return Object.freeze({
+          activePhaseId: result.activePhaseId,
+          bindingRevision: result.binding.revision,
+          phaseAgentId: result.phaseAgentId,
+          pluginId: result.pluginId,
         });
       },
       startTaskExecution: async (input): Promise<void> => {
