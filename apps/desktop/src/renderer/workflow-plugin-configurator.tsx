@@ -1,18 +1,28 @@
 import { useState, type ReactNode } from 'react';
 
 import type {
+  AdvanceWorkflowPluginPhaseRequest,
+  AdvanceWorkflowPluginPhaseResponse,
   InstallWorkflowPluginRequest,
   InstallWorkflowPluginResponse,
   RemoveWorkflowPluginBindingRequest,
   RemoveWorkflowPluginBindingResponse,
   SelectWorkflowPluginPathResponse,
+  SwitchWorkflowPluginBindingRequest,
+  SwitchWorkflowPluginBindingResponse,
 } from '../ipc-contract';
 
 export interface WorkflowPluginConfiguratorProps {
+  readonly availablePhases: Readonly<
+    Record<string, WorkflowPluginAvailablePhases | undefined>
+  >;
   readonly busy: boolean;
   readonly disabledReason: string | undefined;
   readonly error: string | undefined;
   readonly installed: readonly InstalledWorkflowPluginSummary[];
+  readonly onAdvance: (
+    input: AdvanceWorkflowPluginPhaseRequest,
+  ) => Promise<AdvanceWorkflowPluginPhaseResponse>;
   readonly onInstall: (
     input: InstallWorkflowPluginRequest,
   ) => Promise<InstallWorkflowPluginResponse>;
@@ -20,6 +30,9 @@ export interface WorkflowPluginConfiguratorProps {
     input: RemoveWorkflowPluginBindingRequest,
   ) => Promise<RemoveWorkflowPluginBindingResponse>;
   readonly onSelectPath: () => Promise<SelectWorkflowPluginPathResponse>;
+  readonly onSwitch: (
+    input: SwitchWorkflowPluginBindingRequest,
+  ) => Promise<SwitchWorkflowPluginBindingResponse>;
   readonly selectedTaskId: string | undefined;
 }
 
@@ -31,11 +44,32 @@ export interface WorkflowPluginConfiguratorProps {
 export interface InstalledWorkflowPluginSummary {
   readonly activePhaseId: string;
   readonly bindingRevision: number;
+  readonly phaseAgentId: string | undefined;
   readonly pluginId: string;
   readonly pluginName: string;
   readonly sourcePath: string;
   readonly taskId: string;
 }
+
+export interface WorkflowPluginAvailablePhases {
+  /** Sorted list of phase ids declared by the bound plugin in declared order. */
+  readonly availablePhaseIds: readonly string[];
+  /**
+   * Per-phase artifact kind for every declared phase so the renderer can
+   * render a "skip already-recorded phase" hint next to the advance
+   * controls without re-parsing the plugin file.
+   */
+  readonly phaseArtifactKinds: readonly WorkflowPluginProjectionKind[];
+  readonly pluginId: string;
+}
+
+export type WorkflowPluginProjectionKind =
+  | 'plan'
+  | 'research'
+  | 'review'
+  | 'execution-summary'
+  | 'brainstorm'
+  | 'sweep';
 
 /**
  * Settings-panel surface that lets the user install and remove Workflow
@@ -50,13 +84,16 @@ export interface InstalledWorkflowPluginSummary {
  * source of truth on the next refresh.
  */
 export function WorkflowPluginConfigurator({
+  availablePhases,
   busy,
   disabledReason,
   error,
   installed,
+  onAdvance,
   onInstall,
   onRemove,
   onSelectPath,
+  onSwitch,
   selectedTaskId,
 }: WorkflowPluginConfiguratorProps): ReactNode {
   const [installing, setInstalling] = useState(false);
@@ -144,6 +181,68 @@ export function WorkflowPluginConfigurator({
   const handleCancelRemove = (): void => {
     setPendingRemoval(undefined);
     setRemoveError(undefined);
+  };
+
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState<string | undefined>(undefined);
+  const [advanceError, setAdvanceError] = useState<string | undefined>(undefined);
+  const [advancing, setAdvancing] = useState<string | undefined>(undefined);
+
+  const handleSwitch = async (entry: InstalledWorkflowPluginSummary): Promise<void> => {
+    setSwitchError(undefined);
+    setAdvanceError(undefined);
+    setSwitching(true);
+    try {
+      const selection = await onSelectPath();
+      if (selection.result === 'CANCELLED' || selection.path === undefined) {
+        return;
+      }
+      const result = await onSwitch({
+        expectedRevision: entry.bindingRevision,
+        path: selection.path,
+        taskId: entry.taskId,
+      });
+      setFeedback(
+        `Switched task ${entry.taskId} to ${result.pluginName}.`,
+      );
+    } catch (cause) {
+      setSwitchError(
+        cause instanceof Error
+          ? cause.message
+          : 'Workflow plugin could not be switched.',
+      );
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const handleAdvance = async (
+    entry: InstalledWorkflowPluginSummary,
+    direction: 'next' | 'previous' | 'set',
+    options?: { readonly force?: boolean; readonly phaseId?: string },
+  ): Promise<void> => {
+    setAdvanceError(undefined);
+    setAdvancing(`${entry.taskId}:${direction}`);
+    try {
+      const result = await onAdvance({
+        direction,
+        expectedRevision: entry.bindingRevision,
+        ...(options?.force === true ? { force: true } : {}),
+        ...(options?.phaseId !== undefined ? { phaseId: options.phaseId } : {}),
+        taskId: entry.taskId,
+      });
+      setFeedback(
+        `Moved task ${entry.taskId} to phase ${result.activePhaseId}.`,
+      );
+    } catch (cause) {
+      setAdvanceError(
+        cause instanceof Error
+          ? cause.message
+          : 'Workflow plugin phase could not be advanced.',
+      );
+    } finally {
+      setAdvancing(undefined);
+    }
   };
 
   return (
@@ -239,6 +338,80 @@ export function WorkflowPluginConfigurator({
                       Source <code>{entry.sourcePath}</code>
                     </p>
                   </div>
+                  <div className="workflow-plugin-configurator__controls">
+                    {(() => {
+                      const phases = availablePhases[entry.taskId];
+                      if (phases === undefined) {
+                        return null;
+                      }
+                      const phaseIndex = phases.availablePhaseIds.indexOf(
+                        entry.activePhaseId,
+                      );
+                      const canAdvance =
+                        phaseIndex >= 0 &&
+                        phaseIndex < phases.availablePhaseIds.length - 1;
+                      const canPrevious = phaseIndex > 0;
+                      const isAdvancing = advancing === `${entry.taskId}:next`;
+                      const isPrevious = advancing === `${entry.taskId}:previous`;
+                      const isSetting = advancing === `${entry.taskId}:set`;
+                      const advanceKind = phases.phaseArtifactKinds[phaseIndex + 1];
+                      const advanceRecordedHint =
+                        advanceKind !== undefined &&
+                        (entry.bindingRevision > 0)
+                          ? ` (next phase already recorded; use force)`
+                          : '';
+                      return (
+                        <fieldset
+                          className="workflow-plugin-configurator__phases"
+                          data-workflow-plugin-phases={entry.taskId}
+                        >
+                          <legend>Phase</legend>
+                          <button
+                            aria-label={`Previous phase for ${entry.pluginName}`}
+                            className="workflow-plugin-configurator__phase-previous"
+                            data-workflow-plugin-phase-previous={entry.taskId}
+                            disabled={
+                              busy ||
+                              switching ||
+                              removing ||
+                              !canPrevious ||
+                              isAdvancing ||
+                              isPrevious ||
+                              isSetting
+                            }
+                            onClick={() => void handleAdvance(entry, 'previous')}
+                            type="button"
+                          >
+                            {isPrevious ? 'Moving…' : '◀ Previous'}
+                          </button>
+                          <span
+                            className="workflow-plugin-configurator__phase-label"
+                            data-workflow-plugin-phase-label={entry.taskId}
+                          >
+                            {entry.activePhaseId || '(none)'}
+                          </span>
+                          <button
+                            aria-label={`Next phase for ${entry.pluginName}`}
+                            className="workflow-plugin-configurator__phase-next"
+                            data-workflow-plugin-phase-next={entry.taskId}
+                            disabled={
+                              busy ||
+                              switching ||
+                              removing ||
+                              !canAdvance ||
+                              isAdvancing ||
+                              isPrevious ||
+                              isSetting
+                            }
+                            onClick={() => void handleAdvance(entry, 'next')}
+                            type="button"
+                          >
+                            {isAdvancing ? 'Moving…' : `Next ▶${advanceRecordedHint}`}
+                          </button>
+                        </fieldset>
+                      );
+                    })()}
+                  </div>
                   <div className="workflow-plugin-configurator__remove">
                     {confirming ? (
                       <>
@@ -246,7 +419,7 @@ export function WorkflowPluginConfigurator({
                           aria-label={`Confirm remove ${entry.pluginName}`}
                           className="workflow-plugin-configurator__confirm"
                           data-workflow-plugin-confirm-remove={entry.taskId}
-                          disabled={removing}
+                          disabled={removing || switching || advancing !== undefined}
                           onClick={() => void handleRemove(entry)}
                           type="button"
                         >
@@ -256,7 +429,7 @@ export function WorkflowPluginConfigurator({
                           aria-label="Cancel remove"
                           className="workflow-plugin-configurator__cancel"
                           data-workflow-plugin-cancel-remove
-                          disabled={removing}
+                          disabled={removing || switching || advancing !== undefined}
                           onClick={handleCancelRemove}
                           type="button"
                         >
@@ -264,16 +437,40 @@ export function WorkflowPluginConfigurator({
                         </button>
                       </>
                     ) : (
-                      <button
-                        aria-label={`Remove ${entry.pluginName}`}
-                        className="workflow-plugin-configurator__remove-button"
-                        data-workflow-plugin-remove={entry.taskId}
-                        disabled={removing || installing || busy}
-                        onClick={() => setPendingRemoval(entry.taskId)}
-                        type="button"
-                      >
-                        Remove
-                      </button>
+                      <>
+                        <button
+                          aria-label={`Switch ${entry.pluginName} to another trusted file`}
+                          className="workflow-plugin-configurator__switch"
+                          data-workflow-plugin-switch={entry.taskId}
+                          disabled={
+                            removing ||
+                            installing ||
+                            switching ||
+                            busy ||
+                            advancing !== undefined
+                          }
+                          onClick={() => void handleSwitch(entry)}
+                          type="button"
+                        >
+                          {switching ? 'Switching…' : 'Switch…'}
+                        </button>
+                        <button
+                          aria-label={`Remove ${entry.pluginName}`}
+                          className="workflow-plugin-configurator__remove-button"
+                          data-workflow-plugin-remove={entry.taskId}
+                          disabled={
+                            removing ||
+                            installing ||
+                            switching ||
+                            busy ||
+                            advancing !== undefined
+                          }
+                          onClick={() => setPendingRemoval(entry.taskId)}
+                          type="button"
+                        >
+                          Remove
+                        </button>
+                      </>
                     )}
                   </div>
                   {removeError !== undefined && confirming ? (
@@ -283,6 +480,24 @@ export function WorkflowPluginConfigurator({
                       role="alert"
                     >
                       {removeError}
+                    </p>
+                  ) : null}
+                  {switchError !== undefined && !confirming ? (
+                    <p
+                      className="workflow-plugin-configurator__error"
+                      data-workflow-plugin-switch-error
+                      role="alert"
+                    >
+                      {switchError}
+                    </p>
+                  ) : null}
+                  {advanceError !== undefined ? (
+                    <p
+                      className="workflow-plugin-configurator__error"
+                      data-workflow-plugin-advance-error
+                      role="alert"
+                    >
+                      {advanceError}
                     </p>
                   ) : null}
                 </li>

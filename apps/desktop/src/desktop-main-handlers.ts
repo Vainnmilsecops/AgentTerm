@@ -16,8 +16,16 @@ import {
   type OpenDesktopProjectResult,
   type RemoveWorkflowPluginBindingRequest,
   type RemoveWorkflowPluginBindingResponse,
+  type SwitchWorkflowPluginBindingRequest,
+  type SwitchWorkflowPluginBindingResponse,
+  type AdvanceWorkflowPluginPhaseRequest,
+  type AdvanceWorkflowPluginPhaseResponse,
 } from './ipc-contract';
-import { RemoveWorkflowPluginBindingError } from '@agentterm/application';
+import {
+  AdvanceActivePhaseError,
+  RemoveWorkflowPluginBindingError,
+  WorkflowPluginUpdateError,
+} from '@agentterm/application';
 
 export type DesktopIpcApplication = Omit<AgentTermDesktopApi, 'openProject'> & {
   openProject(input: { readonly path: string }): Promise<void>;
@@ -72,12 +80,18 @@ interface RegisterDesktopIpcHandlersInput {
  * repository.
  */
 export interface WorkflowPluginInstaller {
+  advanceWorkflowPluginPhase(
+    input: AdvanceWorkflowPluginPhaseRequest,
+  ): Promise<AdvanceWorkflowPluginPhaseResponse>;
   installWorkflowPluginForTask(
     input: InstallWorkflowPluginRequest,
   ): Promise<InstallWorkflowPluginResponse>;
   removeWorkflowPluginBindingForTask(
     input: RemoveWorkflowPluginBindingRequest,
   ): Promise<RemoveWorkflowPluginBindingResponse>;
+  switchWorkflowPluginBindingForTask(
+    input: SwitchWorkflowPluginBindingRequest,
+  ): Promise<SwitchWorkflowPluginBindingResponse>;
 }
 
 class DesktopIpcHandlerError extends Error {
@@ -263,6 +277,14 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
       case desktopIpcChannels.removeWorkflowPluginBindingForTask: {
         const removeRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.removeWorkflowPluginBindingForTask];
         return input.workflowPluginInstaller.removeWorkflowPluginBindingForTask(removeRequest);
+      }
+      case desktopIpcChannels.switchWorkflowPluginBindingForTask: {
+        const switchRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.switchWorkflowPluginBindingForTask];
+        return input.workflowPluginInstaller.switchWorkflowPluginBindingForTask(switchRequest);
+      }
+      case desktopIpcChannels.advanceWorkflowPluginPhase: {
+        const advanceRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.advanceWorkflowPluginPhase];
+        return input.workflowPluginInstaller.advanceWorkflowPluginPhase(advanceRequest);
       }
       case desktopIpcChannels.loadWorkspaceLayout:
         return application.loadWorkspaceLayout();
@@ -488,6 +510,12 @@ function mapDesktopIpcError(error: unknown): DesktopIpcError {
     }
     return Object.freeze(errorForCode('NOT_FOUND'));
   }
+  if (error instanceof AdvanceActivePhaseError) {
+    return Object.freeze(advanceErrorForReason(error.reason));
+  }
+  if (error instanceof WorkflowPluginUpdateError) {
+    return Object.freeze(updateErrorForReason(error.reason));
+  }
   const name = error instanceof Error ? error.name : undefined;
   if (name !== undefined && conflictErrors.has(name))
     return Object.freeze(errorForCode('CONFLICT'));
@@ -513,9 +541,50 @@ function errorForCode(code: DesktopIpcErrorCode): DesktopIpcError {
       return { code, message: 'The desktop operation conflicts with current state.' };
     case 'UNAVAILABLE':
       return { code, message: 'The desktop capability is not available.' };
+    case 'INVALID_PHASE_FOR_PLUGIN':
+      return { code, message: 'The selected phase is not declared by the bound Workflow Plugin.' };
+    case 'ARTIFACT_ALREADY_RECORDED':
+      return {
+        code,
+        message:
+          'An artifact is already recorded for the target phase; use force to skip it.',
+      };
     case 'OPERATION_FAILED':
       return { code, message: 'The requested AgentTerm operation failed.' };
     case 'INTERNAL_ERROR':
       return { code, message: 'The desktop operation could not be completed.' };
+  }
+}
+
+function advanceErrorForReason(reason: string): DesktopIpcError {
+  switch (reason) {
+    case 'CONFLICT':
+      return errorForCode('CONFLICT');
+    case 'NOT_FOUND':
+      return errorForCode('NOT_FOUND');
+    case 'INVALID_PHASE_FOR_PLUGIN':
+      return errorForCode('INVALID_PHASE_FOR_PLUGIN');
+    case 'ARTIFACT_ALREADY_RECORDED':
+      return errorForCode('ARTIFACT_ALREADY_RECORDED');
+    case 'BOUNDARY_REACHED':
+      return errorForCode('OPERATION_FAILED');
+    default:
+      return errorForCode('INTERNAL_ERROR');
+  }
+}
+
+function updateErrorForReason(reason: string): DesktopIpcError {
+  switch (reason) {
+    case 'CONFLICT':
+      return errorForCode('CONFLICT');
+    case 'INVALID_PHASE_FOR_PLUGIN':
+      return errorForCode('INVALID_PHASE_FOR_PLUGIN');
+    case 'UNKNOWN_PLUGIN':
+    case 'INVALID_FORMAT':
+    case 'PATH_NOT_TRUSTED':
+    case 'PATH_UNREADABLE':
+      return errorForCode('OPERATION_FAILED');
+    default:
+      return errorForCode('INTERNAL_ERROR');
   }
 }

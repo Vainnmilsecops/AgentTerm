@@ -145,6 +145,10 @@ export function createDesktopBridge(
     installWorkflowPluginForTask: (input) => invoke(desktopIpcChannels.installWorkflowPluginForTask, input),
     removeWorkflowPluginBindingForTask: (input) =>
       invoke(desktopIpcChannels.removeWorkflowPluginBindingForTask, input),
+    switchWorkflowPluginBindingForTask: (input) =>
+      invoke(desktopIpcChannels.switchWorkflowPluginBindingForTask, input),
+    advanceWorkflowPluginPhase: (input) =>
+      invoke(desktopIpcChannels.advanceWorkflowPluginPhase, input),
     inspectTaskPullRequest: (input) => invoke(desktopIpcChannels.inspectPullRequest, input),
     listProjectTasks: (input) => invoke(desktopIpcChannels.listProjectTasks, input),
     listQualityGateDetails: () => invoke(desktopIpcChannels.listQualityGateDetails, {}),

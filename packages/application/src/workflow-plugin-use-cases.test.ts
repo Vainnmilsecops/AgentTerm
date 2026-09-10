@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { WorkflowPluginConflictError } from "./errors";
+
 import {
   createWorkflowPlugin,
   WorkflowPluginPhaseKind,
@@ -11,7 +13,7 @@ import {
   bindPhaseAgent,
   selectPhaseArtifactContract,
 } from "./workflow-plugin-use-cases";
-import { installWorkflowPluginForTask, removeWorkflowPluginBindingForTask } from "./workflow-plugin-loader";
+import { installWorkflowPluginForTask, removeWorkflowPluginBindingForTask, updateWorkflowPluginBindingForTask, advanceActivePhaseForTask } from "./workflow-plugin-loader";
 import type {
   AgentCatalog,
   AgentIdentity,
@@ -406,5 +408,515 @@ describe("removeWorkflowPluginBindingForTask", () => {
         { bindingRepository: repository, now: () => 5 },
       ),
     ).rejects.toThrow(/disk on fire/i);
+  });
+});
+
+describe("updateWorkflowPluginBindingForTask", () => {
+  it("replaces the binding with a different trusted plugin file", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1_700_000_000_000,
+      },
+    );
+    const replacement = createWorkflowPlugin({
+      description: "two-phase workflow",
+      id: "void",
+      name: "void",
+      phases: [
+        {
+          artifactHeading: "# Research",
+          artifactKind: WorkflowPluginPhaseKind.research,
+          id: "research",
+          requiredHeadings: ["# Research"],
+        },
+        {
+          artifactHeading: "# Plan",
+          artifactKind: WorkflowPluginPhaseKind.planning,
+          // Use 'planning' so the existing activePhaseId passes the
+          // phase-presence guard.
+          id: "planning",
+          requiredHeadings: ["# Plan"],
+        },
+      ],
+    });
+    // The existing binding has activePhaseId = "research" (first
+    // phase); switch to a plugin that does not declare "research"
+    // and the call must refuse.
+    const result = await updateWorkflowPluginBindingForTask(
+      { expectedRevision: 1, path: "C:/plugins/void.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: {
+          async load() {
+            return {
+              failure: undefined,
+              value: {
+                path: "C:/plugins/void.json",
+                plugin: replacement,
+                revision: "r1",
+              },
+            };
+          },
+        },
+        now: () => 1_700_000_000_500,
+      },
+    );
+    expect(result.binding.revision).toBe(2);
+    expect(result.binding.pluginId).toBe("void");
+    expect(result.binding.sourcePath).toBe("C:/plugins/void.json");
+    expect(result.plugin.id).toBe("void");
+  });
+
+  it("rejects when the new plugin does not declare the current active phase", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    const incompatible = createWorkflowPlugin({
+      description: "two-phase workflow",
+      id: "void",
+      name: "void",
+      phases: [
+        {
+          artifactHeading: "# Plan",
+          artifactKind: WorkflowPluginPhaseKind.planning,
+          id: "planning",
+          requiredHeadings: ["# Plan"],
+        },
+        {
+          artifactHeading: "# Review",
+          artifactKind: WorkflowPluginPhaseKind.review,
+          id: "review",
+          requiredHeadings: ["# Review"],
+        },
+      ],
+    });
+    await expect(
+      updateWorkflowPluginBindingForTask(
+        { expectedRevision: 1, path: "C:/plugins/void.json", taskId: "task-1" },
+        {
+          bindingRepository: repository,
+          configurator: {
+            async load() {
+              return {
+                failure: undefined,
+                value: {
+                  path: "C:/plugins/void.json",
+                  plugin: incompatible,
+                  revision: "r1",
+                },
+              };
+            },
+          },
+          now: () => 2,
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "INVALID_PHASE_FOR_PLUGIN" });
+  });
+
+  it("rejects when the expected revision does not match", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    await expect(
+      updateWorkflowPluginBindingForTask(
+        { expectedRevision: 99, path: "C:/plugins/agtx.json", taskId: "task-1" },
+        {
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 2,
+        },
+      ),
+    ).rejects.toBeInstanceOf(WorkflowPluginConflictError);
+    // The binding must remain unchanged because the call was rejected.
+    expect((await repository.findByTaskId("task-1"))?.revision).toBe(1);
+  });
+
+  it("surfaces configurator failures through WorkflowPluginConfiguratorError", async () => {
+    const repository = fakeBindingRepository();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(pluginWithPhases()),
+        now: () => 1,
+      },
+    );
+    await expect(
+      updateWorkflowPluginBindingForTask(
+        { expectedRevision: 1, path: "C:/untrusted/foo.json", taskId: "task-1" },
+        {
+          bindingRepository: repository,
+          configurator: failingConfigurator("PATH_NOT_TRUSTED"),
+          now: () => 2,
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "PATH_NOT_TRUSTED" });
+  });
+});
+
+describe("advanceActivePhaseForTask", () => {
+  function artifactRepository(): Parameters<
+    typeof advanceActivePhaseForTask
+  >[1]["artifactRepository"] {
+    return {
+      async findById() {
+        return undefined;
+      },
+      async findLatestByTaskIdAndKind() {
+        return undefined;
+      },
+      async insert() {
+        return undefined;
+      },
+      async listByTaskId() {
+        return Object.freeze([]);
+      },
+      async listRecentByTaskId() {
+        return Object.freeze([]);
+      },
+      async readReviewEvidenceByTaskId() {
+        return Object.freeze({
+          evidence: Object.freeze([]),
+          totalCount: 0,
+        });
+      },
+    };
+  }
+
+  it("moves the active phase forward", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1_700_000_000_000,
+      },
+    );
+    // The default activePhaseId is "research" (first phase), so the
+    // next phase is "planning".
+    const result = await advanceActivePhaseForTask(
+      { direction: "next", expectedRevision: 1, taskId: "task-1" },
+      {
+        agents: { resolveForPhase: () => "claude" },
+        artifactRepository: artifactRepository(),
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1_700_000_000_500,
+        settings: () => ({
+          defaultAgentId: "claude",
+          executableOverrides: {},
+        }),
+      },
+    );
+    expect(result.activePhaseId).toBe("planning");
+    expect(result.binding.revision).toBe(2);
+    expect(result.phaseAgentId).toBe("claude");
+  });
+
+  it("refuses to advance past the last phase", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    // Manually move the active phase to the last phase by using set.
+    await advanceActivePhaseForTask(
+      { direction: "set", expectedRevision: 1, phaseId: "review", taskId: "task-1" },
+      {
+        agents: { resolveForPhase: () => undefined },
+        artifactRepository: artifactRepository(),
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 2,
+        settings: () => ({
+          defaultAgentId: "claude",
+          executableOverrides: {},
+        }),
+      },
+    );
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "next", expectedRevision: 2, taskId: "task-1" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: artifactRepository(),
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 3,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "BOUNDARY_REACHED" });
+  });
+
+  it("refuses to skip a recorded artifact without force", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    const blocked: Parameters<typeof advanceActivePhaseForTask>[1]["artifactRepository"] = {
+      ...artifactRepository(),
+      async findLatestByTaskIdAndKind(_taskId, kind) {
+        if (kind === "execution-summary") {
+          return {
+            canonicalName: "running/execution-summary.md",
+            content: "",
+            createdAt: 1,
+            format: "markdown",
+            id: "artifact-running",
+            kind: "execution-summary",
+            phase: "RUNNING",
+            schemaVersion: 1,
+            sessionId: undefined,
+            taskId: "task-1",
+            validation: "VALID",
+          };
+        }
+        return undefined;
+      },
+    };
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "set", expectedRevision: 1, phaseId: "running", taskId: "task-1" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: blocked,
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 2,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "ARTIFACT_ALREADY_RECORDED" });
+  });
+
+  it("allows skipping a recorded artifact when force is true", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    const blocked: Parameters<typeof advanceActivePhaseForTask>[1]["artifactRepository"] = {
+      ...artifactRepository(),
+      async findLatestByTaskIdAndKind(_taskId, kind) {
+        if (kind === "execution-summary") {
+          return {
+            canonicalName: "running/execution-summary.md",
+            content: "",
+            createdAt: 1,
+            format: "markdown",
+            id: "artifact-running",
+            kind: "execution-summary",
+            phase: "RUNNING",
+            schemaVersion: 1,
+            sessionId: undefined,
+            taskId: "task-1",
+            validation: "VALID",
+          };
+        }
+        return undefined;
+      },
+    };
+    const result = await advanceActivePhaseForTask(
+      {
+        direction: "set",
+        expectedRevision: 1,
+        force: true,
+        phaseId: "running",
+        taskId: "task-1",
+      },
+      {
+        agents: { resolveForPhase: () => undefined },
+        artifactRepository: blocked,
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 2,
+        settings: () => ({
+          defaultAgentId: "claude",
+          executableOverrides: {},
+        }),
+      },
+    );
+    expect(result.activePhaseId).toBe("running");
+  });
+
+  it("refuses to move previous past the first phase", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "previous", expectedRevision: 1, taskId: "task-1" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: artifactRepository(),
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 2,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "BOUNDARY_REACHED" });
+  });
+
+  it("rejects set without a phaseId", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "set", expectedRevision: 1, taskId: "task-1" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: artifactRepository(),
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 2,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "INVALID_PHASE_FOR_PLUGIN" });
+  });
+
+  it("rejects set with an unknown phase id", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "set", expectedRevision: 1, phaseId: "unknown", taskId: "task-1" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: artifactRepository(),
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 2,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "INVALID_PHASE_FOR_PLUGIN" });
+  });
+
+  it("rejects when the binding does not exist", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "next", expectedRevision: 0, taskId: "task-missing" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: artifactRepository(),
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 1,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "NOT_FOUND" });
+  });
+
+  it("rejects when the expected revision does not match", async () => {
+    const repository = fakeBindingRepository();
+    const plugin = pluginWithPhases();
+    await installWorkflowPluginForTask(
+      { expectedRevision: 0, path: "C:/plugins/agtx.json", taskId: "task-1" },
+      {
+        bindingRepository: repository,
+        configurator: configuratorWith(plugin),
+        now: () => 1,
+      },
+    );
+    await expect(
+      advanceActivePhaseForTask(
+        { direction: "next", expectedRevision: 99, taskId: "task-1" },
+        {
+          agents: { resolveForPhase: () => undefined },
+          artifactRepository: artifactRepository(),
+          bindingRepository: repository,
+          configurator: configuratorWith(plugin),
+          now: () => 2,
+          settings: () => ({
+            defaultAgentId: "claude",
+            executableOverrides: {},
+          }),
+        },
+      ),
+    ).rejects.toBeInstanceOf(WorkflowPluginConflictError);
   });
 });

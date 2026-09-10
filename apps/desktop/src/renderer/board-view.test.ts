@@ -224,8 +224,11 @@ describe("projectOverviewToBoard", () => {
     const taskWithPlugin: WorkspaceTaskOverview = {
       ...baseTask,
       workflowPlugin: Object.freeze({
+        activePhaseArtifactKind: "plan" as const,
         activePhaseId: "planning",
+        availablePhaseIds: ["planning"],
         phaseAgentId: "gemini",
+        phaseArtifactKinds: ["plan"] as const,
         pluginId: "agtx",
         pluginName: "agtx",
       }),
@@ -246,8 +249,11 @@ describe("projectOverviewToBoard", () => {
       ({ column }) => column.id === TaskPhase.BACKLOG,
     );
     expect(backlog?.tasks[0]?.workflowPlugin).toEqual({
+      activePhaseArtifactKind: "plan",
       activePhaseId: "planning",
+      availablePhaseIds: ["planning"],
       phaseAgentId: "gemini",
+      phaseArtifactKinds: ["plan"],
       pluginId: "agtx",
       pluginName: "agtx",
     });

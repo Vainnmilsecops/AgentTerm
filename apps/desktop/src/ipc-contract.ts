@@ -41,6 +41,8 @@ export const desktopIpcChannels = Object.freeze({
   importQualityGateConfig: 'agentterm:quality-gates:import-config',
   installWorkflowPluginForTask: 'agentterm:workflow-plugin:install',
   removeWorkflowPluginBindingForTask: 'agentterm:workflow-plugin:remove',
+  switchWorkflowPluginBindingForTask: 'agentterm:workflow-plugin:switch',
+  advanceWorkflowPluginPhase: 'agentterm:workflow-plugin:advance-phase',
   inspectPullRequest: 'agentterm:pull-request:inspect',
   listProjectTasks: 'agentterm:project-tasks:list',
   listQualityGateDetails: 'agentterm:quality-gates:list-details',
@@ -219,6 +221,43 @@ export interface RemoveWorkflowPluginBindingResponse {
   readonly sourcePath: string;
 }
 
+export interface SwitchWorkflowPluginBindingRequest {
+  readonly expectedRevision: number;
+  readonly path: string;
+  readonly taskId: string;
+}
+
+export interface SwitchWorkflowPluginBindingResponse {
+  readonly activePhaseId: string;
+  readonly bindingRevision: number;
+  readonly pluginId: string;
+  readonly pluginName: string;
+  readonly sourcePath: string;
+}
+
+export type AdvanceDirection = 'next' | 'previous' | 'set';
+
+export interface AdvanceWorkflowPluginPhaseRequest {
+  readonly direction: AdvanceDirection;
+  readonly expectedRevision: number;
+  /**
+   * Bypass the artifact-already-recorded guard. Only honored when the
+   * caller asks for a forward jump and an artifact is already
+   * recorded; default is to refuse so audit-trail evidence is never
+   * silently dropped.
+   */
+  readonly force?: boolean;
+  readonly phaseId?: string;
+  readonly taskId: string;
+}
+
+export interface AdvanceWorkflowPluginPhaseResponse {
+  readonly activePhaseId: string;
+  readonly bindingRevision: number;
+  readonly phaseAgentId: string | undefined;
+  readonly pluginId: string;
+}
+
 export interface ImportQualityGateConfigResponse {
   readonly configuration: QualityGateConfiguration;
   readonly registered: readonly QualityGate[];
@@ -292,6 +331,8 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.installWorkflowPluginForTask]: InstallWorkflowPluginRequest;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskRequest;
   readonly [desktopIpcChannels.removeWorkflowPluginBindingForTask]: RemoveWorkflowPluginBindingRequest;
+  readonly [desktopIpcChannels.switchWorkflowPluginBindingForTask]: SwitchWorkflowPluginBindingRequest;
+  readonly [desktopIpcChannels.advanceWorkflowPluginPhase]: AdvanceWorkflowPluginPhaseRequest;
   readonly [desktopIpcChannels.listProjectTasks]: ProjectTasksRequest;
   readonly [desktopIpcChannels.listQualityGateDetails]: EmptyRequest;
   readonly [desktopIpcChannels.listQualityGates]: EmptyRequest;
@@ -347,6 +388,8 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.installWorkflowPluginForTask]: InstallWorkflowPluginResponse;
   readonly [desktopIpcChannels.inspectPullRequest]: TaskPullRequestState;
   readonly [desktopIpcChannels.removeWorkflowPluginBindingForTask]: RemoveWorkflowPluginBindingResponse;
+  readonly [desktopIpcChannels.switchWorkflowPluginBindingForTask]: SwitchWorkflowPluginBindingResponse;
+  readonly [desktopIpcChannels.advanceWorkflowPluginPhase]: AdvanceWorkflowPluginPhaseResponse;
   readonly [desktopIpcChannels.listProjectTasks]: readonly Task[];
   readonly [desktopIpcChannels.listQualityGateDetails]: readonly QualityGate[];
   readonly [desktopIpcChannels.listQualityGates]: readonly QualityGateSummary[];
@@ -388,8 +431,10 @@ export interface DesktopIpcResponseMap {
 }
 
 export type DesktopIpcErrorCode =
+  | 'ARTIFACT_ALREADY_RECORDED'
   | 'CONFLICT'
   | 'INTERNAL_ERROR'
+  | 'INVALID_PHASE_FOR_PLUGIN'
   | 'INVALID_REQUEST'
   | 'NOT_FOUND'
   | 'OPERATION_FAILED'
@@ -428,6 +473,12 @@ export interface AgentTermDesktopApi {
   removeWorkflowPluginBindingForTask(
     input: RemoveWorkflowPluginBindingRequest,
   ): Promise<RemoveWorkflowPluginBindingResponse>;
+  switchWorkflowPluginBindingForTask(
+    input: SwitchWorkflowPluginBindingRequest,
+  ): Promise<SwitchWorkflowPluginBindingResponse>;
+  advanceWorkflowPluginPhase(
+    input: AdvanceWorkflowPluginPhaseRequest,
+  ): Promise<AdvanceWorkflowPluginPhaseResponse>;
   listProjectTasks(input: ProjectTasksRequest): Promise<readonly Task[]>;
   listQualityGateDetails(): Promise<readonly QualityGate[]>;
   listQualityGates(): Promise<readonly QualityGateSummary[]>;
@@ -697,6 +748,39 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       const record = exactRecord(input, ['expectedRevision', 'taskId']);
       return Object.freeze({
         expectedRevision: readWorkflowPluginExpectedRevision(record.expectedRevision),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.switchWorkflowPluginBindingForTask: {
+      const record = exactRecord(input, ['expectedRevision', 'path', 'taskId']);
+      return Object.freeze({
+        expectedRevision: readWorkflowPluginExpectedRevision(record.expectedRevision),
+        path: readWorkflowPluginPath(record.path),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.advanceWorkflowPluginPhase: {
+      const record = exactRecord(input, ['direction', 'expectedRevision', 'taskId']);
+      const direction = record.direction;
+      if (
+        direction !== 'next' &&
+        direction !== 'previous' &&
+        direction !== 'set'
+      ) {
+        throw new DesktopIpcRequestValidationError();
+      }
+      const forceRaw = (input as { readonly force?: unknown }).force;
+      const phaseIdRaw = (input as { readonly phaseId?: unknown }).phaseId;
+      const phaseId =
+        phaseIdRaw === undefined
+          ? undefined
+          : readWorkflowPluginPath(phaseIdRaw as string);
+      const force = forceRaw === undefined ? undefined : readBoolean(forceRaw);
+      return Object.freeze({
+        direction,
+        expectedRevision: readWorkflowPluginExpectedRevision(record.expectedRevision),
+        force,
+        phaseId,
         taskId: readIdentity(record.taskId),
       }) as DesktopIpcRequestMap[C];
     }
@@ -1103,6 +1187,13 @@ function readWorkflowPluginPath(input: unknown): string {
 
 function readWorkflowPluginExpectedRevision(input: unknown): number {
   if (typeof input !== 'number' || !Number.isInteger(input) || input < 0 || input > Number.MAX_SAFE_INTEGER) {
+    fail();
+  }
+  return input;
+}
+
+function readBoolean(input: unknown): boolean {
+  if (typeof input !== 'boolean') {
     fail();
   }
   return input;

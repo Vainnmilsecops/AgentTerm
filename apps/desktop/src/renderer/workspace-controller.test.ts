@@ -729,6 +729,27 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
       sourcePath: 'C:\\fixtures\\plugin.json',
     }),
   );
+  public readonly switchWorkflowPluginBindingForTask = vi.fn<
+    AgentWorkspaceClient['switchWorkflowPluginBindingForTask']
+  >(async () =>
+    Object.freeze({
+      activePhaseId: 'planning',
+      bindingRevision: 2,
+      pluginId: 'agtx',
+      pluginName: 'agtx',
+      sourcePath: 'C:\\fixtures\\agtx.json',
+    }),
+  );
+  public readonly advanceWorkflowPluginPhase = vi.fn<
+    AgentWorkspaceClient['advanceWorkflowPluginPhase']
+  >(async () =>
+    Object.freeze({
+      activePhaseId: 'planning',
+      bindingRevision: 2,
+      phaseAgentId: 'codex',
+      pluginId: 'agtx',
+    }),
+  );
   public readonly registerQualityGate = vi.fn<AgentWorkspaceClient['registerQualityGate']>(
     async () => undefined,
   );
@@ -1447,8 +1468,11 @@ describe('WorkspaceController', () => {
               ...eligibleReviewOverview.projects[0]!.tasks[0]!,
               task: researchTask,
               workflowPlugin: Object.freeze({
+                activePhaseArtifactKind: 'research',
                 activePhaseId: 'research',
+                availablePhaseIds: ['research', 'planning'],
                 phaseAgentId: 'codex',
+                phaseArtifactKinds: ['research', 'plan'],
                 pluginId: 'agtx',
                 pluginName: 'agtx',
               }),
@@ -1511,8 +1535,11 @@ describe('WorkspaceController', () => {
               ...eligibleReviewOverview.projects[0]!.tasks[0]!,
               task: researchTask,
               workflowPlugin: Object.freeze({
+                activePhaseArtifactKind: 'research',
                 activePhaseId: 'research',
+                availablePhaseIds: ['research', 'planning'],
                 phaseAgentId: 'codex',
+                phaseArtifactKinds: ['research', 'plan'],
                 pluginId: 'agtx',
                 pluginName: 'agtx',
               }),

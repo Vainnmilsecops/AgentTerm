@@ -28,6 +28,7 @@ import { QualityGateConfigurator } from './quality-gate-configurator';
 import {
   WorkflowPluginConfigurator,
   type InstalledWorkflowPluginSummary,
+  type WorkflowPluginProjectionKind,
 } from './workflow-plugin-configurator';
 import {
   readPersistedLayout,
@@ -150,6 +151,29 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
     readonly revision: number;
     readonly sourcePath: string;
   }>;
+  readonly onSwitchWorkflowPluginBinding?: (input: {
+    readonly expectedRevision: number;
+    readonly path: string;
+    readonly taskId: string;
+  }) => Promise<{
+    readonly activePhaseId: string;
+    readonly bindingRevision: number;
+    readonly pluginId: string;
+    readonly pluginName: string;
+    readonly sourcePath: string;
+  }>;
+  readonly onAdvanceWorkflowPluginPhase?: (input: {
+    readonly direction: 'next' | 'previous' | 'set';
+    readonly expectedRevision: number;
+    readonly force?: boolean;
+    readonly phaseId?: string;
+    readonly taskId: string;
+  }) => Promise<{
+    readonly activePhaseId: string;
+    readonly bindingRevision: number;
+    readonly phaseAgentId: string | undefined;
+    readonly pluginId: string;
+  }>;
   readonly workflowPluginBindings: readonly InstalledWorkflowPluginSummary[];
   readonly workflowPluginError: string | undefined;
   readonly onImportQualityGateConfig: () => Promise<
@@ -254,6 +278,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
                   {
                     activePhaseId: result.activePhaseId,
                     bindingRevision: result.bindingRevision,
+                    phaseAgentId: undefined,
                     pluginId: result.pluginId,
                     pluginName: result.pluginName,
                     sourcePath: result.sourcePath,
@@ -279,6 +304,65 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
               setWorkflowPluginBindings((current) =>
                 Object.freeze(
                   current.filter((entry) => entry.taskId !== input.taskId),
+                ),
+              );
+              setWorkflowPluginError(undefined);
+              return result;
+            },
+          }
+        : {})}
+      {...(controller?.switchWorkflowPluginBindingForTask !== undefined
+        ? {
+            onSwitchWorkflowPluginBinding: async (input: {
+              readonly expectedRevision: number;
+              readonly path: string;
+              readonly taskId: string;
+            }) => {
+              const result = await controller.switchWorkflowPluginBindingForTask(input);
+              setWorkflowPluginBindings((current) =>
+                Object.freeze(
+                  current.map((entry) =>
+                    entry.taskId === input.taskId
+                      ? Object.freeze({
+                          ...entry,
+                          activePhaseId: result.activePhaseId,
+                          bindingRevision: result.bindingRevision,
+                          pluginId: result.pluginId,
+                          pluginName: result.pluginName,
+                          sourcePath: result.sourcePath,
+                        })
+                      : entry,
+                  ),
+                ),
+              );
+              setWorkflowPluginError(undefined);
+              return result;
+            },
+          }
+        : {})}
+      {...(controller?.advanceWorkflowPluginPhase !== undefined
+        ? {
+            onAdvanceWorkflowPluginPhase: async (input: {
+              readonly direction: 'next' | 'previous' | 'set';
+              readonly expectedRevision: number;
+              readonly force?: boolean;
+              readonly phaseId?: string;
+              readonly taskId: string;
+            }) => {
+              const result = await controller.advanceWorkflowPluginPhase(input);
+              setWorkflowPluginBindings((current) =>
+                Object.freeze(
+                  current.map((entry) =>
+                    entry.taskId === input.taskId
+                      ? Object.freeze({
+                          ...entry,
+                          activePhaseId: result.activePhaseId,
+                          bindingRevision: result.bindingRevision,
+                          phaseAgentId: result.phaseAgentId,
+                          pluginId: result.pluginId,
+                        })
+                      : entry,
+                  ),
                 ),
               );
               setWorkflowPluginError(undefined);
@@ -341,6 +425,8 @@ export function AgentWorkspaceView({
   onSelectWorkflowPluginPath = undefined,
   onRemoveWorkflowPluginBinding = undefined,
   onOpenBoardWindow = () => undefined,
+  onSwitchWorkflowPluginBinding = undefined,
+  onAdvanceWorkflowPluginPhase = undefined,
   workflowPluginBindings,
   workflowPluginError,
   snapshot,
@@ -1027,6 +1113,22 @@ export function AgentWorkspaceView({
               onImport={onImportQualityGateConfig}
             />
             <WorkflowPluginConfigurator
+              availablePhases={Object.fromEntries(
+                workflowPluginBindings.map((entry) => [
+                  entry.taskId,
+                  {
+                    availablePhaseIds: overviewPluginPhases(
+                      entry.taskId,
+                      snapshot.overview,
+                    ),
+                    phaseArtifactKinds: overviewPluginArtifactKinds(
+                      entry.taskId,
+                      snapshot.overview,
+                    ),
+                    pluginId: entry.pluginId,
+                  },
+                ]),
+              )}
               busy={snapshot.activeAction !== undefined}
               disabledReason={
                 snapshot.selectedTaskId === undefined
@@ -1035,9 +1137,11 @@ export function AgentWorkspaceView({
               }
               error={workflowPluginError}
               installed={workflowPluginBindings}
+              onAdvance={onAdvanceWorkflowPluginPhase ?? Promise.reject}
               onInstall={onInstallWorkflowPlugin ?? Promise.reject}
               onRemove={onRemoveWorkflowPluginBinding ?? Promise.reject}
               onSelectPath={onSelectWorkflowPluginPath ?? Promise.reject}
+              onSwitch={onSwitchWorkflowPluginBinding ?? Promise.reject}
               selectedTaskId={snapshot.selectedTaskId}
             />
           </WorkspaceSettingsGear>
@@ -3131,6 +3235,40 @@ function findTask(
   return snapshot.overview.projects
     .flatMap((project) => project.tasks)
     .find((task) => task.task.id === taskId);
+}
+
+function overviewPluginPhases(
+  taskId: string,
+  overview: AgentWorkspaceOverview | undefined,
+): readonly string[] {
+  if (overview === undefined) {
+    return Object.freeze([]);
+  }
+  for (const project of overview.projects) {
+    for (const task of project.tasks) {
+      if (task.task.id === taskId && task.workflowPlugin !== undefined) {
+        return task.workflowPlugin.availablePhaseIds;
+      }
+    }
+  }
+  return Object.freeze([]);
+}
+
+function overviewPluginArtifactKinds(
+  taskId: string,
+  overview: AgentWorkspaceOverview | undefined,
+): readonly WorkflowPluginProjectionKind[] {
+  if (overview === undefined) {
+    return Object.freeze([]);
+  }
+  for (const project of overview.projects) {
+    for (const task of project.tasks) {
+      if (task.task.id === taskId && task.workflowPlugin !== undefined) {
+        return task.workflowPlugin.phaseArtifactKinds;
+      }
+    }
+  }
+  return Object.freeze([]);
 }
 
 function findTaskSession(

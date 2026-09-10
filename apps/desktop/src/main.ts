@@ -198,6 +198,20 @@ function startDesktopApplication(): void {
         }
         return application.removeWorkflowPluginBindingForTask(input);
       },
+      switchWorkflowPluginBindingForTask: async (input) => {
+        const application = applicationInstance ?? (await applicationAttempt);
+        if (application === undefined) {
+          throw new Error('Workflow plugin installer called before the desktop application was ready.');
+        }
+        return application.switchWorkflowPluginBindingForTask(input);
+      },
+      advanceWorkflowPluginPhase: async (input) => {
+        const application = applicationInstance ?? (await applicationAttempt);
+        if (application === undefined) {
+          throw new Error('Workflow plugin installer called before the desktop application was ready.');
+        }
+        return application.advanceWorkflowPluginPhase(input);
+      },
     },
     shell: {
       openExternal: (url: string) => shell.openExternal(url),

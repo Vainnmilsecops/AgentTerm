@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-08-16
+Updated: 2026-09-10
 
 ## Current State
 
@@ -374,3 +374,19 @@ to M2.
   enforces the single-writer discipline, the smart-wrapper
   (`AgentWorkspace`) optimistically drops the row on success, and the
   binding repository remains the sole writer.
+- **M3.1 — Workflow plugin switching UX** (ADR-010): completes the
+  per-binding lifecycle so users can swap the trusted plugin file or
+  move the active phase without uninstalling. Two new application use
+  cases (`updateWorkflowPluginBindingForTask`,
+  `advanceActivePhaseForTask`) carry the same compare-and-set
+  discipline; the latter refuses to skip a phase with an already-recorded
+  `ExecutionArtifact` unless the caller passes an explicit `force: true`.
+  The renderer panel grows a `Switch…` button per binding and a phase
+  fieldset (`◀ Previous` / phase label / `Next ▶`); the smart wrapper
+  optimistically mirrors the new active phase. Two new IPC channels
+  (`agentterm:workflow-plugin:switch`,
+  `agentterm:workflow-plugin:advance-phase`) and two error codes
+  (`INVALID_PHASE_FOR_PLUGIN`, `ARTIFACT_ALREADY_RECORDED`) round out
+  the contract. The Workspace projection carries
+  `availablePhaseIds` / `phaseArtifactKinds` so the renderer can render
+  the phase controls without re-parsing the plugin file.

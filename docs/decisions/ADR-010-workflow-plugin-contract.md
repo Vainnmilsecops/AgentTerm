@@ -1,6 +1,6 @@
-# ADR-010: WorkflowPlugin spec-driven plugin contract (M1 + M2 + M2.5)
+# ADR-010: WorkflowPlugin spec-driven plugin contract (M1 + M2 + M2.5 + M3.1)
 
-Status: Accepted (M1 + M2 + M2.5 implemented)
+Status: Accepted (M1 + M2 + M2.5 + M3.1 implemented)
 Date: 2026-09-10
 Owner: AgentTerm desktop + monorepo
 Parent: ADR-009 (Port agtx concepts into AgentTerm)
@@ -26,6 +26,22 @@ and the main process exposes a dedicated
 use case enforces the same compare-and-set discipline as the install
 path so a concurrent reinstall in another surface cannot silently race
 a remove.
+
+M3.1 completes the per-binding lifecycle. Users can switch a binding to a
+different trusted plugin file (without uninstalling) and advance the
+active phase forward, backward, or to an explicit phase id. Forward
+jumps that would skip a phase with an already-recorded
+`ExecutionArtifact` are refused unless the caller passes an explicit
+`force: true` so the audit trail is never silently dropped. Two new
+application use cases (`updateWorkflowPluginBindingForTask`,
+`advanceActivePhaseForTask`) carry the same compare-and-set discipline
+as install and remove; two new IPC channels
+(`agentterm:workflow-plugin:switch`,
+`agentterm:workflow-plugin:advance-phase`) and two new error codes
+(`INVALID_PHASE_FOR_PLUGIN`, `ARTIFACT_ALREADY_RECORDED`) round out the
+contract. The Workspace projection grows
+`availablePhaseIds` / `phaseArtifactKinds` so the renderer can render
+phase controls without re-parsing the bound plugin file.
 
 This ADR documents the M1 + M2 cut:
 
@@ -97,6 +113,31 @@ rejects `NOT_FOUND` when the row is missing, rejects `CONFLICT` when
 to the `CONFLICT` / `NOT_FOUND` IPC error codes so the renderer can
 surface them as inline feedback.
 
+`updateWorkflowPluginBindingForTask({ path, taskId, expectedRevision }, deps)`
+(M3.1) replaces the plugin file behind a binding while preserving the
+`activePhaseId`. It runs the same configurator path as install, refuses
+with `INVALID_PHASE_FOR_PLUGIN` if the new plugin does not declare the
+current active phase, and otherwise calls `bindingRepository.upsert` with
+`expectedRevision`. Errors map to `WorkflowPluginConfiguratorError`
+(install-side) or `WorkflowPluginUpdateError` (`CONFLICT`,
+`INVALID_PHASE_FOR_PLUGIN`, `UNKNOWN_PLUGIN`). The
+desktop `WorkflowPluginInstaller` seam grows a `switchWorkflowPluginBindingForTask`
+adapter so the renderer never mutates bindings directly.
+
+`advanceActivePhaseForTask({ direction, taskId, expectedRevision, force?, phaseId? }, deps)`
+(M3.1) moves the active phase forward, backward, or to an explicit
+`phaseId`. The configurator re-loads the bound plugin file so a stored
+file that has become unreadable surfaces as `UNKNOWN_PLUGIN`. Forward
+jumps (including explicit `set`) consult
+`artifactRepository.findLatestByTaskIdAndKind` and refuse with
+`ARTIFACT_ALREADY_RECORDED` when the target phase already produced an
+artifact, unless the caller passes `force: true`. Boundary moves
+(past the last phase, before the first) surface as `BOUNDARY_REACHED`.
+The desktop seam grows an `advanceWorkflowPluginPhase` adapter; the IPC
+contract exposes `INVALID_PHASE_FOR_PLUGIN` and
+`ARTIFACT_ALREADY_RECORDED` error codes so the renderer can render the
+inline hint without leaking typed application reasons.
+
 ### Composition
 
 M1 does not introduce a new IPC handler. M2 ships:
@@ -132,6 +173,33 @@ renderer control:
   `WorkflowPluginInstaller` seam closes over the production
   `removeWorkflowPluginBindingForTask` use case so the binding
   repository remains the only writer.
+
+M3.1 extends the composition with two new IPC channels and two new
+renderer controls:
+
+- `switchWorkflowPluginBindingForTask`
+  (`agentterm:workflow-plugin:switch`) — routed through the same
+  `WorkflowPluginInstaller` seam and forwarded to
+  `updateWorkflowPluginBindingForTask` in `@agentterm/application`. The
+  request carries the same `expectedRevision` compare-and-set and the
+  same configurator trust-root check as install, so a concurrent
+  reinstall cannot silently switch the binding to an untrusted file.
+- `advanceWorkflowPluginPhase`
+  (`agentterm:workflow-plugin:advance-phase`) — routed through the same
+  `WorkflowPluginInstaller` seam and forwarded to
+  `advanceActivePhaseForTask` in `@agentterm/application`. Errors map to
+  `INVALID_PHASE_FOR_PLUGIN`, `ARTIFACT_ALREADY_RECORDED`,
+  `BOUNDARY_REACHED`, `CONFLICT`, or `NOT_FOUND`. The renderer cannot
+  decide the target phase; it must pass the explicit `phaseId` it wants
+  the main process to advance to.
+- The `WorkflowPluginConfigurator` panel grows a per-binding `Switch…`
+  button and a phase fieldset (`◀ Previous` / phase label / `Next ▶`).
+  The smart wrapper (`AgentWorkspace`) optimistically mirrors the new
+  active phase and binding revision on success so the
+  `WorkflowPluginInstaller` seam remains the only writer. The workspace
+  projection (`WorkflowPluginProjection`) now exposes
+  `availablePhaseIds` and `phaseArtifactKinds` so the renderer can render
+  the phase controls without re-parsing the bound plugin file.
 
 The desktop composition root in
 `apps/desktop/src/desktop-application.ts` owns the

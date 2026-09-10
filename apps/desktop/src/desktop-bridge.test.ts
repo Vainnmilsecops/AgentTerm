@@ -36,6 +36,7 @@ describe('desktop preload bridge', () => {
     expect(Object.keys(lifecycle.api).sort()).toEqual([
       'acceptTaskPlan',
       'addTaskDependency',
+      'advanceWorkflowPluginPhase',
       'approveTaskReview',
       'attachTerminal',
       'beginTaskPlanning',
@@ -79,6 +80,7 @@ describe('desktop preload bridge', () => {
       'startTaskPlanning',
       'startTaskResearch',
       'stopAgentSession',
+      'switchWorkflowPluginBindingForTask',
       'unregisterQualityGate',
       'updateSettings',
     ]);

@@ -3,37 +3,60 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import type {
+  AdvanceWorkflowPluginPhaseRequest,
+  AdvanceWorkflowPluginPhaseResponse,
   InstallWorkflowPluginRequest,
   InstallWorkflowPluginResponse,
   RemoveWorkflowPluginBindingRequest,
   RemoveWorkflowPluginBindingResponse,
   SelectWorkflowPluginPathResponse,
+  SwitchWorkflowPluginBindingRequest,
+  SwitchWorkflowPluginBindingResponse,
 } from '../ipc-contract';
 
 import {
   WorkflowPluginConfigurator,
   type InstalledWorkflowPluginSummary,
+  type WorkflowPluginAvailablePhases,
 } from './workflow-plugin-configurator';
 
 function renderConfigurator(
   overrides: Partial<{
+    availablePhases: Readonly<
+      Record<string, WorkflowPluginAvailablePhases | undefined>
+    >;
     busy: boolean;
     disabledReason: string | undefined;
     error: string | undefined;
     installed: readonly InstalledWorkflowPluginSummary[];
+    onAdvance: (
+      input: AdvanceWorkflowPluginPhaseRequest,
+    ) => Promise<AdvanceWorkflowPluginPhaseResponse>;
     onInstall: (input: InstallWorkflowPluginRequest) => Promise<InstallWorkflowPluginResponse>;
     onRemove: (
       input: RemoveWorkflowPluginBindingRequest,
     ) => Promise<RemoveWorkflowPluginBindingResponse>;
     onSelectPath: () => Promise<SelectWorkflowPluginPathResponse>;
+    onSwitch: (
+      input: SwitchWorkflowPluginBindingRequest,
+    ) => Promise<SwitchWorkflowPluginBindingResponse>;
     selectedTaskId: string | undefined;
   }> = {},
 ): string {
   const props = {
+    availablePhases: overrides.availablePhases ?? {},
     busy: overrides.busy ?? false,
     disabledReason: overrides.disabledReason,
     error: overrides.error,
     installed: overrides.installed ?? Object.freeze([]),
+    onAdvance:
+      overrides.onAdvance ??
+      (async () => ({
+        activePhaseId: '',
+        bindingRevision: 0,
+        phaseAgentId: undefined,
+        pluginId: '',
+      })),
     onInstall:
       overrides.onInstall ??
       (async () => ({
@@ -54,6 +77,15 @@ function renderConfigurator(
     onSelectPath:
       overrides.onSelectPath ??
       (async () => ({ path: undefined, result: 'CANCELLED' as const })),
+    onSwitch:
+      overrides.onSwitch ??
+      (async () => ({
+        activePhaseId: '',
+        bindingRevision: 0,
+        pluginId: '',
+        pluginName: '',
+        sourcePath: 'C:/trusted/plugin.json',
+      })),
     selectedTaskId: overrides.selectedTaskId ?? 'task-1',
   };
   return renderToStaticMarkup(createElement(WorkflowPluginConfigurator, props));
@@ -84,6 +116,7 @@ describe('WorkflowPluginConfigurator', () => {
       {
         activePhaseId: 'planning',
         bindingRevision: 3,
+        phaseAgentId: 'codex',
         pluginId: 'agtx',
         pluginName: 'AgentTerm eXtended',
         sourcePath: 'C:\\plugins\\agtx.json',
@@ -110,6 +143,7 @@ describe('WorkflowPluginConfigurator', () => {
       {
         activePhaseId: 'planning',
         bindingRevision: 3,
+        phaseAgentId: 'codex',
         pluginId: 'agtx',
         pluginName: 'AgentTerm eXtended',
         sourcePath: 'C:\\plugins\\agtx.json',
@@ -118,6 +152,7 @@ describe('WorkflowPluginConfigurator', () => {
       {
         activePhaseId: 'research',
         bindingRevision: 1,
+        phaseAgentId: 'gemini',
         pluginId: 'void',
         pluginName: 'Void',
         sourcePath: 'C:\\plugins\\void.json',
