@@ -95,7 +95,10 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onPushTaskBranch: () => void;
   readonly onOpenExternalLink?: (url: string) => void;
   readonly onOpenProject: () => void;
-  readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
+  readonly onOpenWorktreeFile?: (input: {
+    readonly absolutePath: string;
+    readonly taskId: string;
+  }) => void;
   readonly onRefreshPullRequest: () => void;
   readonly onRefresh: () => void;
   readonly onRegisterQualityGate: (input: {
@@ -126,8 +129,13 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onStartTask: () => void;
   readonly onStartPlanning: () => void;
   readonly onStartResearch: () => void;
-  readonly onCaptureBrainstormNote: (input: { readonly content: string; readonly id: string }) => void;
+  readonly onCaptureBrainstormNote: (input: {
+    readonly content: string;
+    readonly id: string;
+  }) => void;
   readonly onCaptureSweepNote: (input: { readonly content: string; readonly id: string }) => void;
+  readonly onCheckMergeConflicts?: () => void;
+  readonly onSendMergeConflictResolution?: () => void;
   readonly onUnregisterQualityGate: (gateId: string) => Promise<boolean>;
   readonly onInstallWorkflowPlugin?: (input: {
     readonly expectedRevision: number;
@@ -256,6 +264,10 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onStartResearch={() => void controller?.startSelectedResearch()}
       onCaptureBrainstormNote={(input) => void controller?.captureSelectedBrainstormNote(input)}
       onCaptureSweepNote={(input) => void controller?.captureSelectedSweepNote(input)}
+      onCheckMergeConflicts={() => void controller?.checkMergeConflictsForSelectedTask()}
+      onSendMergeConflictResolution={() =>
+        void controller?.triggerMergeConflictResolutionForSelectedTask()
+      }
       onUnregisterQualityGate={(gateId) =>
         controller?.unregisterQualityGate(gateId) ?? Promise.resolve(false)
       }
@@ -304,9 +316,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
             }) => {
               const result = await controller.removeWorkflowPluginBindingForTask(input);
               setWorkflowPluginBindings((current) =>
-                Object.freeze(
-                  current.filter((entry) => entry.taskId !== input.taskId),
-                ),
+                Object.freeze(current.filter((entry) => entry.taskId !== input.taskId)),
               );
               setWorkflowPluginError(undefined);
               return result;
@@ -423,6 +433,8 @@ export function AgentWorkspaceView({
   onStartResearch,
   onCaptureBrainstormNote,
   onCaptureSweepNote,
+  onCheckMergeConflicts = undefined,
+  onSendMergeConflictResolution = undefined,
   onUnregisterQualityGate,
   onImportQualityGateConfig,
   onExportQualityGateConfig,
@@ -811,12 +823,18 @@ export function AgentWorkspaceView({
         selected === undefined
           ? undefined
           : {
-              canProduceArtifact:
-                selected.task.phase !== 'DONE',
+              canCheckMergeConflicts:
+                selected.task.phase === 'REVIEW' || selected.task.phase === 'RUNNING',
+              canProduceArtifact: selected.task.phase !== 'DONE',
               canRequestReview: selected.canRequestReview,
               canRetryExecution: selected.canRetryExecution,
               canRevisePlan: selected.canRevisePlan,
               canRunQualityGate: selected.canRunQualityGate,
+              canSendMergeConflictResolution:
+                selected.task.phase === 'REVIEW' &&
+                selected.activeSession !== undefined &&
+                selected.activeSession.status !== 'WORKING' &&
+                selected.activeSession.status !== 'STARTING',
               canStartExecution: selected.canStartExecution,
               canStartPlanning: selected.canStartPlanning,
               dependencies: selected.dependencies.map((dependency) => ({
@@ -844,6 +862,7 @@ export function AgentWorkspaceView({
       addDependency: (dependencyTaskId, taskId) => {
         onAddDependency({ dependencyTaskId, taskId });
       },
+      checkMergeConflicts: () => onCheckMergeConflicts?.(),
       focus: focusTarget,
       produceArtifact: onProduceArtifact,
       registerQualityGate: onRegisterQualityGate,
@@ -857,6 +876,7 @@ export function AgentWorkspaceView({
         onSelectTask(taskId);
         focusTarget('workspace');
       },
+      sendMergeConflictResolution: () => onSendMergeConflictResolution?.(),
       startExecution: onStartTask,
       startPlanning: onStartPlanning,
       startResearch: onStartResearch,
@@ -864,7 +884,13 @@ export function AgentWorkspaceView({
       captureSweepNote: () => openNoteCapture('sweep'),
       unregisterQualityGate: (gateId) => onUnregisterQualityGate(gateId),
       ...(onInstallWorkflowPlugin !== undefined
-        ? { installWorkflowPluginForTask: (input: { readonly expectedRevision: number; readonly path: string; readonly taskId: string }) => onInstallWorkflowPlugin(input) }
+        ? {
+            installWorkflowPluginForTask: (input: {
+              readonly expectedRevision: number;
+              readonly path: string;
+              readonly taskId: string;
+            }) => onInstallWorkflowPlugin(input),
+          }
         : {}),
       ...(onSelectWorkflowPluginPath !== undefined
         ? { selectWorkflowPluginPath: () => onSelectWorkflowPluginPath() }
@@ -896,6 +922,14 @@ export function AgentWorkspaceView({
 
   const cancelNoteCapture = (): void => {
     setNoteCapture(undefined);
+  };
+
+  const onSlashCommand = (kind: 'brainstorm' | 'merge-conflicts' | 'sweep'): void => {
+    if (kind === 'merge-conflicts') {
+      onSendMergeConflictResolution?.();
+      return;
+    }
+    openNoteCapture(kind);
   };
 
   const submitNoteCapture = (input: { readonly content: string }): void => {
@@ -982,20 +1016,21 @@ export function AgentWorkspaceView({
             onActiveConnectionStateChange={setActiveTerminalContext}
             onClosePane={onCloseWorkspacePane}
             onCloseTab={onCloseWorkspaceTab}
-            {...(onOpenExternalLink === undefined
-              ? {}
-              : { onOpenExternalLink })}
+            {...(onOpenExternalLink === undefined ? {} : { onOpenExternalLink })}
             {...(onOpenWorktreeFile === undefined
               ? {}
               : {
-                  onOpenWorktreeFile: (input: { readonly absolutePath: string; readonly taskId: string }): void => {
+                  onOpenWorktreeFile: (input: {
+                    readonly absolutePath: string;
+                    readonly taskId: string;
+                  }): void => {
                     void client?.openWorktreeFile(input);
                   },
                 })}
             onRuntimeEvent={(event) => {
               if (event.kind !== 'output') onRefresh();
             }}
-            onSlashCommand={(kind) => openNoteCapture(kind)}
+            onSlashCommand={onSlashCommand}
             onSplit={onSplitTerminal}
             {...(onStopAgent !== undefined ? { onStopAgent } : {})}
             overview={snapshot.overview}
@@ -1064,11 +1099,7 @@ export function AgentWorkspaceView({
           : `${snapshot.activeAction.kind.replaceAll('-', ' ')} in progress.`}
       </p>
       {snapshot.layoutPersistenceError === undefined ? null : (
-        <p
-          className="inline-error workspace-persistence-error"
-          role="status"
-          aria-live="polite"
-        >
+        <p className="inline-error workspace-persistence-error" role="status" aria-live="polite">
           Workspace layout could not be saved: {snapshot.layoutPersistenceError}
         </p>
       )}
@@ -1094,7 +1125,7 @@ export function AgentWorkspaceView({
         onToggleViewMode={() => {
           onToggleViewMode?.();
         }}
-        viewMode={snapshot.kind === 'ready' ? snapshot.viewMode ?? 'list' : 'list'}
+        viewMode={snapshot.kind === 'ready' ? (snapshot.viewMode ?? 'list') : 'list'}
         {...(selectedProject?.project.name === undefined
           ? {}
           : { projectName: selectedProject.project.name })}
@@ -1127,10 +1158,7 @@ export function AgentWorkspaceView({
                 workflowPluginBindings.map((entry) => [
                   entry.taskId,
                   {
-                    availablePhaseIds: overviewPluginPhases(
-                      entry.taskId,
-                      snapshot.overview,
-                    ),
+                    availablePhaseIds: overviewPluginPhases(entry.taskId, snapshot.overview),
                     phaseArtifactKinds: overviewPluginArtifactKinds(
                       entry.taskId,
                       snapshot.overview,
@@ -1756,9 +1784,7 @@ export function AgentWorkspaceView({
                     })
                   }
                   overview={selected}
-                  pluginRequiresResearch={
-                    selected.workflowPlugin?.activePhaseId === 'research'
-                  }
+                  pluginRequiresResearch={selected.workflowPlugin?.activePhaseId === 'research'}
                   task={selected.task}
                 />
                 <ArtifactHistory artifacts={selected.artifacts} />
@@ -1865,11 +1891,7 @@ function WorkspaceTopbar({
       </button>
       <div className="workspace-topbar__actions">
         <button
-          aria-label={
-            viewMode === 'board'
-              ? 'Switch to list view'
-              : 'Switch to board view'
-          }
+          aria-label={viewMode === 'board' ? 'Switch to list view' : 'Switch to board view'}
           aria-pressed={viewMode === 'board'}
           className="workspace-topbar__icon-button workspace-topbar__view-toggle"
           data-view-mode-toggle
@@ -1882,10 +1904,7 @@ function WorkspaceTopbar({
           }
           type="button"
         >
-          <WorkspaceIcon
-            name={viewMode === 'board' ? 'kanban' : 'list'}
-            size={16}
-          />
+          <WorkspaceIcon name={viewMode === 'board' ? 'kanban' : 'list'} size={16} />
           <span className="workspace-topbar__view-label">
             {viewMode === 'board' ? 'Board view' : 'List view'}
           </span>
@@ -2898,9 +2917,7 @@ function TaskDependencies({
           <p className="eyebrow">Execution readiness</p>
           <h3 id="task-dependencies-heading">Task dependencies</h3>
         </div>
-        <span data-task-blocked={blocked ? 'true' : 'false'}>
-          {blocked ? 'Blocked' : 'Ready'}
-        </span>
+        <span data-task-blocked={blocked ? 'true' : 'false'}>{blocked ? 'Blocked' : 'Ready'}</span>
       </header>
       {dependencies.length > 0 ? (
         <div className="task-dependencies__group" data-dependency-direction="blocks-on">

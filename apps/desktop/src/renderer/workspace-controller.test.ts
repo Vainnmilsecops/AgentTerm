@@ -2,9 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  decideStartActionAgentId,
-} from './workspace-controller';
+import { decideStartActionAgentId } from './workspace-controller';
 
 import type {
   AgentWorkspaceOverview,
@@ -606,6 +604,10 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     write: async () => undefined,
   }));
   public readonly beginTaskPlanning = vi.fn(async () => undefined);
+  public readonly checkTaskMergeConflicts = vi.fn(async () =>
+    Object.freeze({ kind: 'clean' as const, baseRef: 'main', headRef: 'HEAD', taskId: 'task-1' }),
+  );
+  public readonly requestMergeConflictResolution = vi.fn(async () => undefined);
   public readonly createTask = vi.fn(async () => ({ taskId: planningTask.id }));
   public readonly createArtifact = vi.fn<AgentWorkspaceClient['createArtifact']>(async (input) => ({
     canonicalName:
@@ -683,25 +685,24 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   ]);
   public readonly listQualityGateDetails = vi.fn(async () => this.gateDetails);
   public readonly listQualityGates = vi.fn(async () => this.gateSummaries);
-  public readonly loadQualityGateConfig = vi.fn<
-    AgentWorkspaceClient['loadQualityGateConfig']
-  >(async () => Object.freeze({ failure: undefined, value: undefined }));
-  public readonly importQualityGateConfig = vi.fn<
-    AgentWorkspaceClient['importQualityGateConfig']
-  >(async () =>
-    Object.freeze({
-      configuration: {
-        gates: [],
-        path: 'C:\\fixtures\\quality-gates.json',
-        revision: 'rev-1',
-      },
-      registered: [],
-      rejected: [],
-    }),
+  public readonly loadQualityGateConfig = vi.fn<AgentWorkspaceClient['loadQualityGateConfig']>(
+    async () => Object.freeze({ failure: undefined, value: undefined }),
   );
-  public readonly saveQualityGateConfig = vi.fn<
-    AgentWorkspaceClient['saveQualityGateConfig']
-  >(async () => Object.freeze({ failure: undefined, value: undefined }));
+  public readonly importQualityGateConfig = vi.fn<AgentWorkspaceClient['importQualityGateConfig']>(
+    async () =>
+      Object.freeze({
+        configuration: {
+          gates: [],
+          path: 'C:\\fixtures\\quality-gates.json',
+          revision: 'rev-1',
+        },
+        registered: [],
+        rejected: [],
+      }),
+  );
+  public readonly saveQualityGateConfig = vi.fn<AgentWorkspaceClient['saveQualityGateConfig']>(
+    async () => Object.freeze({ failure: undefined, value: undefined }),
+  );
   public readonly selectQualityGateConfigPath = vi.fn<
     AgentWorkspaceClient['selectQualityGateConfigPath']
   >(async () => Object.freeze({ path: undefined, result: 'CANCELLED' as const }));
@@ -750,9 +751,9 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
       pluginId: 'agtx',
     }),
   );
-  public readonly openMainWindowForTask = vi.fn<
-    AgentWorkspaceClient['openMainWindowForTask']
-  >(async () => undefined);
+  public readonly openMainWindowForTask = vi.fn<AgentWorkspaceClient['openMainWindowForTask']>(
+    async () => undefined,
+  );
   public observeWorkspaceFocusTask(
     _listener: (event: {
       readonly focusTerminal: boolean;

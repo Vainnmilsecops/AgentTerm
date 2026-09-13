@@ -587,6 +587,73 @@ export type TaskFileChangeKind =
   | "UNMERGED"
   | "UNTRACKED";
 
+/**
+ * One conflicted file detected by the non-destructive `git merge-tree`
+ * probe. `hunks` is bounded by Infrastructure (default 64, hard cap 256)
+ * so the renderer can render the audit trail without parsing arbitrary
+ * `git` output. The raw `git` bytes never cross the IPC boundary — only
+ * the structured `{ path, hunks }` projection.
+ */
+export interface MergeConflictFile {
+  readonly hunks: readonly string[];
+  readonly path: string;
+}
+
+export type MergeConflictUnavailableReason =
+  | "GIT_INSPECTION_FAILED"
+  | "NO_BASE_REF"
+  | "NOT_HEAD_ATTACHED";
+
+export type MergeConflictProbe =
+  | {
+      readonly baseRef: string;
+      readonly headRef: string;
+      readonly kind: "clean";
+    }
+  | {
+      readonly baseRef: string;
+      readonly files: readonly MergeConflictFile[];
+      readonly headRef: string;
+      readonly kind: "conflicts";
+    }
+  | {
+      readonly kind: "unavailable";
+      readonly reason: MergeConflictUnavailableReason;
+    };
+
+export interface ProbeTaskMergeConflictsInput {
+  /**
+   * Ref name to use as the merge base. Typically the persisted
+   * `suggestedBaseBranch.refName` from the Project-level inspection.
+   */
+  readonly baseRef: string;
+  /**
+   * Ref name to use as the merge head. Always `HEAD` against the
+   * persisted primary Worktree so the probe runs against the exact
+   * committed state the user is reviewing.
+   */
+  readonly headRef: string;
+  /**
+   * Path of the persisted primary Worktree. The probe reads only this
+   * directory; never the repository root.
+   */
+  readonly repositoryPath: string;
+  /**
+   * Mirror of {@link repositoryPath}; reserved for future Git runtimes
+   * that resolve `HEAD` outside the working tree.
+   */
+  readonly worktreePath: string;
+}
+
+/**
+ * Non-destructive `git merge-tree` probe owned by Infrastructure.
+ * Application treats this port as the only source of merge-conflict
+ * data; the renderer never invokes `git` directly.
+ */
+export interface TaskMergeConflictProbe {
+  probeMergeConflicts(input: ProbeTaskMergeConflictsInput): Promise<MergeConflictProbe>;
+}
+
 export interface TaskFileChange {
   readonly area: TaskChangeArea;
   readonly kind: TaskFileChangeKind;

@@ -3,12 +3,7 @@ export type WorkspaceFocusTarget =
 
 export type WorkspaceCommandArtifactKind = 'execution-summary' | 'plan' | 'review';
 export type WorkspaceCommandQualityGateKind = 'BUILD' | 'LINT' | 'TEST' | 'TYPECHECK';
-export type WorkspaceCommandTaskPhase =
-  | 'BACKLOG'
-  | 'DONE'
-  | 'PLANNING'
-  | 'REVIEW'
-  | 'RUNNING';
+export type WorkspaceCommandTaskPhase = 'BACKLOG' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING';
 
 export interface WorkspaceCommand {
   readonly category: 'Navigate' | 'Quality gates' | 'Task';
@@ -27,11 +22,13 @@ export interface WorkspaceCommandDependency {
 }
 
 export interface WorkspaceCommandTask {
+  readonly canCheckMergeConflicts: boolean;
   readonly canProduceArtifact: boolean;
   readonly canRequestReview: boolean;
   readonly canRetryExecution: boolean;
   readonly canRevisePlan: boolean;
   readonly canRunQualityGate: boolean;
+  readonly canSendMergeConflictResolution: boolean;
   readonly canStartExecution: boolean;
   readonly canStartPlanning: boolean;
   readonly dependencies: readonly WorkspaceCommandDependency[];
@@ -61,6 +58,7 @@ export interface WorkspaceCommandContext {
 
 export interface WorkspaceCommandActions {
   addDependency(dependencyTaskId: string, taskId: string): Promise<void> | void;
+  checkMergeConflicts(): Promise<void> | void;
   focus(target: WorkspaceFocusTarget): void;
   produceArtifact(input: {
     readonly content: string;
@@ -82,6 +80,7 @@ export interface WorkspaceCommandActions {
   retryExecution(): Promise<void> | void;
   runQualityGate(gateId: string): Promise<void> | void;
   selectTask(taskId: string): void;
+  sendMergeConflictResolution(): Promise<void> | void;
   startExecution(): Promise<void> | void;
   startPlanning(): Promise<void> | void;
   startResearch(): Promise<void> | void;
@@ -229,6 +228,29 @@ export function buildWorkspaceCommands(
     );
   }
 
+  if (!context.actionBusy && selected.canCheckMergeConflicts) {
+    commands.push(
+      command({
+        category: 'Task',
+        id: 'review:merge-conflicts:check',
+        keywords: ['merge conflicts probe git branch divergence review'],
+        label: 'Check merge conflicts',
+        run: actions.checkMergeConflicts,
+      }),
+    );
+  }
+  if (!context.actionBusy && selected.canSendMergeConflictResolution) {
+    commands.push(
+      command({
+        category: 'Task',
+        id: 'review:merge-conflicts:resolve',
+        keywords: ['merge conflicts resolve slash command agent send agtx'],
+        label: 'Send /agtx:merge-conflicts',
+        run: actions.sendMergeConflictResolution,
+      }),
+    );
+  }
+
   commands.push(
     focusCommand(
       'focus:sidebar',
@@ -345,11 +367,7 @@ export function buildWorkspaceCommands(
         command({
           category: 'Task',
           id: `dependency:require:${firstUnmet.id}`,
-          keywords: [
-            firstUnmet.id,
-            firstUnmet.title,
-            'dependency require block chain',
-          ],
+          keywords: [firstUnmet.id, firstUnmet.title, 'dependency require block chain'],
           label: `Require task: ${firstUnmet.title}`,
           run: () => void actions.addDependency(firstUnmet.id, selected.id),
         }),
@@ -361,11 +379,7 @@ export function buildWorkspaceCommands(
         command({
           category: 'Task',
           id: `dependency:remove:${firstMet.id}`,
-          keywords: [
-            firstMet.id,
-            firstMet.title,
-            'dependency remove unrequire release',
-          ],
+          keywords: [firstMet.id, firstMet.title, 'dependency remove unrequire release'],
           label: `Remove required task: ${firstMet.title}`,
           run: () => void actions.removeDependency(firstMet.id, selected.id),
         }),

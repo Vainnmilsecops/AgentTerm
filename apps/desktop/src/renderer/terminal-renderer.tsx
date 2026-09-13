@@ -14,10 +14,7 @@ import {
   TerminalContextMenu,
   useTerminalContextMenu,
 } from './terminal-context-menu';
-import {
-  isMouseModeActive,
-  type MouseMode,
-} from './terminal-mouse-mode-parser';
+import { isMouseModeActive, type MouseMode } from './terminal-mouse-mode-parser';
 import {
   deriveSearchView,
   isSearchOpenShortcut,
@@ -32,10 +29,7 @@ import {
 } from './terminal-search-state';
 import { useTerminalInput } from './use-terminal-input';
 import { WorkspaceIcon } from './workspace-icons';
-import {
-  registerTerminalLinkProvider,
-  type IDisposableLinkProvider,
-} from './xterm-link-provider';
+import { registerTerminalLinkProvider, type IDisposableLinkProvider } from './xterm-link-provider';
 import {
   registerWorktreeFileLinkProvider,
   type IDisposableWorktreeFileLinkProvider,
@@ -54,10 +48,13 @@ export interface TerminalRendererProps {
   readonly onClose?: () => void;
   readonly onConnectionStateChange?: (state: TerminalConnectionState) => void;
   readonly onOpenExternalLink?: (url: string) => void;
-  readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
+  readonly onOpenWorktreeFile?: (input: {
+    readonly absolutePath: string;
+    readonly taskId: string;
+  }) => void;
   readonly onRuntimeEvent?: (event: PtyRuntimeEvent) => void;
   readonly onStopAgent?: (sessionId: string) => void;
-  readonly onSlashCommand?: (kind: 'brainstorm' | 'sweep') => void;
+  readonly onSlashCommand?: (kind: 'brainstorm' | 'merge-conflicts' | 'sweep') => void;
   readonly paneId?: string;
   readonly sessionId?: string;
   readonly taskId?: string;
@@ -88,7 +85,9 @@ export function TerminalRenderer({
   const connectionStateChangeRef = useRef(onConnectionStateChange);
   const controllerRef = useRef<TerminalController | undefined>(undefined);
   const runtimeEventRef = useRef(onRuntimeEvent);
-  const failureSinkRef = useRef<((failure: TerminalConnectionFailure) => void) | undefined>(undefined);
+  const failureSinkRef = useRef<((failure: TerminalConnectionFailure) => void) | undefined>(
+    undefined,
+  );
   const searchBarRef = useRef<TerminalSearchBarHandle | null>(null);
   const [state, setState] = useState<TerminalConnectionState>('empty');
   const [mouseMode, setMouseMode] = useState<MouseMode>({ protocol: 'NONE', sgr: false });
@@ -422,7 +421,9 @@ export function TerminalRenderer({
         >
           <strong>Confirm paste</strong>
           <p>
-            Paste {inputHook.pendingConfirmation.lineCount} lines ({inputHook.pendingConfirmation.byteLengthLabel}) into session {inputHook.pendingConfirmation.sessionId}?
+            Paste {inputHook.pendingConfirmation.lineCount} lines (
+            {inputHook.pendingConfirmation.byteLengthLabel}) into session{' '}
+            {inputHook.pendingConfirmation.sessionId}?
           </p>
           <div className="terminal-paste-confirmation__actions">
             <button
@@ -460,7 +461,10 @@ export function TerminalRenderer({
   );
 }
 
-function statusLabel(state: TerminalConnectionState, feedback: { readonly message: string } | undefined): string {
+function statusLabel(
+  state: TerminalConnectionState,
+  feedback: { readonly message: string } | undefined,
+): string {
   if (feedback !== undefined) return `${feedback.message}`;
   switch (state) {
     case 'empty':

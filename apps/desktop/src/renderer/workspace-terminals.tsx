@@ -25,9 +25,12 @@ export interface WorkspaceTerminalsProps {
   readonly onClosePane: (paneId: string) => void;
   readonly onCloseTab: (tabId: string) => void;
   readonly onOpenExternalLink?: (url: string) => void;
-  readonly onOpenWorktreeFile?: (input: { readonly absolutePath: string; readonly taskId: string }) => void;
+  readonly onOpenWorktreeFile?: (input: {
+    readonly absolutePath: string;
+    readonly taskId: string;
+  }) => void;
   readonly onRuntimeEvent: (event: PtyRuntimeEvent) => void;
-  readonly onSlashCommand?: (kind: 'brainstorm' | 'sweep') => void;
+  readonly onSlashCommand?: (kind: 'brainstorm' | 'merge-conflicts' | 'sweep') => void;
   readonly onSplit: (sessionId: string) => void;
   readonly onStopAgent?: (sessionId: string) => void;
   readonly overview: AgentWorkspaceOverview;

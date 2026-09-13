@@ -20,11 +20,13 @@ const baseContext: WorkspaceCommandContext = {
   ],
   selectedAgentId: 'codex',
   selectedTask: {
+    canCheckMergeConflicts: false,
     canProduceArtifact: true,
     canRequestReview: true,
     canRetryExecution: true,
     canRevisePlan: false,
     canRunQualityGate: true,
+    canSendMergeConflictResolution: false,
     canStartExecution: false,
     canStartPlanning: false,
     dependencies: [
@@ -47,6 +49,7 @@ const baseContext: WorkspaceCommandContext = {
 function createActions() {
   return {
     addDependency: vi.fn<WorkspaceCommandActions['addDependency']>(),
+    checkMergeConflicts: vi.fn<WorkspaceCommandActions['checkMergeConflicts']>(),
     focus: vi.fn<WorkspaceCommandActions['focus']>(),
     produceArtifact: vi.fn<WorkspaceCommandActions['produceArtifact']>(),
     registerQualityGate: vi.fn<WorkspaceCommandActions['registerQualityGate']>(),
@@ -55,6 +58,7 @@ function createActions() {
     retryExecution: vi.fn<WorkspaceCommandActions['retryExecution']>(),
     runQualityGate: vi.fn<WorkspaceCommandActions['runQualityGate']>(),
     selectTask: vi.fn<WorkspaceCommandActions['selectTask']>(),
+    sendMergeConflictResolution: vi.fn<WorkspaceCommandActions['sendMergeConflictResolution']>(),
     startExecution: vi.fn<WorkspaceCommandActions['startExecution']>(),
     startPlanning: vi.fn<WorkspaceCommandActions['startPlanning']>(),
     startResearch: vi.fn<WorkspaceCommandActions['startResearch']>(),
@@ -189,9 +193,7 @@ describe('workspace command registry', () => {
     );
 
     expect(blockedGate.map(({ id }) => id).some((id) => id.startsWith('gate:'))).toBe(false);
-    expect(
-      blockedGate.map(({ id }) => id).some((id) => id === 'gate:register'),
-    ).toBe(false);
+    expect(blockedGate.map(({ id }) => id).some((id) => id === 'gate:register')).toBe(false);
     expect(busyGate.map(({ id }) => id).some((id) => id.startsWith('gate:'))).toBe(false);
     expect(busyGate.map(({ id }) => id)).not.toContain('artifact:produce');
     expect(busyGate.map(({ id }) => id).some((id) => id.startsWith('dependency:'))).toBe(false);
@@ -216,12 +218,20 @@ describe('workspace command registry', () => {
       {
         ...baseContext,
         selectedTask: { ...baseContext.selectedTask!, dependencies: [] },
-        tasks: [{ id: baseContext.selectedTask!.id, projectName: 'AgentTerm', title: baseContext.selectedTask!.title }],
+        tasks: [
+          {
+            id: baseContext.selectedTask!.id,
+            projectName: 'AgentTerm',
+            title: baseContext.selectedTask!.title,
+          },
+        ],
       },
       actions,
     );
 
-    expect(candidateLess.map(({ id }) => id).some((id) => id.startsWith('dependency:'))).toBe(false);
+    expect(candidateLess.map(({ id }) => id).some((id) => id.startsWith('dependency:'))).toBe(
+      false,
+    );
   });
 
   it('omits unavailable mutation commands instead of duplicating business enablement', () => {

@@ -6,6 +6,7 @@ import type {
   TaskChangeSet,
   TaskFileChange,
   TaskFileDiff,
+  TaskMergeConflictResult,
   TaskPullRequestState,
   UpdateApplicationSettingsInput,
   WorkspaceLayoutRecord,
@@ -50,6 +51,16 @@ export type WorkspaceChangeInspection =
       readonly taskId: string;
     };
 
+export type WorkspaceMergeConflictInspection =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'loading'; readonly taskId: string }
+  | { readonly kind: 'error'; readonly message: string; readonly taskId: string }
+  | {
+      readonly kind: 'ready';
+      readonly probe: TaskMergeConflictResult;
+      readonly taskId: string;
+    };
+
 export type WorkspaceActionKind =
   | 'accept-plan'
   | 'add-dependency'
@@ -57,6 +68,7 @@ export type WorkspaceActionKind =
   | 'begin-planning'
   | 'capture-brainstorm'
   | 'capture-sweep'
+  | 'check-merge-conflicts'
   | 'create-pull-request'
   | 'produce-artifact'
   | 'push-branch'
@@ -66,13 +78,18 @@ export type WorkspaceActionKind =
   | 'request-review'
   | 'retry-execution'
   | 'run-quality-gate'
+  | 'send-merge-conflict-resolution'
   | 'start-execution'
   | 'start-planning'
   | 'start-research';
 
 type SelectedWorkspaceActionKind = Exclude<
   WorkspaceActionKind,
-  'add-dependency' | 'produce-artifact' | 'remove-dependency'
+  | 'add-dependency'
+  | 'check-merge-conflicts'
+  | 'produce-artifact'
+  | 'remove-dependency'
+  | 'send-merge-conflict-resolution'
 >;
 
 export type WorkspaceAction =
@@ -111,13 +128,24 @@ export type WorkspaceAction =
       readonly taskId: string;
     }
   | {
+      readonly kind: 'check-merge-conflicts';
+      readonly taskId: string;
+    }
+  | {
+      readonly kind: 'send-merge-conflict-resolution';
+      readonly sessionId: string;
+      readonly taskId: string;
+    }
+  | {
       readonly kind: Exclude<
         WorkspaceActionKind,
         | 'add-dependency'
+        | 'check-merge-conflicts'
         | 'produce-artifact'
         | 'refresh-pull-request'
         | 'remove-dependency'
         | 'run-quality-gate'
+        | 'send-merge-conflict-resolution'
       >;
       readonly taskId: string;
     };
@@ -134,6 +162,7 @@ export type WorkspaceSnapshot =
       readonly kind: 'ready';
       readonly layout: WorkspaceLayout;
       readonly layoutPersistenceError?: string | undefined;
+      readonly mergeConflictInspection?: WorkspaceMergeConflictInspection;
       readonly onboardingBusy?: boolean;
       readonly overview: AgentWorkspaceOverview;
       readonly qualityGates?: readonly QualityGate[];
@@ -252,6 +281,7 @@ export class WorkspaceController {
         ...this.snapshot,
         actionError: undefined,
         changeInspection: Object.freeze({ kind: 'idle' }),
+        mergeConflictInspection: Object.freeze({ kind: 'idle' }),
         pullRequestInspection: Object.freeze({ kind: 'idle' }),
         layout,
         selectedTaskId: taskId,
@@ -343,9 +373,7 @@ export class WorkspaceController {
     }
   }
 
-  public observeViewMode(
-    listener: (mode: WorkspaceViewMode) => void,
-  ): () => void {
+  public observeViewMode(listener: (mode: WorkspaceViewMode) => void): () => void {
     this.viewModeListeners.add(listener);
     return (): void => {
       this.viewModeListeners.delete(listener);
@@ -515,6 +543,111 @@ export class WorkspaceController {
     return this.executeSelectedNoteCapture('capture-sweep', input);
   }
 
+  /**
+   * Run a non-destructive `git merge-tree` probe against the selected
+   * Task's persisted primary Worktree. The result lives on the snapshot
+   * as `mergeConflictInspection`; the renderer renders a per-file
+   * conflict list and a one-click "send `/agtx:merge-conflicts`"
+   * trigger when conflicts are present.
+   */
+  public async checkMergeConflictsForSelectedTask(): Promise<void> {
+    if (this.actionAttempt !== undefined) {
+      return this.actionAttempt;
+    }
+    if (this.snapshot.kind !== 'ready' || this.snapshot.selectedTaskId === undefined) {
+      return;
+    }
+    const taskId = this.snapshot.selectedTaskId;
+    const selected = findTask(this.snapshot.overview, taskId);
+    if (selected === undefined) return;
+    if (!canRunAction(selected, 'check-merge-conflicts', this.snapshot.pullRequestInspection)) {
+      return;
+    }
+    this.publish(
+      Object.freeze({
+        ...this.snapshot,
+        mergeConflictInspection: Object.freeze({ kind: 'loading', taskId }),
+      }),
+    );
+    try {
+      const probe = await this.client.checkTaskMergeConflicts({ taskId });
+      const current = this.snapshot;
+      if (current.kind !== 'ready') return;
+      this.publish(
+        Object.freeze({
+          ...current,
+          mergeConflictInspection: Object.freeze({ kind: 'ready', probe, taskId }),
+        }),
+      );
+    } catch (error) {
+      const current = this.snapshot;
+      if (current.kind !== 'ready') return;
+      this.publish(
+        Object.freeze({
+          ...current,
+          mergeConflictInspection: Object.freeze({
+            kind: 'error',
+            message: error instanceof Error ? error.message : 'The merge-conflict probe failed.',
+            taskId,
+          }),
+        }),
+      );
+    }
+  }
+
+  /**
+   * Authorize the slash command `/agtx:merge-conflicts<Enter>` to the
+   * attached PTY. The Application use case validates that the Task is
+   * in `REVIEW` and the Session is idle; this method performs the
+   * Application call, then forwards the resulting bytes to the active
+   * terminal subscription on the renderer side. The renderer is the
+   * sole owner of the PTY handle — Application never attaches.
+   */
+  public async triggerMergeConflictResolutionForSelectedTask(): Promise<void> {
+    if (this.actionAttempt !== undefined) {
+      return this.actionAttempt;
+    }
+    if (this.snapshot.kind !== 'ready' || this.snapshot.selectedTaskId === undefined) {
+      return;
+    }
+    const taskId = this.snapshot.selectedTaskId;
+    const selected = findTask(this.snapshot.overview, taskId);
+    if (selected === undefined || selected.activeSession === undefined) {
+      return;
+    }
+    if (
+      !canRunAction(selected, 'send-merge-conflict-resolution', this.snapshot.pullRequestInspection)
+    ) {
+      return;
+    }
+    const sessionId = selected.activeSession.id;
+    const attempt = (async (): Promise<void> => {
+      await this.client.requestMergeConflictResolution({ sessionId, taskId });
+      const current = this.snapshot;
+      if (current.kind !== 'ready') return;
+      this.publish(
+        Object.freeze({
+          ...current,
+          actionError: undefined,
+          activeAction: Object.freeze({
+            kind: 'send-merge-conflict-resolution',
+            sessionId,
+            taskId,
+          }),
+        }),
+      );
+    })();
+    this.actionAttempt = attempt;
+    void attempt
+      .finally(() => {
+        if (this.actionAttempt === attempt) {
+          this.actionAttempt = undefined;
+        }
+      })
+      .catch(() => undefined);
+    return attempt;
+  }
+
   public acceptSelectedPlan(): Promise<void> {
     return this.executeSelectedAction('accept-plan');
   }
@@ -566,15 +699,13 @@ export class WorkspaceController {
   }
 
   public getSelectedTask():
-    | AgentWorkspaceOverview['projects'][number]['tasks'][number]
-    | undefined {
+    AgentWorkspaceOverview['projects'][number]['tasks'][number] | undefined {
     if (this.snapshot.kind !== 'ready') return undefined;
     return findTask(this.snapshot.overview, this.snapshot.selectedTaskId);
   }
 
   public getTaskDependencies():
-    | AgentWorkspaceOverview['projects'][number]['tasks'][number]['dependencies']
-    | undefined {
+    AgentWorkspaceOverview['projects'][number]['tasks'][number]['dependencies'] | undefined {
     const selected = this.getSelectedTask();
     return selected?.dependencies;
   }
@@ -1202,15 +1333,12 @@ export class WorkspaceController {
     }
     if (preferredAvailableTaskId !== undefined) {
       const preferredTask = findTask(overview, preferredAvailableTaskId);
-      layout = openWorkspaceTab(
-        layout,
-        {
-          taskId: preferredAvailableTaskId,
-          ...(preferredTask?.activeSession?.id === undefined
-            ? {}
-            : { sessionId: preferredTask.activeSession.id }),
-        },
-      );
+      layout = openWorkspaceTab(layout, {
+        taskId: preferredAvailableTaskId,
+        ...(preferredTask?.activeSession?.id === undefined
+          ? {}
+          : { sessionId: preferredTask.activeSession.id }),
+      });
     }
     layout = reconcileWorkspaceLayout(layout, workspaceTaskSessionContexts(overview));
     if (layout.tabs.length === 0) {
@@ -1673,6 +1801,15 @@ function canRunAction(
         pullRequestInspection?.kind === 'ready' &&
         pullRequestInspection.result.pullRequest !== undefined
       );
+    case 'check-merge-conflicts':
+      return task.task.phase === 'REVIEW' || task.task.phase === 'RUNNING';
+    case 'send-merge-conflict-resolution':
+      return (
+        task.task.phase === 'REVIEW' &&
+        task.activeSession !== undefined &&
+        task.activeSession.status !== 'WORKING' &&
+        task.activeSession.status !== 'STARTING'
+      );
   }
 }
 
@@ -1751,6 +1888,10 @@ function actionFailureMessage(kind: WorkspaceActionKind): string {
       return 'Brainstorm note could not be persisted to the active Agent Session.';
     case 'capture-sweep':
       return 'Sweep note could not be persisted to the active Agent Session.';
+    case 'check-merge-conflicts':
+      return 'Merge conflicts could not be checked.';
+    case 'send-merge-conflict-resolution':
+      return 'The merge-conflicts slash command could not be sent.';
   }
 }
 
@@ -1791,6 +1932,10 @@ function refreshFailureMessage(kind: WorkspaceActionKind): string {
       return 'Brainstorm note persisted, but workspace status could not be refreshed.';
     case 'capture-sweep':
       return 'Sweep note persisted, but workspace status could not be refreshed.';
+    case 'check-merge-conflicts':
+      return 'Merge conflicts checked, but workspace status could not be refreshed.';
+    case 'send-merge-conflict-resolution':
+      return 'Slash command sent, but workspace status could not be refreshed.';
   }
 }
 

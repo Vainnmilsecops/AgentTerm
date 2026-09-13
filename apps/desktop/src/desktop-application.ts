@@ -10,6 +10,7 @@ import {
   createTask as createApplicationTask,
   createExecutionArtifact,
   createTaskPullRequest,
+  checkTaskMergeConflicts,
   getTaskFileDiff,
   importQualityGateConfig,
   inspectTaskPullRequest,
@@ -31,6 +32,7 @@ import {
   registerQualityGate,
   removeTaskDependency,
   removeWorkflowPluginBindingForTask,
+  sendMergeConflictResolutionTaskPrompt,
   updateWorkflowPluginBindingForTask,
   advanceActivePhaseForTask,
   requestTaskChanges,
@@ -61,6 +63,7 @@ import type {
 import {
   BoundedPaneSnapshotRecorder,
   BuiltInAgentConfigurationInspector,
+  GitCliTaskMergeConflictProbe,
   GitCliTaskReviewCodeInspector,
   GitCliTaskWorktreeLifecycle,
   GitHubPullRequestAdapter,
@@ -93,11 +96,13 @@ export interface ProductionDesktopApplicationOptions {
     readonly selectTask: boolean;
     readonly taskId: string;
   }) => void | Promise<void>;
-  readonly observeWorkspaceFocusTask?: (listener: (event: {
-    readonly focusTerminal: boolean;
-    readonly selectTask: boolean;
-    readonly taskId: string;
-  }) => void) => () => void;
+  readonly observeWorkspaceFocusTask?: (
+    listener: (event: {
+      readonly focusTerminal: boolean;
+      readonly selectTask: boolean;
+      readonly taskId: string;
+    }) => void,
+  ) => () => void;
   readonly shellOpenPath?: (absolutePath: string) => Promise<string>;
 }
 
@@ -133,6 +138,7 @@ export async function createProductionDesktopApplication(
     const agentInspector = new BuiltInAgentConfigurationInspector();
     const git = new GitCliTaskWorktreeLifecycle(join(dataDirectory, 'worktrees'));
     const codeInspector = new GitCliTaskReviewCodeInspector();
+    const mergeConflictProbe = new GitCliTaskMergeConflictProbe();
     const pullRequestIntegration = new GitHubPullRequestAdapter();
     const projectDiscovery = new LocalGitProjectDiscovery();
     const runtime = new WindowsConPtyRuntime();
@@ -268,6 +274,15 @@ export async function createProductionDesktopApplication(
       tasks: persistence.tasks,
       worktrees: persistence.worktrees,
     });
+    const mergeConflictDependencies = Object.freeze({
+      git: mergeConflictProbe,
+      tasks: persistence.tasks,
+      worktrees: persistence.worktrees,
+    });
+    const mergeConflictResolutionDependencies = Object.freeze({
+      sessions: persistence.sessions,
+      tasks: persistence.tasks,
+    });
     const mcpReadOnlyDependencies = Object.freeze({
       paneSnapshots: paneSnapshotRecorder,
       projects: persistence.projects,
@@ -338,6 +353,18 @@ export async function createProductionDesktopApplication(
           persistence.artifacts,
           persistence.taskTransitions,
         );
+      },
+      checkTaskMergeConflicts: async (input) => {
+        requireOpen();
+        return checkTaskMergeConflicts(input, mergeConflictDependencies);
+      },
+      requestMergeConflictResolution: async (input) => {
+        requireOpen();
+        // The use case validates the Task + Session and returns the
+        // slash-command bytes the renderer forwards to the attached
+        // PTY. We discard the bytes here because the renderer is the
+        // sole owner of the PTY handle; this call is the opt-in gate.
+        await sendMergeConflictResolutionTaskPrompt(input, mergeConflictResolutionDependencies);
       },
       recordBrainstormArtifact: async (input) => {
         requireOpen();

@@ -29,11 +29,7 @@ export interface TerminalKeyContext {
   readonly hasSelection: boolean;
 }
 
-export type TerminalKeyOutcome =
-  | 'COPY'
-  | 'IGNORE'
-  | 'PASTE'
-  | 'SEND_BYTES';
+export type TerminalKeyOutcome = 'COPY' | 'IGNORE' | 'PASTE' | 'SEND_BYTES';
 
 export interface TerminalKeyDecision {
   readonly outcome: TerminalKeyOutcome;
@@ -115,10 +111,10 @@ export type SessionNoteKind = Extract<'brainstorm' | 'sweep', string>;
  * tracking and the byte forwarding. Keeping the detector pure lets both the
  * terminal-input-glue and the unit tests exercise it without an xterm.
  */
-const SLASH_COMMAND_REGEX = /^\/agtx:(brainstorm|sweep)\s?$/;
+const SLASH_COMMAND_REGEX = /^\/agtx:(brainstorm|merge-conflicts|sweep)\s?$/;
 
 export interface SlashCommandDecision {
-  readonly kind: 'brainstorm' | 'sweep';
+  readonly kind: 'brainstorm' | 'merge-conflicts' | 'sweep';
 }
 
 export function detectSlashCommand(line: string): SlashCommandDecision | undefined {
@@ -127,7 +123,7 @@ export function detectSlashCommand(line: string): SlashCommandDecision | undefin
   const match = SLASH_COMMAND_REGEX.exec(trimmed);
   if (match === null) return undefined;
   const token = match[1];
-  if (token !== 'brainstorm' && token !== 'sweep') {
+  if (token !== 'brainstorm' && token !== 'merge-conflicts' && token !== 'sweep') {
     return undefined;
   }
   return { kind: token };

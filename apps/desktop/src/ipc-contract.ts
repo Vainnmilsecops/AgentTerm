@@ -17,6 +17,7 @@ import type {
   TaskChangeSet,
   TaskDependency,
   TaskFileDiff,
+  TaskMergeConflictResult,
   TaskPullRequestState,
   TaskReviewSummary,
   UpdateApplicationSettingsInput,
@@ -36,6 +37,8 @@ export const desktopIpcChannels = Object.freeze({
   beginTaskPlanning: 'agentterm:task:begin-planning',
   createArtifact: 'agentterm:artifact:create',
   createTask: 'agentterm:task:create',
+  checkTaskMergeConflicts: 'agentterm:merge-conflicts:check',
+  requestMergeConflictResolution: 'agentterm:merge-conflicts:request-resolution',
   createPullRequest: 'agentterm:pull-request:create',
   getTaskFileDiff: 'agentterm:changes:diff',
   importQualityGateConfig: 'agentterm:quality-gates:import-config',
@@ -136,6 +139,10 @@ export type OpenDesktopProjectResult = 'CANCELLED' | 'OPENED';
 
 interface AgentTaskRequest extends TaskRequest {
   readonly agentId?: string;
+}
+
+interface MergeConflictResolutionRequest extends TaskRequest {
+  readonly sessionId: string;
 }
 
 interface RecordSessionNoteRequest {
@@ -351,6 +358,8 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.beginTaskPlanning]: TaskRequest;
   readonly [desktopIpcChannels.createArtifact]: CreateArtifactRequest;
   readonly [desktopIpcChannels.createTask]: CreateTaskRequest;
+  readonly [desktopIpcChannels.checkTaskMergeConflicts]: TaskRequest;
+  readonly [desktopIpcChannels.requestMergeConflictResolution]: MergeConflictResolutionRequest;
   readonly [desktopIpcChannels.recordBrainstormArtifact]: RecordSessionNoteRequest;
   readonly [desktopIpcChannels.recordSweepArtifact]: RecordSessionNoteRequest;
   readonly [desktopIpcChannels.createPullRequest]: TaskRequest;
@@ -409,6 +418,8 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.beginTaskPlanning]: null;
   readonly [desktopIpcChannels.createArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.createTask]: CreateDesktopTaskResult;
+  readonly [desktopIpcChannels.checkTaskMergeConflicts]: TaskMergeConflictResult;
+  readonly [desktopIpcChannels.requestMergeConflictResolution]: null;
   readonly [desktopIpcChannels.recordBrainstormArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.recordSweepArtifact]: ExecutionArtifact;
   readonly [desktopIpcChannels.createPullRequest]: null;
@@ -508,18 +519,21 @@ export interface AgentTermDesktopApi {
    * disposer. Calling this twice with the same callback replaces the
    * previous subscription — the renderer keeps exactly one observer.
    */
-  observeWorkspaceFocusTask(
-    listener: (event: WorkspaceFocusTaskEvent) => void,
-  ): () => void;
+  observeWorkspaceFocusTask(listener: (event: WorkspaceFocusTaskEvent) => void): () => void;
   beginTaskPlanning(input: TaskRequest): Promise<void>;
+  checkTaskMergeConflicts(input: TaskRequest): Promise<TaskMergeConflictResult>;
   createArtifact(input: CreateArtifactRequest): Promise<ExecutionArtifact>;
   createTask(input: CreateTaskRequest): Promise<CreateDesktopTaskResult>;
   recordBrainstormArtifact(input: RecordSessionNoteRequest): Promise<ExecutionArtifact>;
   recordSweepArtifact(input: RecordSessionNoteRequest): Promise<ExecutionArtifact>;
   createTaskPullRequest(input: TaskRequest): Promise<void>;
   getTaskFileDiff(input: GetTaskFileDiffInput): Promise<TaskFileDiff>;
-  importQualityGateConfig(input: QualityGateConfigPathRequest): Promise<ImportQualityGateConfigResponse>;
-  installWorkflowPluginForTask(input: InstallWorkflowPluginRequest): Promise<InstallWorkflowPluginResponse>;
+  importQualityGateConfig(
+    input: QualityGateConfigPathRequest,
+  ): Promise<ImportQualityGateConfigResponse>;
+  installWorkflowPluginForTask(
+    input: InstallWorkflowPluginRequest,
+  ): Promise<InstallWorkflowPluginResponse>;
   inspectTaskPullRequest(input: TaskRequest): Promise<TaskPullRequestState>;
   removeWorkflowPluginBindingForTask(
     input: RemoveWorkflowPluginBindingRequest,
@@ -536,7 +550,9 @@ export interface AgentTermDesktopApi {
   listTaskChanges(input: TaskRequest): Promise<TaskChangeSet>;
   listTaskDependencies(input: TaskRequest): Promise<readonly TaskDependency[]>;
   listTaskReviews(input: TaskRequest): Promise<readonly TaskReviewSummary[]>;
-  loadQualityGateConfig(input: QualityGateConfigPathRequest): Promise<LoadQualityGateConfigResponse>;
+  loadQualityGateConfig(
+    input: QualityGateConfigPathRequest,
+  ): Promise<LoadQualityGateConfigResponse>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
   loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
@@ -544,17 +560,23 @@ export interface AgentTermDesktopApi {
   openExternalLink(input: { readonly url: string }): Promise<void>;
   openMainWindowForTask(input: OpenMainWindowForTaskRequest): Promise<void>;
   openProject(): Promise<OpenDesktopProjectResult>;
-  openWorktreeFile(input: { readonly absolutePath: string; readonly taskId: string }): Promise<void>;
+  openWorktreeFile(input: {
+    readonly absolutePath: string;
+    readonly taskId: string;
+  }): Promise<void>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
   refreshTaskPullRequest(input: PullRequestRefreshRequest): Promise<void>;
   registerQualityGate(input: QualityGateRegistrationRequest): Promise<void>;
   removeTaskDependency(input: TaskDependencyEdgeRequest): Promise<boolean>;
+  requestMergeConflictResolution(input: MergeConflictResolutionRequest): Promise<void>;
   requestTaskChanges(input: ReviewRequest): Promise<void>;
   requestTaskReview(input: TaskRequest): Promise<void>;
   retryTaskExecution(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   runQualityGate(input: QualityGateRequest): Promise<void>;
   stopAgentSession(input: StopAgentSessionRequest): Promise<void>;
-  saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>;
+  saveQualityGateConfig(
+    input: SaveQualityGateConfigRequest,
+  ): Promise<SaveQualityGateConfigResponse>;
   saveWorkspaceLayout(input: SaveWorkspaceLayoutRequest): Promise<WorkspaceLayoutReadModel>;
   selectQualityGateConfigPath(): Promise<SelectQualityGateConfigPathResponse>;
   selectWorkflowPluginPath(): Promise<SelectWorkflowPluginPathResponse>;
@@ -606,8 +628,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       const record = exactRecord(input, ['focusTerminal', 'selectTask', 'taskId']);
       const focusTerminal =
         record.focusTerminal === undefined ? true : readBoolean(record.focusTerminal);
-      const selectTask =
-        record.selectTask === undefined ? true : readBoolean(record.selectTask);
+      const selectTask = record.selectTask === undefined ? true : readBoolean(record.selectTask);
       return Object.freeze({
         focusTerminal,
         selectTask,
@@ -658,6 +679,19 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
       const record = exactRecord(input, ['planId', 'taskId']);
       return Object.freeze({
         planId: readIdentity(record.planId),
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.checkTaskMergeConflicts: {
+      const record = exactRecord(input, ['taskId']);
+      return Object.freeze({
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.requestMergeConflictResolution: {
+      const record = exactRecord(input, ['sessionId', 'taskId']);
+      return Object.freeze({
+        sessionId: readIdentity(record.sessionId),
         taskId: readIdentity(record.taskId),
       }) as DesktopIpcRequestMap[C];
     }
@@ -724,7 +758,9 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     }
     case desktopIpcChannels.stopAgentSession: {
       const record = exactRecord(input, ['sessionId']);
-      return Object.freeze({ sessionId: readIdentity(record.sessionId) }) as DesktopIpcRequestMap[C];
+      return Object.freeze({
+        sessionId: readIdentity(record.sessionId),
+      }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.createPullRequest:
     case desktopIpcChannels.beginTaskPlanning:
@@ -826,19 +862,13 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.advanceWorkflowPluginPhase: {
       const record = exactRecord(input, ['direction', 'expectedRevision', 'taskId']);
       const direction = record.direction;
-      if (
-        direction !== 'next' &&
-        direction !== 'previous' &&
-        direction !== 'set'
-      ) {
+      if (direction !== 'next' && direction !== 'previous' && direction !== 'set') {
         throw new DesktopIpcRequestValidationError();
       }
       const forceRaw = (input as { readonly force?: unknown }).force;
       const phaseIdRaw = (input as { readonly phaseId?: unknown }).phaseId;
       const phaseId =
-        phaseIdRaw === undefined
-          ? undefined
-          : readWorkflowPluginPath(phaseIdRaw as string);
+        phaseIdRaw === undefined ? undefined : readWorkflowPluginPath(phaseIdRaw as string);
       const force = forceRaw === undefined ? undefined : readBoolean(forceRaw);
       return Object.freeze({
         direction,
@@ -1265,7 +1295,12 @@ function readWorkflowPluginPath(input: unknown): string {
 }
 
 function readWorkflowPluginExpectedRevision(input: unknown): number {
-  if (typeof input !== 'number' || !Number.isInteger(input) || input < 0 || input > Number.MAX_SAFE_INTEGER) {
+  if (
+    typeof input !== 'number' ||
+    !Number.isInteger(input) ||
+    input < 0 ||
+    input > Number.MAX_SAFE_INTEGER
+  ) {
     fail();
   }
   return input;
