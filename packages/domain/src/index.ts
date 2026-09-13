@@ -90,6 +90,7 @@ export {
   InvalidQualityGateRunTransitionError,
   QualityGateKind,
   QualityGateRunStatus,
+  reconcileOrphanQualityGateRun,
   startQualityGateRun,
   type CompleteQualityGateRunInput,
   type QualityGate,
@@ -101,6 +102,7 @@ export {
   type QualityGateRunStatus as QualityGateRunStatusValue,
   type QualityGateWorktree,
   type StartQualityGateRunInput,
+  UNOBSERVED_GATE_OUTPUT_REFERENCE,
 } from './quality-gate';
 export {
   createTask,

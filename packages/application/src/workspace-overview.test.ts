@@ -8,6 +8,7 @@ import {
   createTask,
   decideTaskReview,
   QualityGateKind,
+  QualityGateRunStatus,
   recordAgentSessionEvent,
   startTaskReview,
   startQualityGateRun,
@@ -192,6 +193,10 @@ class FakeQualityGateRunRepository implements QualityGateRunRepository {
   public async listRecentByTaskId(taskId: string, limit: number) {
     this.recentLimits.push(limit);
     return this.runs.filter((run) => run.taskId === taskId).slice(-limit);
+  }
+
+  public async listUnsettled(): Promise<readonly QualityGateRun[]> {
+    return this.runs.filter((run) => run.status === QualityGateRunStatus.RUNNING);
   }
 
   public async readReviewEvidenceByTaskId(taskId: string, limit: number) {

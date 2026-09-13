@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import {
   completeQualityGateRun,
   createQualityGate,
-  startQualityGateRun,
+  InvalidQualityGateRunTransitionError,
   QualityGateKind,
   QualityGateRunStatus,
+  reconcileOrphanQualityGateRun,
+  startQualityGateRun,
+  UNOBSERVED_GATE_OUTPUT_REFERENCE,
 } from './index';
 
 const gate = createQualityGate({
@@ -192,5 +195,87 @@ describe('QualityGateRun', () => {
         output: { reference: ' ', text: 'secret-safe', truncated: false },
       }),
     ).toThrow(TypeError);
+  });
+});
+
+describe('reconcileOrphanQualityGateRun', () => {
+  const orphanWorktree = {
+    baseCommitId: 'a'.repeat(40),
+    branchName: 'agentterm/task/orphan',
+    headCommitIdAtStart: 'b'.repeat(40),
+    pathIdentity: 'worktree-identity-orphan',
+    worktreePath: 'D:\\AgentTerm Worktrees\\task-orphan',
+  };
+
+  it('rejects any non-RUNNING run without touching the input', () => {
+    const running = startQualityGateRun({
+      gate,
+      id: 'run-orphan-passed',
+      startedAt: 7_500,
+      taskId: 'task-orphan',
+      worktree: orphanWorktree,
+    });
+    const passed = completeQualityGateRun(running, {
+      exitCode: 0,
+      finishedAt: 7_575,
+      kind: 'exited',
+      output: {
+        reference: 'quality-gate-output:run-orphan-passed',
+        text: 'OK',
+        truncated: false,
+      },
+    });
+
+    expect(() => reconcileOrphanQualityGateRun(passed, 8_000)).toThrow(
+      InvalidQualityGateRunTransitionError,
+    );
+    expect(passed.status).toBe(QualityGateRunStatus.PASSED);
+    expect(passed.output?.text).toBe('OK');
+  });
+
+  it('finalizes a RUNNING orphan with INFRASTRUCTURE_FAILED and an empty, marked output', () => {
+    const running = startQualityGateRun({
+      gate,
+      id: 'run-orphan-running',
+      startedAt: 9_000,
+      taskId: 'task-orphan',
+      worktree: orphanWorktree,
+    });
+
+    const reconciled = reconcileOrphanQualityGateRun(running, 9_250);
+
+    expect(reconciled).toMatchObject({
+      durationMs: 250,
+      exitCode: undefined,
+      failureCategory: 'INFRASTRUCTURE',
+      finishedAt: 9_250,
+      id: 'run-orphan-running',
+      startedAt: 9_000,
+      status: QualityGateRunStatus.INFRASTRUCTURE_FAILED,
+      taskId: 'task-orphan',
+    });
+    expect(reconciled.output?.reference).toBe(
+      `${UNOBSERVED_GATE_OUTPUT_REFERENCE}:run-orphan-running`,
+    );
+    expect(reconciled.output?.text).toBe('');
+    expect(reconciled.output?.truncated).toBe(false);
+    expect(running.status).toBe(QualityGateRunStatus.RUNNING);
+    expect(Object.isFrozen(reconciled)).toBe(true);
+    expect(reconciled.output ? Object.isFrozen(reconciled.output) : false).toBe(true);
+  });
+
+  it('rejects a finishedAt that is missing, negative, non-integer, or precedes startedAt', () => {
+    const running = startQualityGateRun({
+      gate,
+      id: 'run-orphan-validate',
+      startedAt: 3_000,
+      taskId: 'task-orphan',
+      worktree: orphanWorktree,
+    });
+
+    expect(() => reconcileOrphanQualityGateRun(running, -1)).toThrow(TypeError);
+    expect(() => reconcileOrphanQualityGateRun(running, 1.5)).toThrow(TypeError);
+    expect(() => reconcileOrphanQualityGateRun(running, 2_999)).toThrow(TypeError);
+    expect(running.status).toBe(QualityGateRunStatus.RUNNING);
   });
 });

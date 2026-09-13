@@ -815,6 +815,7 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
   private readonly insertStatement: StatementSync;
   private readonly listByTaskIdStatement: StatementSync;
   private readonly listRecentByTaskIdStatement: StatementSync;
+  private readonly listUnsettledStatement: StatementSync;
   private readonly nextOrdinalStatement: StatementSync;
   private readonly reviewEvidenceByTaskIdStatement: StatementSync;
   private readonly reviewEvidenceSummaryByTaskIdStatement: StatementSync;
@@ -846,6 +847,12 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
        FROM quality_gate_runs
        WHERE id IN (SELECT id FROM recent)
        ORDER BY ordinal`,
+    );
+    this.listUnsettledStatement = database.prepare(
+      `SELECT ${selectedColumns}
+       FROM quality_gate_runs
+       WHERE status = 'RUNNING'
+       ORDER BY started_at, ordinal`,
     );
     this.reviewEvidenceSummaryByTaskIdStatement = database.prepare(
       `SELECT COUNT(*) AS total_count,
@@ -898,6 +905,10 @@ export class SqliteQualityGateRunRepository implements QualityGateRunRepository 
   ): Promise<readonly QualityGateRun[]> {
     assertPositiveHistoryLimit(limit, 'Quality Gate Run');
     return this.listRecentByTaskIdStatement.all(taskId, limit).map(mapQualityGateRunRow);
+  }
+
+  public async listUnsettled(): Promise<readonly QualityGateRun[]> {
+    return this.listUnsettledStatement.all().map(mapQualityGateRunRow);
   }
 
   public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
