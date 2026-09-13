@@ -1,9 +1,16 @@
 # M11 — Mouse gesture coordination (Shift+right-click forwards to TUI)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-23
 Owner: AgentTerm desktop renderer
 Branch: `main`
+Shipped: PR #42 (commit `bf1cf7c`) merged on 2026-08-23; updates the
+`useTerminalContextMenu` host-element listener so a bare right-click opens
+AgentTerm's menu while `Shift+right-click` lets the event propagate into
+xterm's `CoreMouseService`, which translates it into the button-2 sequence
+the active TUI asked for. Aligns AgentTerm with the convention used by
+`gnome-terminal`, `kitty`, `iTerm2`, `Windows Terminal`, `Alacritty`, and
+`WezTerm`.
 
 ## Context
 

@@ -1,9 +1,13 @@
 # M9-Close — Ctrl+click worktree file hyperlinks
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-22
 Owner: AgentTerm desktop + application
 Branch: `cursor/terminal-context-menu-agent-actions`
+Shipped: PR #41 (commit `389cd0e`) merged on 2026-08-23; closes M9-Close slice of
+ADR-009 by wiring the second xterm `ILinkProvider` that consumes
+`resolveTerminalLinkTarget` over IPC and re-runs the worktree-containment
+check in the main process before any `shell.openPath` call.
 
 ## Context
 

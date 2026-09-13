@@ -1,9 +1,15 @@
 # M12 — Visual mouse-mode badge (CSI ? 1000h/1002h/1003h detection)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-23
 Owner: AgentTerm desktop renderer
 Branch: `main`
+Shipped: PR #42 (commit `8adcd59`) merged on 2026-08-23; adds a per-pane
+mouse-mode badge in the pane chrome that flips on when the PTY byte stream
+emits `CSI ? 1000 h / 1002 h / 1003 h` (and the `1006` SGR extended pairing)
+and off when the matching `l` reset is seen. Detects the mode without
+reaching into xterm's internal `CoreMouseService`; renderer-only, no IPC,
+no Domain change.
 
 ## Context
 
