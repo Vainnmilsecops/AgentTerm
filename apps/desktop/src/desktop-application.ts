@@ -39,6 +39,7 @@ import {
   requestTaskReview,
   resolveTerminalLinkTarget,
   restoreAgentSessionsAfterRestart,
+  reconcileOrphanQualityGateRuns,
   retryTaskExecution,
   runQualityGate,
   saveWorkspaceLayout,
@@ -220,6 +221,15 @@ export async function createProductionDesktopApplication(
       reattachAttempt,
       resumeAttempt,
       resumeInitialSize: initialTerminalSize,
+    });
+    // Reconcile every Quality Gate row that the previous AgentTerm process
+    // left in `RUNNING`. The runner that owned the gate died before its
+    // final checkpoint; the new process closes the row as
+    // `INFRASTRUCTURE_FAILED` so Review admission and `canRunQualityGate`
+    // can recover without manual intervention.
+    await reconcileOrphanQualityGateRuns({
+      clock,
+      runs: persistence.qualityGateRuns,
     });
 
     const settingsDependencies = Object.freeze({

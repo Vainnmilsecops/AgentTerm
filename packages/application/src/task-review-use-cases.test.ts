@@ -265,6 +265,9 @@ class MemoryGateRuns implements QualityGateRunRepository {
   public async listRecentByTaskId(taskId: string, limit: number) {
     return this.values.filter((run) => run.taskId === taskId).slice(-limit);
   }
+  public async listUnsettled(): Promise<readonly QualityGateRun[]> {
+    return this.values.filter((run) => run.status === QualityGateRunStatus.RUNNING);
+  }
   public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
     this.reviewEvidenceLimits.push(limit);
     const values = this.values.filter((run) => run.taskId === taskId);

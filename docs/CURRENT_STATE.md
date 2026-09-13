@@ -305,10 +305,6 @@ via `layoutPersistenceError` so the user can refresh instead of
 silently retrying. Closing UI still detaches observers only, while a
 later reattachment cannot replay output emitted during the detached
 interval because terminal output is not durable Session evidence.
-If AgentTerm exits after a gate process finishes but before its final SQLite checkpoint, or process
-tree cleanup cannot be confirmed, that run remains durably `RUNNING` and Review admission is blocked.
-Automatic reconciliation of such orphan or unsettled gate attempts is deferred; a retry must use a
-new run id and preserve the old row.
 Review code-state fingerprint schema 1 intentionally excludes ignored files and fails closed for
 dirty submodules, nested repositories, and symlink/junction ancestor escapes. Its double capture and
 open-file identity checks detect ordinary concurrent edits but cannot provide an atomic filesystem
@@ -322,17 +318,18 @@ trusted-repository limitation around configured clean/process filters.
 ADR-009 §"Milestones" and the per-slice ADRs (ADR-010 … ADR-018) are now
 landed end to end: M1 (spec-driven plugin contract), M2 (Kanban board view)
 plus its M2.3 close-out, M2.5 (plugin uninstall), M3 (research artifact
-+ research phase) plus its M3.1 switching UX, M4 (MCP read-only server),
-M5 (per-phase agent switching), M6 (minimal research orchestrator), M7
-(brainstorm / sweep capture), M7.5 (slash-command trigger), M8 (auto
-merge-conflict detection + `/agtx:merge-conflicts` prompt — ADR-019,
-shipped in the upcoming PR), M9-Close (ctrl-click worktree file
-hyperlinks), M10 (in-terminal search), M11 (Shift+right-click forwards
-to TUI), and M12 (mouse-mode badge) all ship on `main`. The remaining
-items from the original agtx-port scope are still deferred per
-ADR-009 §"Deferred" and ADR-009 §AD-5:
 
-- **MCP write tools** (`create_task`, `move_task`, `send_to_task`).
+- research phase) plus its M3.1 switching UX, M4 (MCP read-only server),
+  M5 (per-phase agent switching), M6 (minimal research orchestrator), M7
+  (brainstorm / sweep capture), M7.5 (slash-command trigger), M8 (auto
+  merge-conflict detection + `/agtx:merge-conflicts` prompt — ADR-019,
+  shipped in the upcoming PR), M9-Close (ctrl-click worktree file
+  hyperlinks), M10 (in-terminal search), M11 (Shift+right-click forwards
+  to TUI), and M12 (mouse-mode badge) all ship on `main`. The remaining
+  items from the original agtx-port scope are still deferred per
+  ADR-009 §"Deferred" and ADR-009 §AD-5:
+
+* **MCP write tools** (`create_task`, `move_task`, `send_to_task`).
   Intentionally out of scope for the read-only server (ADR-009 §AD-5);
   introducing them later must reuse the same authorization discipline
   that the IPC channel allowlist enforces today.
@@ -358,6 +355,24 @@ shipped, M2 deferred, etc.) is historical and superseded by the
   the current workspace overview so stale Task ids cannot survive a
   restart. Closing UI still detaches observers only — terminal output
   is a live stream and is not replayed after reattachment.
+- **Quality Gate orphan reconciliation at startup** (ADR-020):
+  shipped on 2026-09-13. Every `status = 'RUNNING'` Quality Gate row
+  from a previous AgentTerm process is finalized as
+  `INFRASTRUCTURE_FAILED` on every desktop startup, matching the
+  Agent Session restore discipline. `packages/domain/src/quality-gate.ts`
+  owns the new `reconcileOrphanQualityGateRun` helper; the
+  Application layer exposes
+  `reconcileOrphanQualityGateRuns({ clock, runs })` next to
+  `restoreAgentSessionsAfterRestart`; the new
+  `QualityGateRunRepository.listUnsettled()` port + SQLite prepared
+  statement surface orphans ordered by `started_at`; the desktop
+  wires one `await reconcileOrphanQualityGateRuns(...)` call right
+  after `restoreAgentSessionsAfterRestart`. Domain stays free of new
+  Audit events; the audit trail is the Quality Gate row's
+  `failureCategory: 'INFRASTRUCTURE'` and `finishedAt` plus the
+  synthesized empty `output.reference` of
+  `${UNOBSERVED_GATE_OUTPUT_REFERENCE}:${run.id}`. Review admission
+  and `canRunQualityGate` recover automatically on the first paint.
 - **M8 — Auto merge-conflict detection + `/agtx:merge-conflicts` prompt**
   (ADR-019): shipped in the upcoming PR on 2026-09-13. Adds the
   `TaskMergeConflictProbe` Application port (backed by a new

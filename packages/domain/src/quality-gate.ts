@@ -191,6 +191,60 @@ export function completeQualityGateRun(
   });
 }
 
+/**
+ * Output reference used when a Quality Gate run is finalized without ever
+ * observing process settlement (e.g. the previous AgentTerm process exited
+ * before the runner could call `finalize`). The bounded redacted sink
+ * never wrote a byte; we never invent one. The empty `text` and the
+ * explicit reference make that absence observable to audit reviewers.
+ */
+export const UNOBSERVED_GATE_OUTPUT_REFERENCE = '<unobserved>';
+
+function createUnobservedOutput(runId: string): QualityGateOutput {
+  return Object.freeze({
+    reference: `${UNOBSERVED_GATE_OUTPUT_REFERENCE}:${runId}`,
+    text: '',
+    truncated: false,
+  });
+}
+
+/**
+ * Finalizes a still-`RUNNING` Quality Gate run whose settlement was never
+ * observed by the previous AgentTerm process. Used at desktop startup to
+ * reconcile orphans so Review admission and `canRunQualityGate` recover
+ * without human intervention.
+ *
+ * The synthesized `output_reference` is `${UNOBSERVED_GATE_OUTPUT_REFERENCE}:${run.id}`
+ * so each orphan row owns a unique reference — the schema enforces
+ * `UNIQUE` on `output_reference`, and several orphans from the previous
+ * process must coexist in the same database.
+ *
+ * Throws {@link InvalidQualityGateRunTransitionError} if the run is not
+ * `RUNNING`. Throws {@link TypeError} if `finishedAt` is missing,
+ * negative, non-integer, or earlier than `run.startedAt`.
+ */
+export function reconcileOrphanQualityGateRun(
+  run: QualityGateRun,
+  finishedAt: number,
+): QualityGateRun {
+  if (run.status !== QualityGateRunStatus.RUNNING) {
+    throw new InvalidQualityGateRunTransitionError(run.status);
+  }
+  assertTimestamp(finishedAt, 'Quality Gate Run orphan finish timestamp');
+  if (finishedAt < run.startedAt) {
+    throw new TypeError('Quality Gate Run cannot finish before it starts.');
+  }
+  return freezeRun({
+    ...run,
+    durationMs: finishedAt - run.startedAt,
+    exitCode: undefined,
+    failureCategory: 'INFRASTRUCTURE',
+    finishedAt,
+    output: createUnobservedOutput(run.id),
+    status: QualityGateRunStatus.INFRASTRUCTURE_FAILED,
+  });
+}
+
 function createWorktree(input: QualityGateWorktree): QualityGateWorktree {
   assertNonBlank(input.pathIdentity, 'Quality Gate Worktree path identity');
   assertNonBlank(input.worktreePath, 'Quality Gate Worktree path');

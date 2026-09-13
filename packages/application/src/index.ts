@@ -53,7 +53,7 @@ export {
   type TaskExecutionStartStage,
   type TaskExecutionRetryFailure,
   type TaskReviewReadinessFailure,
-} from "./errors";
+} from './errors';
 export {
   loadApplicationSettings,
   updateApplicationSettings,
@@ -61,26 +61,23 @@ export {
   type ApplicationSettingsDependencies,
   type ApplicationSettingsView,
   type UpdateApplicationSettingsInput,
-} from "./application-settings";
+} from './application-settings';
 export {
   createExecutionArtifact,
   getExecutionArtifact,
   listTaskExecutionArtifacts,
-} from "./execution-artifacts";
+} from './execution-artifacts';
 export type {
   CreateExecutionArtifactInput,
   ExecutionArtifact,
   ExecutionArtifactKind,
-} from "@agentterm/domain";
-export { ExecutionArtifactKind as ExecutionArtifactKindValue } from "@agentterm/domain";
+} from '@agentterm/domain';
+export { ExecutionArtifactKind as ExecutionArtifactKindValue } from '@agentterm/domain';
 export type {
   AgentSessionHostOwnership,
   CreateAgentSessionHostOwnershipInput,
-} from "@agentterm/domain";
-export {
-  createAgentSessionHostOwnership,
-  isValidProviderSessionId,
-} from "@agentterm/domain";
+} from '@agentterm/domain';
+export { createAgentSessionHostOwnership, isValidProviderSessionId } from '@agentterm/domain';
 export {
   AgentSessionCoordinator,
   type AgentSessionTerminalAttachment,
@@ -89,13 +86,13 @@ export {
   type ReportAgentSessionStatusInput,
   type StartAgentSessionInput,
   type StopAgentSessionInput,
-} from "./agent-session-coordinator";
+} from './agent-session-coordinator';
 export {
   restoreAgentWorkspaceAfterRestart,
   restoreAgentSessionsAfterRestart,
   type RestoreAgentSessionsOptions,
   type RestoreAgentSessionsResult,
-} from "./agent-session-restore";
+} from './agent-session-restore';
 export {
   tryReattachAgentSession,
   tryResumeAgentSession,
@@ -105,17 +102,9 @@ export {
   type TryReattachSkipReason,
   type TryResumeAgentSessionInput,
   type TryResumeAgentSessionResult,
-} from "./agent-session-recovery";
-export {
-  inspectAgent,
-  launchAgent,
-  type LaunchAgentInput,
-} from "./agent-launch";
-export {
-  ConfiguredAgentCatalog,
-  listAgentSummaries,
-  type AgentSummary,
-} from "./agent-catalog";
+} from './agent-session-recovery';
+export { inspectAgent, launchAgent, type LaunchAgentInput } from './agent-launch';
+export { ConfiguredAgentCatalog, listAgentSummaries, type AgentSummary } from './agent-catalog';
 export {
   bindPhaseAgent,
   resolveAgentForTask,
@@ -123,7 +112,7 @@ export {
   type BindPhaseAgentInput,
   type SelectArtifactContractInput,
   type WorkflowPhaseArtifactProjection,
-} from "./workflow-plugin-use-cases";
+} from './workflow-plugin-use-cases';
 export {
   installWorkflowPluginForTask,
   InstallWorkflowPluginError,
@@ -150,7 +139,7 @@ export {
   type AdvanceActivePhaseResult,
   type AdvanceActivePhaseDependencies,
   type AdvanceActivePhaseFailure,
-} from "./workflow-plugin-loader";
+} from './workflow-plugin-loader';
 export {
   listQualityGateRuns,
   listQualityGateSummaries,
@@ -158,12 +147,17 @@ export {
   type QualityGateSummary,
   type RunQualityGateDependencies,
   type RunQualityGateInput,
-} from "./quality-gate-use-cases";
+} from './quality-gate-use-cases';
 export {
   registerQualityGate,
   unregisterQualityGate,
   type QualityGateConfigInput,
-} from "./quality-gate-configuration";
+} from './quality-gate-configuration';
+export {
+  reconcileOrphanQualityGateRuns,
+  type ReconcileOrphanQualityGateRunsDependencies,
+  type ReconcileOrphanQualityGateRunsResult,
+} from './quality-gate-restore';
 export {
   importQualityGateConfig,
   ImportQualityGateConfiguratorError,
@@ -171,22 +165,13 @@ export {
   type ImportQualityGateConfigFailure,
   type ImportQualityGateConfigInput,
   type ImportQualityGateConfigResult,
-} from "./import-quality-gate-config";
-export type {
-  QualityGate,
-  QualityGateKind,
-  Task,
-  TaskDependency,
-} from "@agentterm/domain";
-export { QualityGateKind as QualityGateKindValue } from "@agentterm/domain";
-export { TaskPhase } from "@agentterm/domain";
-export { listProjectTasks } from "./project-tasks-listing";
-export {
-  listRecentProjects,
-  openProject,
-  type OpenProjectInput,
-} from "./project-management";
-export { createProject } from "./project-use-cases";
+} from './import-quality-gate-config';
+export type { QualityGate, QualityGateKind, Task, TaskDependency } from '@agentterm/domain';
+export { QualityGateKind as QualityGateKindValue } from '@agentterm/domain';
+export { TaskPhase } from '@agentterm/domain';
+export { listProjectTasks } from './project-tasks-listing';
+export { listRecentProjects, openProject, type OpenProjectInput } from './project-management';
+export { createProject } from './project-use-cases';
 export type {
   AgentAdapter,
   AgentAvailability,
@@ -282,7 +267,7 @@ export type {
   TaskWorktreeRecord,
   TaskWorktreeRepository,
   TaskWorktreeStatus,
-} from "./ports";
+} from './ports';
 export {
   createTaskPullRequest,
   inspectTaskPullRequest,
@@ -292,7 +277,7 @@ export {
   type RefreshTaskPullRequestInput,
   type TaskPullRequestInput,
   type TaskPullRequestState,
-} from "./task-pull-request";
+} from './task-pull-request';
 export {
   addTaskDependency,
   listTaskDependencies,
@@ -301,19 +286,19 @@ export {
   type ListTaskDependenciesInput,
   type TaskDependencyState,
   type TaskDependencyStatus,
-} from "./task-dependencies";
+} from './task-dependencies';
 export {
   getTaskFileDiff,
   listTaskChanges,
   type GetTaskFileDiffInput,
   type ListTaskChangesInput,
-} from "./task-change-inspection";
+} from './task-change-inspection';
 export {
   acceptTaskPlan,
   createTaskPlan,
   type CreateTaskPlanInput,
   type TaskPlanningDependencies,
-} from "./task-planning-use-cases";
+} from './task-planning-use-cases';
 export {
   loadAgentWorkspace,
   summarizeTaskReview,
@@ -332,19 +317,15 @@ export {
   type WorkflowPluginProjection,
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,
-} from "./workspace-overview";
-export {
-  createTask,
-  transitionTask,
-  type TransitionTaskInput,
-} from "./task-use-cases";
+} from './workspace-overview';
+export { createTask, transitionTask, type TransitionTaskInput } from './task-use-cases';
 export {
   assertCanEnterPlanning,
   canEnterPlanning,
   type CanEnterPlanningFailure,
   type CanEnterPlanningInput,
   type CanEnterPlanningResult,
-} from "./can-enter-planning";
+} from './can-enter-planning';
 export {
   approveTaskReview,
   listTaskReviews,
@@ -355,7 +336,7 @@ export {
   type RequestTaskReviewInput,
   type RequestTaskReviewResult,
   type TaskReviewDependencies,
-} from "./task-review-use-cases";
+} from './task-review-use-cases';
 export {
   retryTaskExecution,
   startTaskPlanning,
@@ -367,14 +348,14 @@ export {
   type TaskExecutionStartResult,
   type TaskExecutionRetryResult,
   type TaskPlanningStartResult,
-} from "./task-execution";
+} from './task-execution';
 export {
   cleanupTaskWorktree,
   ensureTaskWorktree,
   inspectTaskWorktree,
   type InspectTaskWorktreeResult,
   type TaskWorktreeInput,
-} from "./task-worktree-use-cases";
+} from './task-worktree-use-cases';
 export {
   loadWorkspaceLayout,
   saveWorkspaceLayout,
@@ -396,7 +377,7 @@ export {
   type WorkspaceLayoutTabRecord,
   type WorkspaceLayoutValidationFailure,
   type SaveWorkspaceLayoutInput,
-} from "./workspace-layout-use-cases";
+} from './workspace-layout-use-cases';
 export {
   hasValidResearchEvidence,
   recordResearchArtifact,
@@ -406,13 +387,13 @@ export {
   type StartTaskResearchDependencies,
   type StartTaskResearchInput,
   type TaskResearchStartResult,
-} from "./research-use-cases";
+} from './research-use-cases';
 export {
   recordBrainstormArtifact,
   recordSweepArtifact,
   type RecordSessionNoteDependencies,
   type RecordSessionNoteInput,
-} from "./note-capture-use-cases";
+} from './note-capture-use-cases';
 export {
   MAX_MCP_PANE_LINES,
   MAX_MCP_PROJECT_LIMIT,
@@ -426,14 +407,14 @@ export {
   type McpReadOnlyViewDependencies,
   type McpTaskDetail,
   type McpTaskListingEntry,
-} from "./mcp-read-only-views";
+} from './mcp-read-only-views';
 export {
   resolveTerminalLinkTarget,
   type ResolvedTerminalLink,
   type ResolveTerminalLinkDependencies,
   type ResolveTerminalLinkInput,
-} from "./terminal-link-resolver";
-export { SendMergeConflictResolutionPromptError } from "./errors";
+} from './terminal-link-resolver';
+export { SendMergeConflictResolutionPromptError } from './errors';
 export {
   MERGE_CONFLICTS_PROMPT_BYTES,
   checkTaskMergeConflicts,
@@ -449,5 +430,5 @@ export {
   type SendMergeConflictResolutionResult,
   type TaskMergeConflictAvailability,
   type TaskMergeConflictResult,
-} from "./task-merge-conflict-use-cases";
-export type { ProbeTaskMergeConflictsInput, TaskMergeConflictProbe } from "./ports";
+} from './task-merge-conflict-use-cases';
+export type { ProbeTaskMergeConflictsInput, TaskMergeConflictProbe } from './ports';

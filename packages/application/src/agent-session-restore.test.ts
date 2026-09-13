@@ -254,6 +254,7 @@ describe('restoreAgentWorkspaceAfterRestart', () => {
         insert: async () => never(),
         listByTaskId: async () => [],
         listRecentByTaskId: async () => [],
+        listUnsettled: async () => [],
         readReviewEvidenceByTaskId: async () => ({
           evidence: [],
           hasRunning: false,

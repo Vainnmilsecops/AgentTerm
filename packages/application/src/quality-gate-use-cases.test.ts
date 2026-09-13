@@ -180,6 +180,9 @@ class FakeRuns implements QualityGateRunRepository {
   public async listRecentByTaskId(taskId: string, limit: number) {
     return this.values.filter((run) => run.taskId === taskId).slice(-limit);
   }
+  public async listUnsettled(): Promise<readonly QualityGateRun[]> {
+    return this.values.filter((run) => run.status === QualityGateRunStatus.RUNNING);
+  }
   public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
     const runs = this.values.filter((run) => run.taskId === taskId);
     return {
