@@ -750,6 +750,18 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
       pluginId: 'agtx',
     }),
   );
+  public readonly openMainWindowForTask = vi.fn<
+    AgentWorkspaceClient['openMainWindowForTask']
+  >(async () => undefined);
+  public observeWorkspaceFocusTask(
+    _listener: (event: {
+      readonly focusTerminal: boolean;
+      readonly selectTask: boolean;
+      readonly taskId: string;
+    }) => void,
+  ): () => void {
+    return (): void => undefined;
+  }
   public readonly registerQualityGate = vi.fn<AgentWorkspaceClient['registerQualityGate']>(
     async () => undefined,
   );
@@ -2116,6 +2128,28 @@ describe('WorkspaceController', () => {
       latestSession: { status: 'EXITED' },
     });
   });
+
+  it('toggles the workspace viewMode and notifies observers only on change', () => {
+    const controller = new WorkspaceController(new FakeWorkspaceClient());
+    expect(controller.getViewMode()).toBe('list');
+    const observed: string[] = [];
+    const unsubscribe = controller.observeViewMode((mode) => {
+      observed.push(mode);
+    });
+    // Setting the same mode must not fire observers and must remain a
+    // no-op so callers can mount the toggle idempotently.
+    controller.setViewMode('list');
+    expect(observed).toEqual([]);
+    controller.setViewMode('board');
+    expect(observed).toEqual(['board']);
+    controller.setViewMode('board');
+    expect(observed).toEqual(['board']);
+    controller.setViewMode('list');
+    expect(observed).toEqual(['board', 'list']);
+    unsubscribe();
+    controller.setViewMode('board');
+    expect(observed).toEqual(['board', 'list']);
+  });
 });
 
 describe('WorkspaceController readiness helpers', () => {
@@ -2337,7 +2371,11 @@ describe('AgentWorkspaceView', () => {
     expect(markup).toMatch(
       /<button[^>]*aria-current="true"[^>]*data-session-status="NONE"[^>]*data-task-id="task-running"[^>]*data-task-phase="RUNNING"[^>]*tabindex="0"/u,
     );
-    expect(markup).not.toContain('aria-pressed=');
+    // The view-mode toggle is the only topbar button that should use
+    // `aria-pressed`; inspector / settings / navigator buttons keep
+    // `aria-expanded` instead.
+    expect(markup).toMatch(/aria-pressed="false"/u);
+    expect(markup).not.toMatch(/aria-pressed="true"/u);
     expect(markup).toContain('Task phase: RUNNING');
     expect(markup).toContain('Session: No session');
     expect(markup).toContain('aria-label="Task inspector"');

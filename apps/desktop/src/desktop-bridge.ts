@@ -3,8 +3,10 @@ import type { PtyRuntimeEvent, PtyTerminalSize } from '@agentterm/application';
 import {
   desktopIpcChannels,
   terminalIpcEventChannel,
+  workspaceFocusTaskChannel,
   validateDesktopIpcRequest,
   validateTerminalIpcEventMessage,
+  validateWorkspaceFocusTaskEvent,
   type AgentTermDesktopApi,
   type DesktopIpcChannel,
   type DesktopIpcErrorCode,
@@ -60,6 +62,26 @@ export function createDesktopBridge(
     }
   };
   ipcRenderer.on(terminalIpcEventChannel, onTerminalEvent);
+
+  let workspaceFocusTaskListener:
+    | ((event: {
+        readonly focusTerminal: boolean;
+        readonly selectTask: boolean;
+        readonly taskId: string;
+      }) => void)
+    | undefined;
+  const onWorkspaceFocusTask = (...arguments_: unknown[]): void => {
+    if (disposed) return;
+    try {
+      const message = validateWorkspaceFocusTaskEvent(arguments_[1]);
+      workspaceFocusTaskListener?.(message);
+    } catch {
+      // Invalid main-process focus events are silently dropped. The
+      // renderer state remains authoritative — a lost focus event just
+      // means the keyboard returns to whatever previously held focus.
+    }
+  };
+  ipcRenderer.on(workspaceFocusTaskChannel, onWorkspaceFocusTask);
 
   const invoke = async <C extends DesktopIpcChannel>(
     channel: C,
@@ -162,6 +184,16 @@ export function createDesktopBridge(
     loadWorkspaceLayout: () => invoke(desktopIpcChannels.loadWorkspaceLayout, {}),
     openBoardWindow: () => invokeVoid(desktopIpcChannels.openBoardWindow, {}),
     openExternalLink: (input) => invokeVoid(desktopIpcChannels.openExternalLink, input),
+    openMainWindowForTask: (input) =>
+      invokeVoid(desktopIpcChannels.openMainWindowForTask, input),
+    observeWorkspaceFocusTask: (listener) => {
+      workspaceFocusTaskListener = listener;
+      return () => {
+        if (workspaceFocusTaskListener === listener) {
+          workspaceFocusTaskListener = undefined;
+        }
+      };
+    },
     openProject: () => invoke(desktopIpcChannels.openProject, {}),
     openWorktreeFile: (input) => invokeVoid(desktopIpcChannels.openWorktreeFile, input),
     pushTaskBranch: (input) => invokeVoid(desktopIpcChannels.pushTaskBranch, input),
@@ -198,7 +230,9 @@ export function createDesktopBridge(
       }
       terminalSinks.clear();
       disposed = true;
+      workspaceFocusTaskListener = undefined;
       ipcRenderer.removeListener(terminalIpcEventChannel, onTerminalEvent);
+      ipcRenderer.removeListener(workspaceFocusTaskChannel, onWorkspaceFocusTask);
     },
   });
 }

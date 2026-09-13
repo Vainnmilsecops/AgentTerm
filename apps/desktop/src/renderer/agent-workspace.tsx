@@ -59,6 +59,7 @@ import {
   type AgentWorkspaceClient,
   type WorkspaceActionKind,
   type WorkspaceSnapshot,
+  type WorkspaceViewMode,
 } from './workspace-controller';
 
 export interface AgentWorkspaceProps {
@@ -117,6 +118,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
   readonly onSaveSettings?: (input: UpdateApplicationSettingsInput) => void;
   readonly onSelectTaskChange: (change: TaskFileChange) => void;
   readonly onSelectTask: (taskId: string) => void;
+  readonly onToggleViewMode?: () => void;
   readonly onSelectWorkspacePane: (paneId: string) => void;
   readonly onSelectWorkspaceTab: (tabId: string) => void;
   readonly onSplitTerminal: (sessionId: string) => void;
@@ -370,6 +372,9 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
             },
           }
         : {})}
+      onToggleViewMode={() => {
+        controller?.setViewMode(controller.getViewMode() === 'board' ? 'list' : 'board');
+      }}
       workflowPluginBindings={workflowPluginBindings}
       workflowPluginError={workflowPluginError}
       onOpenBoardWindow={() => client?.openBoardWindow()}
@@ -427,6 +432,7 @@ export function AgentWorkspaceView({
   onOpenBoardWindow = () => undefined,
   onSwitchWorkflowPluginBinding = undefined,
   onAdvanceWorkflowPluginPhase = undefined,
+  onToggleViewMode = undefined,
   workflowPluginBindings,
   workflowPluginError,
   snapshot,
@@ -1085,6 +1091,10 @@ export function AgentWorkspaceView({
             setLayout((current) => ({ ...current, sidebarCollapsed: !current.sidebarCollapsed }));
           }
         }}
+        onToggleViewMode={() => {
+          onToggleViewMode?.();
+        }}
+        viewMode={snapshot.kind === 'ready' ? snapshot.viewMode ?? 'list' : 'list'}
         {...(selectedProject?.project.name === undefined
           ? {}
           : { projectName: selectedProject.project.name })}
@@ -1808,8 +1818,10 @@ function WorkspaceTopbar({
   onOpenPalette,
   onRefresh,
   onToggleSidebar,
+  onToggleViewMode,
   projectName,
   settings,
+  viewMode,
 }: {
   readonly backgroundInert?: boolean;
   readonly layout: ReturnType<typeof readPersistedLayout>;
@@ -1819,8 +1831,10 @@ function WorkspaceTopbar({
   readonly onOpenPalette?: () => void;
   readonly onRefresh?: () => void;
   readonly onToggleSidebar?: () => void;
+  readonly onToggleViewMode?: () => void;
   readonly projectName?: string;
   readonly settings?: React.ReactNode;
+  readonly viewMode?: WorkspaceViewMode;
 }) {
   return (
     <header
@@ -1850,6 +1864,32 @@ function WorkspaceTopbar({
         <kbd>Ctrl+Shift+P</kbd>
       </button>
       <div className="workspace-topbar__actions">
+        <button
+          aria-label={
+            viewMode === 'board'
+              ? 'Switch to list view'
+              : 'Switch to board view'
+          }
+          aria-pressed={viewMode === 'board'}
+          className="workspace-topbar__icon-button workspace-topbar__view-toggle"
+          data-view-mode-toggle
+          disabled={onToggleViewMode === undefined}
+          onClick={onToggleViewMode}
+          title={
+            viewMode === 'board'
+              ? 'Switch to list view (current: board)'
+              : 'Switch to board view (current: list)'
+          }
+          type="button"
+        >
+          <WorkspaceIcon
+            name={viewMode === 'board' ? 'kanban' : 'list'}
+            size={16}
+          />
+          <span className="workspace-topbar__view-label">
+            {viewMode === 'board' ? 'Board view' : 'List view'}
+          </span>
+        </button>
         <button
           aria-controls="workspace-sidebar"
           aria-expanded={navigatorOpen ?? !layout.sidebarCollapsed}

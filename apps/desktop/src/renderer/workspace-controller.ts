@@ -122,6 +122,8 @@ export type WorkspaceAction =
       readonly taskId: string;
     };
 
+export type WorkspaceViewMode = 'board' | 'list';
+
 export type WorkspaceSnapshot =
   | { readonly kind: 'loading' }
   | { readonly kind: 'error'; readonly message: string }
@@ -142,6 +144,7 @@ export type WorkspaceSnapshot =
       readonly settingsSaving?: boolean;
       readonly selectedTaskId: string | undefined;
       readonly terminalSessionId: string | undefined;
+      readonly viewMode?: WorkspaceViewMode;
     };
 
 export class WorkspaceController {
@@ -149,6 +152,8 @@ export class WorkspaceController {
   private changeGeneration = 0;
   private pullRequestGeneration = 0;
   private loadGeneration = 0;
+  private viewMode: WorkspaceViewMode = 'list';
+  private viewModeListeners = new Set<(mode: WorkspaceViewMode) => void>();
   private readonly client: AgentWorkspaceClient;
   private readonly sink: ((snapshot: WorkspaceSnapshot) => void) | undefined;
   private actionAttempt: Promise<void> | undefined;
@@ -316,6 +321,35 @@ export class WorkspaceController {
         selectedAgentId: agentId,
       }),
     );
+  }
+
+  public getViewMode(): WorkspaceViewMode {
+    return this.viewMode;
+  }
+
+  public setViewMode(mode: WorkspaceViewMode): void {
+    if (this.viewMode === mode) return;
+    this.viewMode = mode;
+    for (const listener of this.viewModeListeners) {
+      try {
+        listener(mode);
+      } catch {
+        // Listeners must not break the controller's invariants; a
+        // failing subscriber is dropped on the floor.
+      }
+    }
+    if (this.snapshot.kind === 'ready') {
+      this.publish(Object.freeze({ ...this.snapshot, viewMode: mode }));
+    }
+  }
+
+  public observeViewMode(
+    listener: (mode: WorkspaceViewMode) => void,
+  ): () => void {
+    this.viewModeListeners.add(listener);
+    return (): void => {
+      this.viewModeListeners.delete(listener);
+    };
   }
 
   public openProject(): Promise<boolean> {
@@ -1067,6 +1101,7 @@ export class WorkspaceController {
     this.loadGeneration += 1;
     this.changeGeneration += 1;
     this.pullRequestGeneration += 1;
+    this.viewModeListeners.clear();
     if (this.layoutSaveTimer !== undefined) {
       clearTimeout(this.layoutSaveTimer);
       this.layoutSaveTimer = undefined;
@@ -1199,6 +1234,7 @@ export class WorkspaceController {
         settingsSaving: false,
         selectedTaskId,
         terminalSessionId: findActiveWorkspacePane(layout)?.sessionId,
+        viewMode: this.viewMode,
       }),
     );
   }

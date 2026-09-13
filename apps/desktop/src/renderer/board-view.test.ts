@@ -11,6 +11,8 @@ import {
   BOARD_COLUMNS,
   BoardView,
   projectOverviewToBoard,
+  summarizeArtifacts,
+  summarizeArtifactsForPlugin,
   type BoardColumnProjection,
   type BoardViewProps,
 } from "./board-view";
@@ -278,5 +280,74 @@ describe("BoardView contract", () => {
     };
     expect(props.onActivateTask).toBeUndefined();
     expect(BoardView).toBeDefined();
+  });
+});
+
+describe("summarizeArtifacts", () => {
+  it("returns all flags false and zero counts for an empty artifact list", () => {
+    const summary = summarizeArtifacts([]);
+    expect(summary).toEqual({
+      brainstormCount: 0,
+      executionSummary: false,
+      plan: false,
+      research: false,
+      review: false,
+      sweepCount: 0,
+    });
+  });
+
+  it("marks each stable kind as true when at least one matching artifact exists", () => {
+    const summary = summarizeArtifacts([
+      { kind: "research" },
+      { kind: "plan" },
+      { kind: "execution-summary" },
+      { kind: "review" },
+    ] as never);
+    expect(summary.research).toBe(true);
+    expect(summary.plan).toBe(true);
+    expect(summary.executionSummary).toBe(true);
+    expect(summary.review).toBe(true);
+    expect(summary.brainstormCount).toBe(0);
+    expect(summary.sweepCount).toBe(0);
+  });
+
+  it("counts brainstorm and sweep artifacts individually", () => {
+    const summary = summarizeArtifacts(
+      [
+        { kind: "brainstorm" },
+        { kind: "brainstorm" },
+        { kind: "brainstorm" },
+        { kind: "sweep" },
+      ] as never,
+    );
+    expect(summary.brainstormCount).toBe(3);
+    expect(summary.sweepCount).toBe(1);
+  });
+});
+
+describe("summarizeArtifactsForPlugin", () => {
+  it("suppresses kinds that the bound plugin does not declare", () => {
+    const summary = summarizeArtifactsForPlugin(
+      [
+        { kind: "research" },
+        { kind: "plan" },
+        { kind: "execution-summary" },
+        { kind: "review" },
+      ] as never,
+      ["plan"],
+    );
+    expect(summary.plan).toBe(true);
+    expect(summary.research).toBe(false);
+    expect(summary.executionSummary).toBe(false);
+    expect(summary.review).toBe(false);
+  });
+
+  it("falls back to surfacing every kind when no plugin declaration is provided", () => {
+    const summary = summarizeArtifactsForPlugin(
+      [{ kind: "research" }, { kind: "plan" }] as never,
+      undefined,
+    );
+    expect(summary.research).toBe(true);
+    expect(summary.plan).toBe(true);
   });
 });
