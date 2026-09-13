@@ -293,10 +293,18 @@ and dependency editing still have no renderer workflow. Quality Gate IPC exposes
 `saveQualityGateConfig`, `importQualityGateConfig`, and `selectQualityGateConfigPath`; the production
 composition still intentionally exposes an empty gate catalog until an operator seeds the first
 trusted configuration file.
-Workspace tabs and split panes are intentionally renderer-local in this foundation; their layout is
-not persisted or restored after an application restart. Closing UI detaches observers only, while a
-later reattachment cannot replay output emitted during the detached interval because terminal output
-is not durable Session evidence.
+Workspace tabs and split panes are now persisted end to end: the
+`WorkspaceLayoutRepository` Application port, the
+`SqliteWorkspaceLayoutRepository` Infrastructure adapter (migration
+`0013-workspace-layout`), the `loadWorkspaceLayout` /
+`saveWorkspaceLayout` IPC channels, and the renderer's
+`WorkspaceController` load/persist/reconcile path all ship. Optimistic
+revision discipline plus a 250 ms debounce keeps concurrent saves
+serialized; a `WorkspaceLayoutConflictError` is surfaced to the user
+via `layoutPersistenceError` so the user can refresh instead of
+silently retrying. Closing UI still detaches observers only, while a
+later reattachment cannot replay output emitted during the detached
+interval because terminal output is not durable Session evidence.
 If AgentTerm exits after a gate process finishes but before its final SQLite checkpoint, or process
 tree cleanup cannot be confirmed, that run remains durably `RUNNING` and Review admission is blocked.
 Automatic reconciliation of such orphan or unsettled gate attempts is deferred; a retry must use a
@@ -335,6 +343,21 @@ shipped, M2 deferred, etc.) is historical and superseded by the
 
 ## Recently Shipped
 
+- **Workspace tab/pane layout restore** (no new ADR; close-out of
+  earlier renderer-side persistence): shipped on 2026-09-13. Workspace
+  tabs, panes, active-tab/pane selection, and per-pane Session binding
+  persist end to end across application restarts. The
+  `WorkspaceLayoutRepository` Application port + `loadWorkspaceLayout` /
+  `saveWorkspaceLayout` use cases, the `SqliteWorkspaceLayoutRepository`
+  Infrastructure adapter (migration `0013-workspace-layout`), the
+  matching desktop IPC channels, and the renderer
+  `WorkspaceController` load/persist/reconcile path all shipped. The
+  controller uses an optimistic revision (`layoutRevision`) with a 250
+  ms debounce, surfaces `WorkspaceLayoutConflictError` through
+  `layoutPersistenceError`, and reconciles the persisted layout against
+  the current workspace overview so stale Task ids cannot survive a
+  restart. Closing UI still detaches observers only — terminal output
+  is a live stream and is not replayed after reattachment.
 - **M8 — Auto merge-conflict detection + `/agtx:merge-conflicts` prompt**
   (ADR-019): shipped in the upcoming PR on 2026-09-13. Adds the
   `TaskMergeConflictProbe` Application port (backed by a new

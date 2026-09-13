@@ -2151,6 +2151,235 @@ describe('WorkspaceController', () => {
     controller.setViewMode('board');
     expect(observed).toEqual(['board', 'list']);
   });
+
+  it('restores the persisted Workspace layout on first load', async () => {
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      agents: availableAgents,
+      projects: Object.freeze([
+        {
+          project,
+          tasks: Object.freeze([
+            {
+              ...emptyReviewState,
+              activeSession: workingSession,
+              artifacts: Object.freeze([]),
+              autoAdvanceCount: 0,
+              canRetryExecution: false,
+              canRunQualityGate: false,
+              canStartExecution: true,
+              latestSession: workingSession,
+              previousSession: undefined,
+              qualityGateRuns: Object.freeze([]),
+              task: runningTask,
+            },
+          ]),
+        },
+      ]),
+    });
+    const persistedLayout = Object.freeze({
+      activeTabId: 'tab:task-1' as string | undefined,
+      layout: Object.freeze({
+        activeTabId: 'tab:task-1',
+        tabs: Object.freeze([
+          {
+            activePaneId: 'pane:task-1:main',
+            id: 'tab:task-1',
+            panes: Object.freeze([
+              {
+                id: 'pane:task-1:main',
+                sessionId: workingSession.id,
+                taskId: runningTask.id,
+              },
+            ]),
+            taskId: runningTask.id,
+          },
+        ]),
+      }),
+      revision: 7,
+      updatedAt: 1_800_000_000_000,
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [overview];
+    client.loadWorkspaceLayout.mockResolvedValueOnce(persistedLayout);
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    expect(client.loadWorkspaceLayout).toHaveBeenCalledTimes(1);
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      layout: {
+        activeTabId: 'tab:task-1',
+        tabs: [
+          {
+            activePaneId: 'pane:task-1:main',
+            id: 'tab:task-1',
+            panes: [{ id: 'pane:task-1:main', sessionId: 'session-working', taskId: 'task-1' }],
+            taskId: 'task-1',
+          },
+        ],
+      },
+      selectedTaskId: 'task-1',
+      terminalSessionId: 'session-working',
+    });
+    expect(controller.snapshot).not.toMatchObject({
+      layoutPersistenceError: expect.anything(),
+    });
+  });
+
+  it('publishes an empty-then-auto-opened layout and persists the first mutation with expectedRevision: 0', async () => {
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      agents: availableAgents,
+      projects: Object.freeze([
+        {
+          project,
+          tasks: Object.freeze([
+            {
+              ...emptyReviewState,
+              activeSession: workingSession,
+              artifacts: Object.freeze([]),
+              autoAdvanceCount: 0,
+              canRetryExecution: false,
+              canRunQualityGate: false,
+              canStartExecution: true,
+              latestSession: workingSession,
+              previousSession: undefined,
+              qualityGateRuns: Object.freeze([]),
+              task: runningTask,
+            },
+          ]),
+        },
+      ]),
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [overview];
+    // No persisted layout on first launch.
+    client.loadWorkspaceLayout.mockResolvedValueOnce(undefined);
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    // The controller auto-opens a tab for the only available Task when
+    // there is no persisted layout, so the user never sees an empty
+    // workspace.
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      layout: {
+        activeTabId: 'task:task-1',
+        tabs: [
+          {
+            id: 'task:task-1',
+            panes: [{ sessionId: 'session-working', taskId: 'task-1' }],
+            taskId: 'task-1',
+          },
+        ],
+      },
+      selectedTaskId: 'task-1',
+    });
+
+    vi.useFakeTimers();
+    try {
+      controller.selectTask(runningTask.id);
+      // First mutation: the controller debounces the save by 250 ms.
+      expect(client.saveWorkspaceLayout).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      await vi.waitFor(() => {
+        expect(client.saveWorkspaceLayout).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const saveCall = client.saveWorkspaceLayout.mock.calls[0]![0];
+    // No persisted layout on first launch → optimistic revision starts at 0.
+    expect(saveCall.expectedRevision).toBe(0);
+    expect(saveCall.layout.tabs).toHaveLength(1);
+    expect(saveCall.layout.tabs[0]).toMatchObject({
+      panes: [{ sessionId: workingSession.id, taskId: runningTask.id }],
+      taskId: runningTask.id,
+    });
+  });
+
+  it('surfaces a WorkspaceLayoutConflictError as a layoutPersistenceError without retrying', async () => {
+    const overview: AgentWorkspaceOverview = Object.freeze({
+      agents: availableAgents,
+      projects: Object.freeze([
+        {
+          project,
+          tasks: Object.freeze([
+            {
+              ...emptyReviewState,
+              activeSession: workingSession,
+              artifacts: Object.freeze([]),
+              autoAdvanceCount: 0,
+              canRetryExecution: false,
+              canRunQualityGate: false,
+              canStartExecution: true,
+              latestSession: workingSession,
+              previousSession: undefined,
+              qualityGateRuns: Object.freeze([]),
+              task: runningTask,
+            },
+          ]),
+        },
+      ]),
+    });
+    const persistedLayout = Object.freeze({
+      activeTabId: 'tab:task-1' as string | undefined,
+      layout: Object.freeze({
+        activeTabId: 'tab:task-1',
+        tabs: Object.freeze([
+          {
+            activePaneId: 'pane:task-1:main',
+            id: 'tab:task-1',
+            panes: Object.freeze([
+              {
+                id: 'pane:task-1:main',
+                sessionId: workingSession.id,
+                taskId: runningTask.id,
+              },
+            ]),
+            taskId: runningTask.id,
+          },
+        ]),
+      }),
+      revision: 3,
+      updatedAt: 1_800_000_000_000,
+    });
+    const client = new FakeWorkspaceClient();
+    client.loadResults = [overview];
+    client.loadWorkspaceLayout.mockResolvedValueOnce(persistedLayout);
+    const conflictError = new Error(
+      'Workspace Layout changed in another window. Reload and try again.',
+    );
+    conflictError.name = 'WorkspaceLayoutConflictError';
+    client.saveWorkspaceLayout.mockRejectedValueOnce(conflictError);
+    const controller = new WorkspaceController(client);
+    await controller.load();
+
+    vi.useFakeTimers();
+    try {
+      controller.selectTask(runningTask.id);
+      vi.advanceTimersByTime(300);
+      await vi.waitFor(() => {
+        expect(client.saveWorkspaceLayout).toHaveBeenCalledTimes(1);
+      });
+      // Allow the rejection to flush into the published snapshot.
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(client.saveWorkspaceLayout).toHaveBeenCalledTimes(1);
+    const saveCall = client.saveWorkspaceLayout.mock.calls[0]![0];
+    // After the successful load, optimistic revision is 3; the first
+    // mutation passes it through verbatim.
+    expect(saveCall.expectedRevision).toBe(3);
+    // The conflict is surfaced to the user; the controller does not
+    // silently retry — the user must decide to refresh or retry.
+    expect(controller.snapshot).toMatchObject({
+      kind: 'ready',
+      layoutPersistenceError: expect.stringContaining('Workspace Layout changed'),
+    });
+  });
 });
 
 describe('WorkspaceController readiness helpers', () => {
