@@ -1,9 +1,14 @@
 # M10 — In-terminal search (Ctrl+Shift+F)
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-22
 Owner: AgentTerm desktop renderer
 Branch: `cursor/terminal-context-menu-agent-actions`
+Shipped: PR #42 (commit `d96d48c`) merged on 2026-08-23; wires the official
+`@xterm/addon-search` addon behind a per-pane bottom-docked search bar with
+regex / case-sensitive toggles, Next / Previous / Close buttons, and a
+keyboard handler that recognizes `Ctrl+Shift+F` only when xterm is focused.
+Search stays strictly inside the renderer; no IPC, no Domain change.
 
 ## Context
 

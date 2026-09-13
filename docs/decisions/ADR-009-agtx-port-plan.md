@@ -1,8 +1,25 @@
 # ADR-009: Port agtx concepts into AgentTerm
 
-Status: Proposed — awaiting scope confirmation
+Status: Accepted (M1 + M2 + M2.3 + M2.5 + M3 + M3.1 + M4 + M5 + M6 + M7 + M7.5 + M9-Close + M10 + M11 + M12 implemented; M8 deferred)
 Date: 2026-08-16
 Owner: AgentTerm desktop + monorepo
+Shipped: aggregated across PRs #35, #36, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #52, #53, #54 (commits on `main` through 2026-09-13). Per-milestone evidence:
+- M1 spec-driven plugin contract — PR #35 (`4f05ed9`)
+- M2 kanban board view — PR #43 (`595eedc`), close-out M2.3 in PR #54 (`5b3b74a`)
+- M2.5 workflow plugin uninstall — PR #52 (`7213e98`)
+- M3 research artifact + research phase — PR #45 (`319de50`); render-side wiring landed in PR #44 (`bf86965`)
+- M3.1 workflow plugin switching UX — PR #53 (`0a93db2`)
+- M4 MCP read tools — PR #36 (`5b56731`)
+- M5 per-phase agent switching — PR #43 (`595eedc`)
+- M6 research auto-advance orchestrator — PRs #45, #47, #48
+- M7 brainstorm / sweep in-session capture — PR #49 (`95fe645`)
+- M7.5 slash-command trigger for brainstorm/sweep — PR #50 (`4eec006`)
+- M9-Close Ctrl+click worktree file hyperlinks — PR #41 (`389cd0e`, ADR-011)
+- M10 in-terminal search (Ctrl+Shift+F) — PR #42 (`d96d48c`, ADR-012)
+- M11 Shift+right-click forwards to TUI — PR #42 (`bf1cf7c`, ADR-013)
+- M12 visual mouse-mode badge — PR #42 (`8adcd59`, ADR-014)
+MCP write tools and M8 (auto merge-conflict resolution with `git merge-tree`)
+remain deferred per the §"Deferred" section below.
 
 ## Context
 

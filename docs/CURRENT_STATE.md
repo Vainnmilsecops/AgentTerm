@@ -311,21 +311,29 @@ trusted-repository limitation around configured clean/process filters.
 
 ## Next Step
 
-ADR-009 Port agtx concepts into AgentTerm now drives the next milestones; M1
-(Spec-driven WorkflowPlugin Domain + Application + Infrastructure + built-in
-`void` / `agtx` plugins) is now in place with no behavior change to existing
-flows. Migration 15 appends `workflow_plugin_bindings` (TaskId PK + FK to
-`tasks`, plugin identity, source path, active phase, revision, installed_at)
-and a `plugin_id` index. Domain owns the plugin value (`WorkflowPlugin`,
-`WorkflowPhase`, `WorkflowArtifactContract`) and a fail-closed
-`createWorkflowPlugin` factory. Application exposes `bindPhaseAgent`,
-`selectPhaseArtifactContract`, and `installWorkflowPluginForTask`, plus the
-`WorkflowPluginConfigurator` and `WorkflowPluginBindingRepository` ports.
-Infrastructure ships the JSON file configurator with trust-root enforcement
-via `AT_DESKTOP_PLUGIN_ROOT`, a SQLite binding repository with compare-and-set
-upserts, and the two built-in plugins. The M1 desktop composition intentionally
-adds no IPC handlers; renderer workflow and Settings entry point are deferred
-to M2.
+ADR-009 §"Milestones" and the per-slice ADRs (ADR-010 … ADR-018) are now
+landed end to end: M1 (spec-driven plugin contract), M2 (Kanban board view)
+plus its M2.3 close-out, M2.5 (plugin uninstall), M3 (research artifact
++ research phase) plus its M3.1 switching UX, M4 (MCP read-only server),
+M5 (per-phase agent switching), M6 (minimal research orchestrator), M7
+(brainstorm / sweep capture), M7.5 (slash-command trigger), M9-Close
+(ctrl-click worktree file hyperlinks), M10 (in-terminal search), M11
+(Shift+right-click forwards to TUI), and M12 (mouse-mode badge) all ship
+on `main`. The remaining items from the original agtx-port scope are still
+deferred per ADR-009 §"Deferred" and ADR-009 §AD-5:
+
+- **M8 — Auto merge-conflict resolution with `git merge-tree`.** Deferred
+  because plugin hooks are not part of the contract (ADR-009 §AD-2) and
+  auto-resolution needs them. A future ADR will revisit once plugin
+  contracts have stabilized in production usage.
+- **MCP write tools** (`create_task`, `move_task`, `send_to_task`).
+  Intentionally out of scope for the read-only server (ADR-009 §AD-5);
+  introducing them later must reuse the same authorization discipline
+  that the IPC channel allowlist enforces today.
+
+Anything else mentioned in earlier `Next Step` paragraphs (M1 just
+shipped, M2 deferred, etc.) is historical and superseded by the
+"Recently Shipped" entries below.
 
 ## Recently Shipped
 
@@ -413,3 +421,41 @@ to M2.
   `aria-pressed`. The toggle is a controlled affordance; it does not
   collapse the board window — board users still open the standalone
   window via the command palette for the dedicated focus model.
+- **M4 — Minimal MCP read-only server** (ADR-009 §AD-5, ADR-009 §M4):
+  shipped via PR #36 on 2026-09-05 (`5b56731`). Adds
+  `packages/mcp-server` exporting `agenttermMcpServe(deps)` — a stdio
+  JSON-RPC server wrapping the four read use cases
+  (`list_projects`, `list_tasks`, `get_task`, `read_pane_content`).
+  Authentication requires an explicit `agentterm-mcp-token` from
+  Settings; the server never reads from a remote network and never
+  mutates Domain transition ports.
+- **M5 — Per-phase agent switching end to end** (ADR-009 §M5, ADR-010):
+  shipped via PR #43 on 2026-09-05 (`595eedc`). Closes the M1+M3
+  integration milestone: a Task bound to the built-in `agtx` plugin can
+  move through `research` (Gemini) → `planning` (Claude) →
+  `running` (Codex) → `review` (Claude) with three different agents,
+  three different Sessions, one shared primary Worktree, and one plugin
+  file. Ships together with the renderer-level Kanban board view (M2)
+  in the same PR.
+- **M9-Close — Ctrl+click worktree file hyperlinks** (ADR-011): shipped
+  via PR #41 on 2026-08-23 (`389cd0e`). The second xterm `ILinkProvider`
+  consumes `resolveTerminalLinkTarget` over IPC; the main process
+  re-runs the worktree-containment check before any `shell.openPath`
+  call. Renderer never smuggled an arbitrary path.
+- **M10 — In-terminal search (Ctrl+Shift+F)** (ADR-012): shipped via
+  PR #42 on 2026-08-23 (`d96d48c`). Per-pane bottom-docked search bar
+  backed by `@xterm/addon-search`, regex / case-sensitive toggles, Next
+  / Previous / Close actions, `Ctrl+Shift+F` only when xterm is focused.
+  Search stays strictly renderer-side; no IPC, no Domain change.
+- **M11 — Shift+right-click forwards to TUI** (ADR-013): shipped via
+  PR #42 on 2026-08-23 (`bf1cf7c`). `useTerminalContextMenu` host
+  listener no longer prevents the right-click when the `Shift`
+  modifier is held, so xterm's `CoreMouseService` translates it into
+  the button-2 sequence the active TUI asked for. Aligns AgentTerm
+  with the convention used by `gnome-terminal`, `kitty`, `iTerm2`,
+  `Windows Terminal`, `Alacritty`, and `WezTerm`.
+- **M12 — Visual mouse-mode badge** (ADR-014): shipped via PR #42 on
+  2026-08-23 (`8adcd59`). Per-pane badge in the pane chrome flips on
+  when the PTY byte stream emits `CSI ? 1000 h / 1002 h / 1003 h` (and
+  the `1006` SGR extended pairing) and off when the matching `l` reset
+  is seen. Renderer-only; no IPC, no Domain change.
