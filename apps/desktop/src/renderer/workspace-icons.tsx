@@ -9,6 +9,8 @@ export type WorkspaceIconName =
   | 'history'
   | 'inbox'
   | 'info'
+  | 'kanban'
+  | 'list'
   | 'pending'
   | 'plus'
   | 'project'
@@ -81,6 +83,20 @@ function iconPath(name: WorkspaceIconName): ReactNode {
         <>
           <circle {...shared} cx="12" cy="12" r="9" />
           <path {...shared} d="M12 11v5m0-8h.01" />
+        </>
+      );
+    case 'kanban':
+      return (
+        <>
+          <rect {...shared} height="14" rx="1.5" width="5.5" x="3" y="5" />
+          <rect {...shared} height="9" rx="1.5" width="5.5" x="9.25" y="10" />
+          <rect {...shared} height="11" rx="1.5" width="5.5" x="15.5" y="8" />
+        </>
+      );
+    case 'list':
+      return (
+        <>
+          <path {...shared} d="M4 6h16M4 12h16M4 18h10" />
         </>
       );
     case 'pending':

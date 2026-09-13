@@ -62,6 +62,17 @@ interface RegisterDesktopIpcHandlersInput {
   readonly authorize: (event: DesktopIpcMainEvent) => boolean;
   readonly ipcMain: DesktopIpcMain;
   readonly openBoardWindow: () => void;
+  /**
+   * Bring the agent workspace window to the foreground and request it
+   * to focus the live terminal for `input.taskId`. Implemented in
+   * `main.ts` because it owns `BrowserWindow` lifetimes. Returning
+   * `undefined` is enough — the IPC layer only awaits a `void` reply.
+   */
+  readonly openMainWindowForTask: (input: {
+    readonly focusTerminal: boolean;
+    readonly selectTask: boolean;
+    readonly taskId: string;
+  }) => void | Promise<void>;
   readonly selectProjectDirectory: () => Promise<string | undefined>;
   readonly selectQualityGateConfigFile: () => Promise<string | undefined>;
   readonly selectWorkflowPluginFile: () => Promise<string | undefined>;
@@ -205,6 +216,11 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.loadWorkspace();
       case desktopIpcChannels.openBoardWindow: {
         input.openBoardWindow();
+        return null;
+      }
+      case desktopIpcChannels.openMainWindowForTask: {
+        const mainRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.openMainWindowForTask];
+        await input.openMainWindowForTask(mainRequest);
         return null;
       }
       case desktopIpcChannels.openExternalLink: {

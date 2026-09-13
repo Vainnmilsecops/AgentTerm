@@ -85,6 +85,7 @@ export function BoardEntry({
   }
   return (
     <BoardEntryWithOverview
+      client={client}
       overview={overview}
       {...(onActivateTask === undefined ? {} : { onActivateTask })}
     />
@@ -92,11 +93,13 @@ export function BoardEntry({
 }
 
 interface BoardEntryWithOverviewProps {
+  readonly client: AgentWorkspaceClient;
   readonly overview: AgentWorkspaceOverview;
   readonly onActivateTask?: (taskId: string) => void;
 }
 
 function BoardEntryWithOverview({
+  client,
   overview,
   onActivateTask,
 }: BoardEntryWithOverviewProps): ReactNode {
@@ -129,6 +132,18 @@ function BoardEntryWithOverview({
   const handleOpenTerminal = useCallback(() => {
     const outcome = decideBoardTerminalAction(focus, columns);
     setTerminalNotice(outcome);
+    if (outcome.kind === "requires-main-window") {
+      // The board window does not own the live terminal surface.
+      // Delegate to the agent workspace window so the user gets the
+      // real PTY attached to the focused Task.
+      void client
+        .openMainWindowForTask({
+          focusTerminal: true,
+          selectTask: true,
+          taskId: outcome.taskId,
+        })
+        .catch(() => undefined);
+    }
     // Auto-clear the notice after a short delay so the user sees it without
     // having to dismiss it manually; the underlying IPC integration is the
     // follow-up plan per M2.3 "if too invasive, defer".
@@ -137,7 +152,7 @@ function BoardEntryWithOverview({
         setTerminalNotice(undefined);
       }, 4_000);
     }
-  }, [focus, columns]);
+  }, [client, focus, columns]);
 
   // Dispatch a keyboard command by reading the latest column sizes from the
   // closure. The callback re-binds whenever `columnSizes` changes so the

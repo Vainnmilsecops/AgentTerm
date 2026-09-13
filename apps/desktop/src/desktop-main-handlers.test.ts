@@ -67,6 +67,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => false,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -126,6 +127,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -188,6 +190,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -239,6 +242,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory,
       selectQualityGateConfigFile,
       selectWorkflowPluginFile: async () => undefined,
@@ -295,6 +299,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -362,6 +367,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -426,6 +432,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -481,6 +488,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -554,6 +562,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -635,6 +644,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -682,6 +692,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => 'C:/trusted/agtx.json',
@@ -733,6 +744,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -798,6 +810,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -850,6 +863,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -905,6 +919,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -949,6 +964,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -996,6 +1012,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1041,6 +1058,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1096,6 +1114,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1134,6 +1153,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1187,6 +1207,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1224,6 +1245,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1267,6 +1289,7 @@ describe('desktop main IPC handlers', () => {
       authorize: () => true,
       ipcMain,
       openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
       selectProjectDirectory: async () => undefined,
       selectQualityGateConfigFile: async () => undefined,
       selectWorkflowPluginFile: async () => undefined,
@@ -1297,6 +1320,137 @@ describe('desktop main IPC handlers', () => {
       ),
     ).resolves.toMatchObject({
       error: { code: 'INVALID_PHASE_FOR_PLUGIN' },
+      ok: false,
+    });
+  });
+
+  it('routes openMainWindowForTask to the seam and returns null on success', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    const seam = vi.fn<(input: {
+      readonly focusTerminal: boolean;
+      readonly selectTask: boolean;
+      readonly taskId: string;
+    }) => void>(() => undefined);
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      openMainWindowForTask: seam,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      shell: {
+        openExternal: vi.fn(async () => undefined),
+        openPath: vi.fn(async () => ''),
+      },
+      workflowPluginInstaller: {
+        advanceWorkflowPluginPhase: async () =>
+          Object.freeze({
+            activePhaseId: 'planning',
+            bindingRevision: 1,
+            phaseAgentId: 'codex',
+            pluginId: 'agtx',
+          }),
+        installWorkflowPluginForTask: async () =>
+          Object.freeze({
+            activePhaseId: 'planning',
+            bindingRevision: 1,
+            pluginId: 'agtx',
+            pluginName: 'agtx',
+            sourcePath: '',
+          }),
+        removeWorkflowPluginBindingForTask: async () =>
+          Object.freeze({
+            pluginId: 'agtx',
+            removedAt: 1_700_000_000_000,
+            revision: 0,
+            sourcePath: '',
+            taskId: '',
+          }),
+        switchWorkflowPluginBindingForTask: async () =>
+          Object.freeze({
+            activePhaseId: 'planning',
+            bindingRevision: 1,
+            pluginId: 'agtx',
+            pluginName: 'agtx',
+            sourcePath: '',
+          }),
+      },
+    });
+    const sender = new FakeSender(1);
+    const result = await ipcMain.invoke('agentterm:window:open-main-for-task', event(sender), {
+      focusTerminal: true,
+      selectTask: true,
+      taskId: 'task-focus',
+    });
+    expect(result).toEqual({ ok: true, value: null });
+    expect(seam).toHaveBeenCalledWith({
+      focusTerminal: true,
+      selectTask: true,
+      taskId: 'task-focus',
+    });
+  });
+
+  it('rejects an openMainWindowForTask request with an invalid payload', async () => {
+    const ipcMain = new FakeIpcMain();
+    const application = createApplication();
+    registerDesktopIpcHandlers({
+      application,
+      authorize: () => true,
+      ipcMain,
+      openBoardWindow: () => undefined,
+      openMainWindowForTask: () => undefined,
+      selectProjectDirectory: async () => undefined,
+      selectQualityGateConfigFile: async () => undefined,
+      selectWorkflowPluginFile: async () => undefined,
+      shell: {
+        openExternal: vi.fn(async () => undefined),
+        openPath: vi.fn(async () => ''),
+      },
+      workflowPluginInstaller: {
+        advanceWorkflowPluginPhase: async () =>
+          Object.freeze({
+            activePhaseId: 'planning',
+            bindingRevision: 1,
+            phaseAgentId: 'codex',
+            pluginId: 'agtx',
+          }),
+        installWorkflowPluginForTask: async () =>
+          Object.freeze({
+            activePhaseId: 'planning',
+            bindingRevision: 1,
+            pluginId: 'agtx',
+            pluginName: 'agtx',
+            sourcePath: '',
+          }),
+        removeWorkflowPluginBindingForTask: async () =>
+          Object.freeze({
+            pluginId: 'agtx',
+            removedAt: 1_700_000_000_000,
+            revision: 0,
+            sourcePath: '',
+            taskId: '',
+          }),
+        switchWorkflowPluginBindingForTask: async () =>
+          Object.freeze({
+            activePhaseId: 'planning',
+            bindingRevision: 1,
+            pluginId: 'agtx',
+            pluginName: 'agtx',
+            sourcePath: '',
+          }),
+      },
+    });
+    const sender = new FakeSender(2);
+    const result = await ipcMain.invoke(
+      'agentterm:window:open-main-for-task',
+      event(sender),
+      { taskId: 42 },
+    );
+    expect(result).toEqual({
+      error: { code: 'INVALID_REQUEST', message: expect.any(String) },
       ok: false,
     });
   });

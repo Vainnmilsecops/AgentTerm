@@ -56,6 +56,7 @@ export const desktopIpcChannels = Object.freeze({
   loadWorkspaceLayout: 'agentterm:workspace-layout:load',
   openBoardWindow: 'agentterm:window:open-board',
   openExternalLink: 'agentterm:terminal:open-external-link',
+  openMainWindowForTask: 'agentterm:window:open-main-for-task',
   openProject: 'agentterm:project:open',
   openWorktreeFile: 'agentterm:terminal:open-worktree-file',
   pushTaskBranch: 'agentterm:pull-request:push',
@@ -86,11 +87,38 @@ export const desktopIpcChannels = Object.freeze({
 
 export const terminalIpcEventChannel = 'agentterm:terminal:event' as const;
 
+/**
+ * Main → renderer channel used to ask the agent workspace window to
+ * select a Task and steer focus to the live terminal owned by the
+ * attached `AgentSession`. Payload is a plain JSON object so the
+ * renderer's `desktopBridge` listener can validate it with the same
+ * exact-record shape used elsewhere.
+ */
+export const workspaceFocusTaskChannel = 'agentterm:workspace:focus-task' as const;
+
 export type DesktopIpcChannel = (typeof desktopIpcChannels)[keyof typeof desktopIpcChannels];
 
 type EmptyRequest = Readonly<Record<string, never>>;
 
 interface TaskRequest {
+  readonly taskId: string;
+}
+
+/**
+ * Body for the `openMainWindowForTask` IPC channel. The renderer asks
+ * the main process to surface the agent workspace window and steer
+ * focus to the live terminal owned by the given Task.
+ *
+ * - `focusTerminal` (default `true`): request the main process to send
+ *   a `focusTaskTerminal` event after the window has been shown.
+ *   Board callers leave it implicit; list-view callers can pass
+ *   `false` to skip focus when they only need to surface the window.
+ * - `selectTask` (default `true`): request the workspace to switch to
+ *   the given task before focusing.
+ */
+interface OpenMainWindowForTaskRequest {
+  readonly focusTerminal: boolean;
+  readonly selectTask: boolean;
   readonly taskId: string;
 }
 
@@ -345,6 +373,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.loadWorkspaceLayout]: EmptyRequest;
   readonly [desktopIpcChannels.openBoardWindow]: EmptyRequest;
   readonly [desktopIpcChannels.openExternalLink]: OpenExternalLinkRequest;
+  readonly [desktopIpcChannels.openMainWindowForTask]: OpenMainWindowForTaskRequest;
   readonly [desktopIpcChannels.openProject]: EmptyRequest;
   readonly [desktopIpcChannels.openWorktreeFile]: OpenWorktreeFileRequest;
   readonly [desktopIpcChannels.pushTaskBranch]: TaskRequest;
@@ -402,6 +431,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.loadWorkspaceLayout]: WorkspaceLayoutReadModel | undefined;
   readonly [desktopIpcChannels.openBoardWindow]: null;
   readonly [desktopIpcChannels.openExternalLink]: null;
+  readonly [desktopIpcChannels.openMainWindowForTask]: null;
   readonly [desktopIpcChannels.openProject]: OpenDesktopProjectResult;
   readonly [desktopIpcChannels.openWorktreeFile]: null;
   readonly [desktopIpcChannels.pushTaskBranch]: null;
@@ -455,11 +485,32 @@ export interface TerminalIpcEventMessage {
   readonly subscriptionId: string;
 }
 
+/**
+ * Payload sent from main → renderer when the agent workspace window
+ * must surface a Task and focus the live terminal owned by the
+ * attached AgentSession. Mirrors `OpenMainWindowForTaskRequest`.
+ */
+export interface WorkspaceFocusTaskEvent {
+  readonly focusTerminal: boolean;
+  readonly selectTask: boolean;
+  readonly taskId: string;
+}
+
 export interface AgentTermDesktopApi {
   acceptTaskPlan(input: PlanRequest): Promise<void>;
   addTaskDependency(input: TaskDependencyEdgeRequest): Promise<TaskDependency>;
   approveTaskReview(input: ReviewRequest): Promise<void>;
   attachTerminal(input: AttachAgentSessionTerminalInput): Promise<AgentSessionTerminalAttachment>;
+  /**
+   * Subscribe to main → renderer focus steering events. The renderer
+   * is responsible for selecting the Task, scrolling its terminal pane
+   * into view, and granting keyboard focus to its textarea. Returns a
+   * disposer. Calling this twice with the same callback replaces the
+   * previous subscription — the renderer keeps exactly one observer.
+   */
+  observeWorkspaceFocusTask(
+    listener: (event: WorkspaceFocusTaskEvent) => void,
+  ): () => void;
   beginTaskPlanning(input: TaskRequest): Promise<void>;
   createArtifact(input: CreateArtifactRequest): Promise<ExecutionArtifact>;
   createTask(input: CreateTaskRequest): Promise<CreateDesktopTaskResult>;
@@ -491,6 +542,7 @@ export interface AgentTermDesktopApi {
   loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
   openBoardWindow(): Promise<void>;
   openExternalLink(input: { readonly url: string }): Promise<void>;
+  openMainWindowForTask(input: OpenMainWindowForTaskRequest): Promise<void>;
   openProject(): Promise<OpenDesktopProjectResult>;
   openWorktreeFile(input: { readonly absolutePath: string; readonly taskId: string }): Promise<void>;
   pushTaskBranch(input: TaskRequest): Promise<void>;
@@ -549,6 +601,18 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.openExternalLink: {
       const record = exactRecord(input, ['url']);
       return Object.freeze({ url: readExternalUrl(record.url) }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.openMainWindowForTask: {
+      const record = exactRecord(input, ['focusTerminal', 'selectTask', 'taskId']);
+      const focusTerminal =
+        record.focusTerminal === undefined ? true : readBoolean(record.focusTerminal);
+      const selectTask =
+        record.selectTask === undefined ? true : readBoolean(record.selectTask);
+      return Object.freeze({
+        focusTerminal,
+        selectTask,
+        taskId: readIdentity(record.taskId),
+      }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.openWorktreeFile: {
       const record = exactRecord(input, ['absolutePath', 'taskId']);
@@ -813,6 +877,21 @@ export function validateTerminalIpcEventMessage(input: unknown): TerminalIpcEven
   return Object.freeze({
     event: readRuntimeEvent(record.event),
     subscriptionId: readSubscriptionId(record.subscriptionId),
+  });
+}
+
+/**
+ * Validate the payload pushed by the main process on
+ * `workspaceFocusTaskChannel`. The renderer's `desktop-bridge`
+ * rejects malformed messages silently — they should never reach the
+ * workspace controller.
+ */
+export function validateWorkspaceFocusTaskEvent(input: unknown): WorkspaceFocusTaskEvent {
+  const record = exactRecord(input, ['focusTerminal', 'selectTask', 'taskId']);
+  return Object.freeze({
+    focusTerminal: readBoolean(record.focusTerminal),
+    selectTask: readBoolean(record.selectTask),
+    taskId: readIdentity(record.taskId),
   });
 }
 

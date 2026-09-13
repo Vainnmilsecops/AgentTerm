@@ -16,6 +16,7 @@ import {
   type DesktopIpcMainEvent,
 } from './desktop-main-handlers';
 import { createBoardWindowOptions, createDesktopWindowOptions } from './desktop-window';
+import { workspaceFocusTaskChannel } from './ipc-contract';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 let mainWindow: BrowserWindow | null = null;
@@ -49,6 +50,28 @@ function createWindow(): void {
   });
 
   void mainWindow.loadFile(join(app.getAppPath(), 'dist', 'renderer', 'index.html'));
+}
+
+function focusMainWorkspaceWindow(input: {
+  readonly focusTerminal: boolean;
+  readonly selectTask: boolean;
+  readonly taskId: string;
+}): void {
+  if (mainWindow === null || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+  if (!input.focusTerminal) return;
+  // Forward the focus intent to the renderer. The renderer is
+  // authoritative for *which* terminal element to highlight (it owns
+  // the live Pty mapping); the main process just surfaces the window.
+  mainWindow.webContents.send(workspaceFocusTaskChannel, {
+    focusTerminal: true,
+    selectTask: input.selectTask,
+    taskId: input.taskId,
+  });
 }
 
 export function createBoardWindow(): BrowserWindow {
@@ -129,6 +152,46 @@ function startDesktopApplication(): void {
     : app.getPath('userData');
   applicationAttempt = createProductionDesktopApplication({
     dataDirectory,
+    openMainWindowForTask: (input) => {
+      focusMainWorkspaceWindow(input);
+    },
+    observeWorkspaceFocusTask: (listener) => {
+      const wrapped = (
+        _event: unknown,
+        payload: unknown,
+      ): void => {
+        try {
+          // Lazy import to avoid pulling IPC types at module load time.
+          // The renderer is the only consumer; main never reads these
+          // values back, so we just bounce the payload into the
+          // supplied listener after a minimal structural check.
+          if (
+            typeof payload === 'object' &&
+            payload !== null &&
+            'taskId' in payload &&
+            typeof (payload as { taskId: unknown }).taskId === 'string'
+          ) {
+            const p = payload as {
+              focusTerminal?: unknown;
+              selectTask?: unknown;
+              taskId: string;
+            };
+            listener({
+              focusTerminal: p.focusTerminal !== false,
+              selectTask: p.selectTask !== false,
+              taskId: p.taskId,
+            });
+          }
+        } catch {
+          // Invalid payloads are dropped silently; the workspace stays
+          // authoritative.
+        }
+      };
+      ipcMain.on(workspaceFocusTaskChannel, wrapped);
+      return () => {
+        ipcMain.removeListener(workspaceFocusTaskChannel, wrapped);
+      };
+    },
     shellOpenPath: async (absolutePath: string) => shell.openPath(absolutePath),
   });
   void applicationAttempt
@@ -150,6 +213,9 @@ function startDesktopApplication(): void {
     ipcMain: ipcMain as unknown as DesktopIpcMain,
     openBoardWindow: () => {
       createBoardWindow();
+    },
+    openMainWindowForTask: (input) => {
+      focusMainWorkspaceWindow(input);
     },
     selectProjectDirectory: async () => {
       const window = mainWindow;

@@ -88,6 +88,16 @@ export interface ProductionDesktopApplicationOptions {
   readonly dataDirectory: string;
   readonly environment?: NodeJS.ProcessEnv;
   readonly openBoardWindow?: () => void;
+  readonly openMainWindowForTask?: (input: {
+    readonly focusTerminal: boolean;
+    readonly selectTask: boolean;
+    readonly taskId: string;
+  }) => void | Promise<void>;
+  readonly observeWorkspaceFocusTask?: (listener: (event: {
+    readonly focusTerminal: boolean;
+    readonly selectTask: boolean;
+    readonly taskId: string;
+  }) => void) => () => void;
   readonly shellOpenPath?: (absolutePath: string) => Promise<string>;
 }
 
@@ -479,6 +489,22 @@ export async function createProductionDesktopApplication(
       openBoardWindow: async (): Promise<void> => {
         requireOpen();
         options.openBoardWindow?.();
+      },
+      openMainWindowForTask: async (input): Promise<void> => {
+        requireOpen();
+        // The desktop-application only forwards to the seam owned by
+        // main.ts because main owns the BrowserWindow lifecycle. The
+        // desktop-side use case for this channel lives entirely on the
+        // board side — the workspace controller is the ultimate
+        // consumer of the focus steering event.
+        options.openMainWindowForTask?.(input);
+      },
+      observeWorkspaceFocusTask: (listener): (() => void) => {
+        // Always-on: the renderer subscribes once at workspace mount
+        // and the observer lives for the life of the application
+        // process. Returning a disposer gives the renderer a clean
+        // teardown path for hot module reloading and tests.
+        return options.observeWorkspaceFocusTask?.(listener) ?? ((): void => undefined);
       },
       pushTaskBranch: async (input): Promise<void> => {
         requireOpen();

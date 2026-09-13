@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-09-10
+Updated: 2026-09-13
 
 ## Current State
 
@@ -390,3 +390,26 @@ to M2.
   the contract. The Workspace projection carries
   `availablePhaseIds` / `phaseArtifactKinds` so the renderer can render
   the phase controls without re-parsing the plugin file.
+- **M2.3 — Finish Kanban board view closure** (ADR-009): three
+  long-standing gaps in the standalone board window are now closed
+  while keeping the renderer-only invariant. The board card renders an
+  artifact-indicator strip driven by a pure projection
+  (`summarizeArtifacts` / `summarizeArtifactsForPlugin`) that walks the
+  Task's `ExecutionArtifact[]` once and emits flags for `research`,
+  `plan`, `execution-summary`, `review`, plus running counts for
+  `brainstorm` and `sweep`. The plugin-bound kind set suppresses
+  indicators the plugin never declared, so a board view that loads a
+  different plugin does not misrepresent the audit trail. The board's
+  `Ctrl+f` shortcut no longer just toasts the user — it now asks the
+  main process to surface the agent workspace window and steer focus
+  to the live terminal owned by the focused Task. The new IPC channel
+  (`agentterm:window:open-main-for-task`) is wired end-to-end: the
+  renderer validates the request, the main process owns the
+  `BrowserWindow` lifecycle and broadcasts
+  (`agentterm:workspace:focus-task`), the renderer subscribes via
+  `observeWorkspaceFocusTask`. A workspace-level `viewMode` state
+  (`'list' | 'board'`) lives on the `WorkspaceController` and is
+  surfaced in the topbar as a `List view / Board view` toggle with
+  `aria-pressed`. The toggle is a controlled affordance; it does not
+  collapse the board window — board users still open the standalone
+  window via the command palette for the dedicated focus model.
