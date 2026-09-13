@@ -159,12 +159,14 @@ export function createDesktopBridge(
       });
     },
     beginTaskPlanning: (input) => invokeVoid(desktopIpcChannels.beginTaskPlanning, input),
+    checkTaskMergeConflicts: (input) => invoke(desktopIpcChannels.checkTaskMergeConflicts, input),
     createArtifact: (input) => invoke(desktopIpcChannels.createArtifact, input),
     createTask: (input) => invoke(desktopIpcChannels.createTask, input),
     createTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.createPullRequest, input),
     getTaskFileDiff: (input) => invoke(desktopIpcChannels.getTaskFileDiff, input),
     importQualityGateConfig: (input) => invoke(desktopIpcChannels.importQualityGateConfig, input),
-    installWorkflowPluginForTask: (input) => invoke(desktopIpcChannels.installWorkflowPluginForTask, input),
+    installWorkflowPluginForTask: (input) =>
+      invoke(desktopIpcChannels.installWorkflowPluginForTask, input),
     removeWorkflowPluginBindingForTask: (input) =>
       invoke(desktopIpcChannels.removeWorkflowPluginBindingForTask, input),
     switchWorkflowPluginBindingForTask: (input) =>
@@ -184,8 +186,7 @@ export function createDesktopBridge(
     loadWorkspaceLayout: () => invoke(desktopIpcChannels.loadWorkspaceLayout, {}),
     openBoardWindow: () => invokeVoid(desktopIpcChannels.openBoardWindow, {}),
     openExternalLink: (input) => invokeVoid(desktopIpcChannels.openExternalLink, input),
-    openMainWindowForTask: (input) =>
-      invokeVoid(desktopIpcChannels.openMainWindowForTask, input),
+    openMainWindowForTask: (input) => invokeVoid(desktopIpcChannels.openMainWindowForTask, input),
     observeWorkspaceFocusTask: (listener) => {
       workspaceFocusTaskListener = listener;
       return () => {
@@ -200,6 +201,8 @@ export function createDesktopBridge(
     refreshTaskPullRequest: (input) => invokeVoid(desktopIpcChannels.refreshPullRequest, input),
     registerQualityGate: (input) => invokeVoid(desktopIpcChannels.registerQualityGate, input),
     removeTaskDependency: (input) => invoke(desktopIpcChannels.removeTaskDependency, input),
+    requestMergeConflictResolution: (input) =>
+      invokeVoid(desktopIpcChannels.requestMergeConflictResolution, input),
     requestTaskChanges: (input) => invokeVoid(desktopIpcChannels.requestChanges, input),
     requestTaskReview: (input) => invokeVoid(desktopIpcChannels.requestReview, input),
     retryTaskExecution: (input) => invokeVoid(desktopIpcChannels.retryExecution, input),

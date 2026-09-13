@@ -1,6 +1,6 @@
 # ADR-009: Port agtx concepts into AgentTerm
 
-Status: Accepted (M1 + M2 + M2.3 + M2.5 + M3 + M3.1 + M4 + M5 + M6 + M7 + M7.5 + M9-Close + M10 + M11 + M12 implemented; M8 deferred)
+Status: Accepted (M1 + M2 + M2.3 + M2.5 + M3 + M3.1 + M4 + M5 + M6 + M7 + M7.5 + M8 + M9-Close + M10 + M11 + M12 implemented; MCP write tools deferred)
 Date: 2026-08-16
 Owner: AgentTerm desktop + monorepo
 Shipped: aggregated across PRs #35, #36, #41, #42, #43, #44, #45, #46, #47, #48, #49, #50, #51, #52, #53, #54 (commits on `main` through 2026-09-13). Per-milestone evidence:
@@ -14,12 +14,12 @@ Shipped: aggregated across PRs #35, #36, #41, #42, #43, #44, #45, #46, #47, #48,
 - M6 research auto-advance orchestrator — PRs #45, #47, #48
 - M7 brainstorm / sweep in-session capture — PR #49 (`95fe645`)
 - M7.5 slash-command trigger for brainstorm/sweep — PR #50 (`4eec006`)
+- M8 auto merge-conflict detection + `/agtx:merge-conflicts` prompt — ADR-019 in the upcoming PR
 - M9-Close Ctrl+click worktree file hyperlinks — PR #41 (`389cd0e`, ADR-011)
 - M10 in-terminal search (Ctrl+Shift+F) — PR #42 (`d96d48c`, ADR-012)
 - M11 Shift+right-click forwards to TUI — PR #42 (`bf1cf7c`, ADR-013)
 - M12 visual mouse-mode badge — PR #42 (`8adcd59`, ADR-014)
-MCP write tools and M8 (auto merge-conflict resolution with `git merge-tree`)
-remain deferred per the §"Deferred" section below.
+MCP write tools remain deferred per the §"Deferred" section below.
 
 ## Context
 
@@ -324,8 +324,6 @@ Tests:
   contract behaves in practice.
 - M7 — Brainstorm / Sweep in-session capture. Requires unifying the
   brainstorm capture with the existing PTY input pipeline.
-- M8 — Auto merge-conflict resolution with `git merge-tree`. Needs plugin
-  hooks, which we explicitly excluded in AD-2.
 
 ## Risks
 

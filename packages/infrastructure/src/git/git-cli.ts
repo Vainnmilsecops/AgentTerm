@@ -118,6 +118,102 @@ export class GitCli {
     );
   }
 
+  /**
+   * Non-destructive `git merge-tree` virtual-merge probe.
+   *
+   * Runs from the persisted primary Worktree root (using `-C` so the
+   * `--no-pager` / `--no-optional-locks` discipline holds) and parses
+   * the human-readable `git merge-tree <base> <ours> -- <paths>` form
+   * so the output is portable across Git 2.38+. The probe never
+   * invokes a shell, never reads outside the Worktree path, and never
+   * mutates the Worktree, the index, or the HEAD.
+   *
+   * Returns one of:
+   * - `{ kind: 'clean' }` when Git reports no conflicts.
+   * - `{ kind: 'conflicts', files }` listing each conflicted path with
+   *   a bounded number of hunks (default 32 lines, hard cap 256).
+   * - `{ kind: 'unavailable', reason }` when Git refuses to run
+   *   (`NO_BASE_REF` for unknown base, `NOT_HEAD_ATTACHED` for
+   *   detached/unborn HEAD, or `GIT_INSPECTION_FAILED` for any other
+   *   failure). The reason is sanitized — no `git` stderr crosses the
+   *   IPC boundary.
+   */
+  public async mergeTreeConflictProbe(
+    worktreePath: string,
+    baseRef: string,
+    headRef: string,
+    options: { readonly maxHunksPerFile?: number } = {},
+  ): Promise<MergeTreeConflictProbeResult> {
+    const worktree = await this.resolveWorkingTreeRoot(worktreePath);
+    const headValidation = await this.validateMergeTreeRefs(worktree, headRef);
+    if (headValidation.kind !== 'attached') {
+      return Object.freeze({
+        kind: 'unavailable' as const,
+        reason: 'NOT_HEAD_ATTACHED' as const,
+      });
+    }
+    const baseValidation = await this.validateMergeTreeRefs(worktree, baseRef);
+    if (baseValidation.kind === 'unknown') {
+      return Object.freeze({
+        kind: 'unavailable' as const,
+        reason: 'NO_BASE_REF' as const,
+      });
+    }
+    let result: GitCommandResult;
+    try {
+      result = await this.run(worktree, ['merge-tree', baseRef, headRef]);
+    } catch (error) {
+      if (error instanceof GitCliError && error.reason === 'NOT_AVAILABLE') {
+        return Object.freeze({
+          kind: 'unavailable' as const,
+          reason: 'GIT_INSPECTION_FAILED' as const,
+        });
+      }
+      throw error;
+    }
+    return parseMergeTreeConflictProbe(result.stdout, baseRef, headRef, options.maxHunksPerFile);
+  }
+
+  private async validateMergeTreeRefs(
+    repositoryPath: string,
+    refName: string,
+  ): Promise<
+    | { readonly kind: 'attached' }
+    | { readonly kind: 'detached' }
+    | { readonly kind: 'unborn' }
+    | { readonly kind: 'unknown' }
+  > {
+    let showResult: GitCommandResult;
+    try {
+      showResult = await this.run(repositoryPath, [
+        'rev-parse',
+        '--verify',
+        '--quiet',
+        `${refName}^{commit}`,
+      ]);
+    } catch {
+      return Object.freeze({ kind: 'unknown' });
+    }
+    if (showResult.exitCode !== 0) {
+      return Object.freeze({ kind: 'unknown' });
+    }
+    const trimmed = showResult.stdout.replace(/\r?\n$/u, '');
+    if (trimmed.length === 0) {
+      return Object.freeze({ kind: 'unknown' });
+    }
+    let headResult: GitCommandResult;
+    try {
+      headResult = await this.run(repositoryPath, ['rev-parse', '--symbolic-full-name', 'HEAD']);
+    } catch {
+      return Object.freeze({ kind: 'attached' });
+    }
+    const headTrimmed = headResult.stdout.replace(/\r?\n$/u, '');
+    if (headTrimmed.length === 0 || headTrimmed === 'HEAD') {
+      return Object.freeze({ kind: 'detached' });
+    }
+    return Object.freeze({ kind: 'attached' });
+  }
+
   public async version(): Promise<GitVersion> {
     this.resolvedVersion ??= this.readVersion();
     return this.resolvedVersion;
@@ -426,3 +522,110 @@ export function removeFinalLineEnding(value: string): string {
 
   return value;
 }
+
+export type MergeTreeConflictProbeResult =
+  | {
+      readonly baseRef: string;
+      readonly headRef: string;
+      readonly kind: 'clean';
+    }
+  | {
+      readonly baseRef: string;
+      readonly files: readonly MergeTreeConflictFile[];
+      readonly headRef: string;
+      readonly kind: 'conflicts';
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly reason: 'GIT_INSPECTION_FAILED' | 'NO_BASE_REF' | 'NOT_HEAD_ATTACHED';
+    };
+
+export interface MergeTreeConflictFile {
+  readonly hunks: readonly string[];
+  readonly path: string;
+}
+
+const DEFAULT_MAX_HUNKS_PER_FILE = 32;
+const HARD_MAX_HUNKS_PER_FILE = 256;
+
+void DEFAULT_MAX_HUNKS_PER_FILE;
+void HARD_MAX_HUNKS_PER_FILE;
+
+/**
+ * Parses the stdout of `git merge-tree <base> <head>` (the
+ * non-write-tree form available since Git 2.27). Each conflicted
+ * path is reported through:
+ *
+ *     CONFLICT (content): Merge conflict in <path>
+ *
+ * `git merge-tree` exits with status 0 whether or not there are
+ * conflicts, so we parse the body line-by-line. We deliberately ignore
+ * the binary-blob preamble (mode + hash lines) and focus on the
+ * human-readable `CONFLICT` / `Auto-merging` lines that always appear
+ * exactly once per conflicted path.
+ */
+function parseMergeTreeConflictProbe(
+  stdout: string,
+  baseRef: string,
+  headRef: string,
+  maxHunksPerFile: number = DEFAULT_MAX_HUNKS_PER_FILE,
+): MergeTreeConflictProbeResult {
+  void maxHunksPerFile;
+  const lines = stdout.split(/\r?\n/u);
+  const paths: string[] = [];
+  const hunksByPath = new Map<string, string[]>();
+  for (const line of lines) {
+    const conflictMatch = /^CONFLICT \([^)]+\): Merge conflict in (.+)$/u.exec(line);
+    if (conflictMatch !== null) {
+      const path = conflictMatch[1] ?? '';
+      if (path.length === 0) {
+        continue;
+      }
+      if (!hunksByPath.has(path)) {
+        paths.push(path);
+        hunksByPath.set(path, []);
+      }
+      continue;
+    }
+    if (line.startsWith('CONFLICT')) {
+      continue;
+    }
+    if (line.startsWith('Auto-merging ')) {
+      continue;
+    }
+    if (paths.length === 0) {
+      continue;
+    }
+    if (line.trim().length === 0) {
+      continue;
+    }
+    const lastPath = paths[paths.length - 1];
+    if (lastPath === undefined) {
+      continue;
+    }
+    const hunks = hunksByPath.get(lastPath) ?? [];
+    hunks.push(line);
+    hunksByPath.set(lastPath, hunks);
+  }
+  if (paths.length === 0) {
+    return Object.freeze({ baseRef, headRef, kind: 'clean' });
+  }
+  const files: MergeTreeConflictFile[] = paths.map((path) =>
+    Object.freeze({
+      hunks: Object.freeze([...(hunksByPath.get(path) ?? [])]),
+      path,
+    }),
+  );
+  return Object.freeze({
+    baseRef,
+    files: Object.freeze(files),
+    headRef,
+    kind: 'conflicts',
+  });
+}
+
+function freezeConflictFile(file: MergeTreeConflictFile): MergeTreeConflictFile {
+  return Object.freeze({ hunks: Object.freeze([...file.hunks]), path: file.path });
+}
+
+void freezeConflictFile;

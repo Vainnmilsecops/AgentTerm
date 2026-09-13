@@ -316,16 +316,14 @@ landed end to end: M1 (spec-driven plugin contract), M2 (Kanban board view)
 plus its M2.3 close-out, M2.5 (plugin uninstall), M3 (research artifact
 + research phase) plus its M3.1 switching UX, M4 (MCP read-only server),
 M5 (per-phase agent switching), M6 (minimal research orchestrator), M7
-(brainstorm / sweep capture), M7.5 (slash-command trigger), M9-Close
-(ctrl-click worktree file hyperlinks), M10 (in-terminal search), M11
-(Shift+right-click forwards to TUI), and M12 (mouse-mode badge) all ship
-on `main`. The remaining items from the original agtx-port scope are still
-deferred per ADR-009 §"Deferred" and ADR-009 §AD-5:
+(brainstorm / sweep capture), M7.5 (slash-command trigger), M8 (auto
+merge-conflict detection + `/agtx:merge-conflicts` prompt — ADR-019,
+shipped in the upcoming PR), M9-Close (ctrl-click worktree file
+hyperlinks), M10 (in-terminal search), M11 (Shift+right-click forwards
+to TUI), and M12 (mouse-mode badge) all ship on `main`. The remaining
+items from the original agtx-port scope are still deferred per
+ADR-009 §"Deferred" and ADR-009 §AD-5:
 
-- **M8 — Auto merge-conflict resolution with `git merge-tree`.** Deferred
-  because plugin hooks are not part of the contract (ADR-009 §AD-2) and
-  auto-resolution needs them. A future ADR will revisit once plugin
-  contracts have stabilized in production usage.
 - **MCP write tools** (`create_task`, `move_task`, `send_to_task`).
   Intentionally out of scope for the read-only server (ADR-009 §AD-5);
   introducing them later must reuse the same authorization discipline
@@ -337,6 +335,18 @@ shipped, M2 deferred, etc.) is historical and superseded by the
 
 ## Recently Shipped
 
+- **M8 — Auto merge-conflict detection + `/agtx:merge-conflicts` prompt**
+  (ADR-019): shipped in the upcoming PR on 2026-09-13. Adds the
+  `TaskMergeConflictProbe` Application port (backed by a new
+  `GitCli.mergeTreeConflictProbe` adapter that uses `git merge-tree`
+  legacy mode), two Application use cases (`checkTaskMergeConflicts`,
+  `sendMergeConflictResolutionTaskPrompt`), two IPC channels
+  (`agentterm:task:check-merge-conflicts`,
+  `agentterm:task:request-merge-conflict-resolution`), and renderer
+  wiring through both the command palette and the slash-command
+  detector (`/agtx:merge-conflicts`). Domain is unchanged;
+  `mergeConflictStatus` is a renderer-state projection on
+  `WorkspaceSnapshot`.
 - **M13 — OSC 52 clipboard read/write** (ADR-015): shipped via PR #42 on
   2026-08-23. Renderer + Domain handle `ESC ] 52 ; c ; <base64> BEL` for TUI
   clipboard integration.

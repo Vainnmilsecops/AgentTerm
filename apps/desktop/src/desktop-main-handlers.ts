@@ -119,10 +119,7 @@ const conflictErrors = new Set([
   'EntityAlreadyExistsError',
   'TaskWorktreeMetadataConflictError',
 ]);
-const notFoundErrors = new Set([
-  'AgentSessionRuntimeOwnershipError',
-  'EntityNotFoundError',
-]);
+const notFoundErrors = new Set(['AgentSessionRuntimeOwnershipError', 'EntityNotFoundError']);
 const unavailableErrors = new Set(['AgentNotConfiguredError']);
 const expectedApplicationErrors = new Set([
   'AgentAdapterError',
@@ -219,13 +216,13 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return null;
       }
       case desktopIpcChannels.openMainWindowForTask: {
-        const mainRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.openMainWindowForTask];
+        const mainRequest =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.openMainWindowForTask];
         await input.openMainWindowForTask(mainRequest);
         return null;
       }
       case desktopIpcChannels.openExternalLink: {
-        const { url } =
-          request as DesktopIpcRequestMap[typeof desktopIpcChannels.openExternalLink];
+        const { url } = request as DesktopIpcRequestMap[typeof desktopIpcChannels.openExternalLink];
         await input.shell.openExternal(url);
         return null;
       }
@@ -248,6 +245,15 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
       case desktopIpcChannels.beginTaskPlanning:
         await application.beginTaskPlanning(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.beginTaskPlanning],
+        );
+        return null;
+      case desktopIpcChannels.checkTaskMergeConflicts:
+        return application.checkTaskMergeConflicts(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.checkTaskMergeConflicts],
+        );
+      case desktopIpcChannels.requestMergeConflictResolution:
+        await application.requestMergeConflictResolution(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.requestMergeConflictResolution],
         );
         return null;
       case desktopIpcChannels.loadSettings:
@@ -287,19 +293,23 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return Object.freeze({ path, result: 'SELECTED' as const });
       }
       case desktopIpcChannels.installWorkflowPluginForTask: {
-        const installRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.installWorkflowPluginForTask];
+        const installRequest =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.installWorkflowPluginForTask];
         return input.workflowPluginInstaller.installWorkflowPluginForTask(installRequest);
       }
       case desktopIpcChannels.removeWorkflowPluginBindingForTask: {
-        const removeRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.removeWorkflowPluginBindingForTask];
+        const removeRequest =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.removeWorkflowPluginBindingForTask];
         return input.workflowPluginInstaller.removeWorkflowPluginBindingForTask(removeRequest);
       }
       case desktopIpcChannels.switchWorkflowPluginBindingForTask: {
-        const switchRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.switchWorkflowPluginBindingForTask];
+        const switchRequest =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.switchWorkflowPluginBindingForTask];
         return input.workflowPluginInstaller.switchWorkflowPluginBindingForTask(switchRequest);
       }
       case desktopIpcChannels.advanceWorkflowPluginPhase: {
-        const advanceRequest = request as DesktopIpcRequestMap[typeof desktopIpcChannels.advanceWorkflowPluginPhase];
+        const advanceRequest =
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.advanceWorkflowPluginPhase];
         return input.workflowPluginInstaller.advanceWorkflowPluginPhase(advanceRequest);
       }
       case desktopIpcChannels.loadWorkspaceLayout:
@@ -562,8 +572,7 @@ function errorForCode(code: DesktopIpcErrorCode): DesktopIpcError {
     case 'ARTIFACT_ALREADY_RECORDED':
       return {
         code,
-        message:
-          'An artifact is already recorded for the target phase; use force to skip it.',
+        message: 'An artifact is already recorded for the target phase; use force to skip it.',
       };
     case 'OPERATION_FAILED':
       return { code, message: 'The requested AgentTerm operation failed.' };

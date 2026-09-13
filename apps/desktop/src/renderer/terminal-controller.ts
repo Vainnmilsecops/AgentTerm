@@ -5,10 +5,7 @@ import type {
   PtyTerminalSize,
 } from '@agentterm/application';
 
-import {
-  type BracketedPasteWrap,
-  prepareBracketedPasteText,
-} from './terminal-paste-controller';
+import { type BracketedPasteWrap, prepareBracketedPasteText } from './terminal-paste-controller';
 import {
   INITIAL_MOUSE_MODE,
   type MouseMode,
@@ -79,7 +76,7 @@ export interface TerminalPasteOutcome {
   readonly status: 'accepted' | 'confirmed' | 'paste-unavailable' | 'rejected';
 }
 
-export type SlashCommandKind = 'brainstorm' | 'sweep';
+export type SlashCommandKind = 'brainstorm' | 'merge-conflicts' | 'sweep';
 
 export interface SlashCommandEvent {
   readonly kind: SlashCommandKind;
@@ -194,12 +191,7 @@ export class TerminalController {
     }
     if (paste !== undefined) {
       const wrapMode: BracketedPasteWrap = paste.wrap ?? 'auto';
-      const payload = prepareBracketedPasteText(
-        text,
-        wrapMode,
-        paste.lineCount,
-        paste.byteLength,
-      );
+      const payload = prepareBracketedPasteText(text, wrapMode, paste.lineCount, paste.byteLength);
       this.surface.paste(payload);
     } else {
       this.enqueueWrite(text, 'write');
@@ -488,7 +480,9 @@ export class TerminalController {
    */
   public async flushInputQueue(): Promise<void> {
     try {
-      await Promise.all<void>(this.pendingWrites.map((p) => p.catch(() => undefined)) as Array<Promise<void>>);
+      await Promise.all<void>(
+        this.pendingWrites.map((p) => p.catch(() => undefined)) as Array<Promise<void>>,
+      );
     } catch {
       // Error already surfaced via failure sink; tests assert post-failure state.
     }

@@ -343,6 +343,25 @@ export class AgentSessionRuntimeOwnershipError extends Error {
   }
 }
 
+export class SendMergeConflictResolutionPromptError extends Error {
+  public readonly reason: 'SESSION_NOT_IDLE' | 'TASK_NOT_IN_REVIEW';
+  public readonly taskId: string;
+
+  public constructor(
+    reason: 'SESSION_NOT_IDLE' | 'TASK_NOT_IN_REVIEW',
+    taskId: string,
+  ) {
+    super(
+      reason === 'SESSION_NOT_IDLE'
+        ? 'The attached Agent Session must be idle to receive the merge-conflicts prompt.'
+        : 'The Task must be in REVIEW to receive the merge-conflicts prompt.',
+    );
+    this.name = 'SendMergeConflictResolutionPromptError';
+    this.reason = reason;
+    this.taskId = taskId;
+  }
+}
+
 export type AgentSessionResumeUnavailableReason =
   | 'AGENT_NOT_CONFIGURED'
   | 'PREVIOUS_SESSION_NOT_FOUND'

@@ -433,3 +433,21 @@ export {
   type ResolveTerminalLinkDependencies,
   type ResolveTerminalLinkInput,
 } from "./terminal-link-resolver";
+export { SendMergeConflictResolutionPromptError } from "./errors";
+export {
+  MERGE_CONFLICTS_PROMPT_BYTES,
+  checkTaskMergeConflicts,
+  sendMergeConflictResolutionTaskPrompt,
+  type CheckTaskMergeConflictsDependencies,
+  type CheckTaskMergeConflictsInput,
+  type MergeConflictFile,
+  type MergeConflictProbe,
+  type MergeConflictUnavailableReason,
+  type SendMergeConflictResolutionDependencies,
+  type SendMergeConflictResolutionFailure,
+  type SendMergeConflictResolutionInput,
+  type SendMergeConflictResolutionResult,
+  type TaskMergeConflictAvailability,
+  type TaskMergeConflictResult,
+} from "./task-merge-conflict-use-cases";
+export type { ProbeTaskMergeConflictsInput, TaskMergeConflictProbe } from "./ports";
