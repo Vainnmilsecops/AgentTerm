@@ -432,3 +432,4 @@ export {
   type TaskMergeConflictResult,
 } from './task-merge-conflict-use-cases';
 export type { ProbeTaskMergeConflictsInput, TaskMergeConflictProbe } from './ports';
+export { resumeTaskSession, type ResumeTaskSessionDependencies } from './resume-task-session';

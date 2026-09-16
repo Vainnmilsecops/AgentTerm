@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createAgentSession,
@@ -92,6 +92,38 @@ class MemoryAgentSessionRepository implements AgentSessionRepository {
 }
 
 describe('restoreAgentSessionsAfterRestart', () => {
+  it('settles lost ownership before attempting provider resume', async () => {
+    const repository = new MemoryAgentSessionRepository([startingSession('session-1')]);
+    const resumeAttempt = vi.fn(async (id: string) => {
+      expect((await repository.findById(id))?.status).toBe('FAILED');
+      return true;
+    });
+    await restoreAgentSessionsAfterRestart(repository, () => createdAt + 1, {
+      reattachAttempt: async () => undefined,
+      resumeAttempt,
+      resumeInitialSize: { columns: 80, rows: 24 },
+    });
+    expect(resumeAttempt).toHaveBeenCalledOnce();
+  });
+
+  it('does not launch a second process after a successful reattachment', async () => {
+    const repository = new MemoryAgentSessionRepository([startingSession('session-1')]);
+    const resumeAttempt = vi.fn(async () => true);
+    await restoreAgentSessionsAfterRestart(repository, () => createdAt + 1, {
+      reattachAttempt: async () => ({
+        handle: {
+          write: async () => {},
+          resize: async () => {},
+          terminate: async () => {},
+          dispose: async () => {},
+        },
+      }),
+      resumeAttempt,
+      resumeInitialSize: { columns: 80, rows: 24 },
+    });
+    expect(resumeAttempt).not.toHaveBeenCalled();
+    expect((await repository.findById('session-1'))?.status).toBe('STARTING');
+  });
   it('marks every persisted active status FAILED without replacing terminal history', async () => {
     const starting = startingSession('session-starting');
     const working = reportStatus(startingSession('session-working'), 'WORKING', 1);

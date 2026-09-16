@@ -5,7 +5,7 @@ import type {
   PtyTerminalSize,
 } from '@agentterm/application';
 
-import { type BracketedPasteWrap, prepareBracketedPasteText } from './terminal-paste-controller';
+import { PAUSE_BREAK_BYTES } from './terminal-paste-controller';
 import {
   INITIAL_MOUSE_MODE,
   type MouseMode,
@@ -51,6 +51,10 @@ export interface TerminalSearchRequest {
 interface ActiveAttachment {
   readonly attachment: TerminalSessionAttachment;
   readonly generation: number;
+  readonly sessionId: string;
+  readonly queue: Array<{ data: string; operation: 'paste' | 'write' }>;
+  pendingBytes: number;
+  draining?: Promise<void> | undefined;
 }
 
 export interface TerminalConnectionFailure {
@@ -64,11 +68,6 @@ export interface TerminalPasteRequest {
   readonly sessionId: string;
   readonly taskId: string;
   readonly text: string;
-  /**
-   * Bracketed-paste policy. Defaults to `auto` (multi-line or > PASTE_CONFIRM_BYTES
-   * bytes wrap in CSI 200/201~ markers). Callers can force `always`/`never`.
-   */
-  readonly wrap?: BracketedPasteWrap;
 }
 
 export interface TerminalPasteOutcome {
@@ -94,10 +93,10 @@ export class TerminalController {
   private readonly failureSink: ((failure: TerminalConnectionFailure) => void) | undefined;
   private readonly stateSink: ((state: TerminalConnectionState) => void) | undefined;
   private readonly surface: TerminalSurface;
-  private readonly pendingWrites: Array<Promise<unknown>> = [];
   private readonly mouseModeListeners = new Set<MouseModeListener>();
   private readonly slashCommandListeners = new Set<SlashCommandListener>();
   private readonly lineBuffer: string[] = [];
+  private pasting = false;
   private mouseMode: MouseMode = INITIAL_MOUSE_MODE;
   private mouseModePending: string | null = null;
   public inputUnavailable = false;
@@ -181,18 +180,28 @@ export class TerminalController {
       current === undefined ||
       current.generation !== this.generation ||
       this.state !== 'connected' ||
-      this.inputUnavailable
+      this.inputUnavailable ||
+      (paste !== undefined && paste.sessionId !== current.sessionId)
     ) {
       this.failureSink?.({
         operation: paste === undefined ? 'write' : 'paste',
-        sessionId: current?.attachment === undefined ? 'no-session' : 'unknown',
+        sessionId: current?.sessionId ?? 'no-session',
       });
       return { failure: undefined, status: 'paste-unavailable' };
     }
     if (paste !== undefined) {
-      const wrapMode: BracketedPasteWrap = paste.wrap ?? 'auto';
-      const payload = prepareBracketedPasteText(text, wrapMode, paste.lineCount, paste.byteLength);
-      this.surface.paste(payload);
+      if (new TextEncoder().encode(text).length > PAUSE_BREAK_BYTES) {
+        return { failure: undefined, status: 'rejected' };
+      }
+      this.pasting = true;
+      try {
+        this.surface.paste(text);
+      } catch {
+        this.failureSink?.({ operation: 'paste', sessionId: current.sessionId });
+        return { failure: undefined, status: 'paste-unavailable' };
+      } finally {
+        this.pasting = false;
+      }
     } else {
       this.enqueueWrite(text, 'write');
     }
@@ -203,6 +212,11 @@ export class TerminalController {
   }
 
   private trackInputAndForward(data: string): void {
+    if (this.pasting) {
+      this.lineBuffer.length = 0;
+      this.enqueueWrite(data, 'paste');
+      return;
+    }
     let cursor = 0;
     while (cursor < data.length) {
       const terminatorIndex = this.indexOfLineTerminator(data, cursor);
@@ -211,7 +225,9 @@ export class TerminalController {
         // buffer with everything we received. Preserves the existing
         // write-chunk semantics used by the terminal-input tests.
         const chunk = data.slice(cursor);
-        this.lineBuffer.push(chunk);
+        // Bounded command tracking; normal input is still forwarded immediately.
+        if (this.lineBuffer.join('').length + chunk.length <= 64) this.lineBuffer.push(chunk);
+        else this.lineBuffer.splice(0, this.lineBuffer.length, '\u0000');
         this.enqueueWrite(chunk, 'write');
         return;
       }
@@ -227,7 +243,7 @@ export class TerminalController {
         cursor = terminatorIndex + 1;
         continue;
       }
-      const forwarded = line.length === 0 ? terminator : `${line}${terminator}`;
+      const forwarded = `${data.slice(cursor, terminatorIndex)}${terminator}`;
       this.enqueueWrite(forwarded, 'write');
       cursor = terminatorIndex + 1;
     }
@@ -252,15 +268,38 @@ export class TerminalController {
     ) {
       return;
     }
-    const attachment = current.attachment;
-    const sessionId = 'unknown';
-    const write = attachment.write(data).catch((error) => {
-      this.inputUnavailable = true;
-      this.updateState('failed');
-      this.failureSink?.({ operation, sessionId });
-      throw error;
+    const bytes = new TextEncoder().encode(data).length;
+    if (current.pendingBytes + bytes > 2 * 1024 * 1024) {
+      this.failInput(current, operation);
+      return;
+    }
+    current.pendingBytes += bytes;
+    current.queue.push({ data, operation });
+    current.draining ??= this.drainInput(current).finally(() => {
+      current.draining = undefined;
     });
-    this.pendingWrites.push(write);
+  }
+
+  private async drainInput(current: ActiveAttachment): Promise<void> {
+    while (this.active === current && this.state === 'connected' && !this.inputUnavailable) {
+      const next = current.queue.shift();
+      if (next === undefined) break;
+      try {
+        await current.attachment.write(next.data);
+      } catch {
+        if (this.active === current) this.failInput(current, next.operation);
+        break;
+      } finally {
+        current.pendingBytes -= new TextEncoder().encode(next.data).length;
+      }
+    }
+  }
+
+  private failInput(current: ActiveAttachment, operation: 'paste' | 'write'): void {
+    current.queue.length = 0;
+    this.inputUnavailable = true;
+    this.updateState('failed');
+    this.failureSink?.({ operation, sessionId: current.sessionId });
   }
 
   public async setSession(
@@ -269,6 +308,8 @@ export class TerminalController {
   ): Promise<void> {
     const generation = ++this.generation;
     this.detachActive();
+    this.inputUnavailable = false;
+    this.lineBuffer.length = 0;
 
     if (this.disposed) {
       return;
@@ -323,7 +364,7 @@ export class TerminalController {
       return;
     }
 
-    this.active = { attachment, generation };
+    this.active = { attachment, generation, sessionId, queue: [], pendingBytes: 0 };
     if (fatalFailure) {
       return;
     }
@@ -479,19 +520,14 @@ export class TerminalController {
    * and post-failure state without polling internal state.
    */
   public async flushInputQueue(): Promise<void> {
-    try {
-      await Promise.all<void>(
-        this.pendingWrites.map((p) => p.catch(() => undefined)) as Array<Promise<void>>,
-      );
-    } catch {
-      // Error already surfaced via failure sink; tests assert post-failure state.
-    }
+    await this.active?.draining;
   }
 
   private detachActive(): void {
     const current = this.active;
     this.active = undefined;
     if (current !== undefined) {
+      current.queue.length = 0;
       safelyDetach(current.attachment);
     }
   }

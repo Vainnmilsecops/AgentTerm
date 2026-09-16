@@ -395,17 +395,18 @@ describe('TerminalController — serialized input queue', () => {
     surface.emitInput('a');
     surface.emitInput('b');
     surface.emitInput('c');
-    await Promise.resolve();
-    await Promise.resolve();
+    await controller.flushInputQueue();
 
-    expect((client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0])).toEqual(['a', 'b', 'c']);
+    expect(
+      (client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0]),
+    ).toEqual(['a', 'b', 'c']);
   });
 
   it('marks state failed and surfaces a failure event when a write rejects', async () => {
     const surface = new FakeTerminalSurface();
     const client = new FakeTerminalSessionClient();
     const failures: TerminalConnectionFailure[] = [];
-    let stateChanges: string[] = [];
+    const stateChanges: string[] = [];
     const controller = new TerminalController(
       surface,
       (state) => stateChanges.push(state),
@@ -426,7 +427,7 @@ describe('TerminalController — serialized input queue', () => {
     await controller.flushInputQueue();
 
     expect(stateChanges).toContain('failed');
-    expect(failures).toContainEqual({ operation: 'write', sessionId: 'unknown' });
+    expect(failures).toContainEqual({ operation: 'write', sessionId: 'session-1' });
     expect(controller.inputUnavailable).toBe(true);
   });
 
@@ -448,7 +449,7 @@ describe('TerminalController — serialized input queue', () => {
     expect(client.attachment.write).not.toHaveBeenCalled();
   });
 
-  it('pasteText wraps multi-line payloads with bracketed-paste markers by default', async () => {
+  it('leaves multiline bracketed-paste handling to xterm', async () => {
     const surface = new FakeTerminalSurface();
     const client = new FakeTerminalSessionClient();
     const controller = new TerminalController(surface);
@@ -462,11 +463,11 @@ describe('TerminalController — serialized input queue', () => {
       taskId: 'task-1',
       text: 'a\nb\nc',
     });
-    expect(surface.paste).toHaveBeenCalledWith('\u001b[200~a\nb\nc\u001b[201~');
+    expect(surface.paste).toHaveBeenCalledWith('a\nb\nc');
     expect(client.attachment.write).not.toHaveBeenCalled();
   });
 
-  it('pasteText wraps single-line payloads past the confirm byte threshold', async () => {
+  it('passes large payloads unchanged to xterm', async () => {
     const surface = new FakeTerminalSurface();
     const client = new FakeTerminalSessionClient();
     const controller = new TerminalController(surface);
@@ -481,8 +482,7 @@ describe('TerminalController — serialized input queue', () => {
       text: 'x'.repeat(9_000),
     });
     const call = surface.paste.mock.calls[0]?.[0] as string | undefined;
-    expect(call?.startsWith('\u001b[200~')).toBe(true);
-    expect(call?.endsWith('\u001b[201~')).toBe(true);
+    expect(call).toBe('x'.repeat(9_000));
   });
 
   it('pasteText does not wrap single-line small payloads even when wrap is always', async () => {
@@ -499,12 +499,11 @@ describe('TerminalController — serialized input queue', () => {
       sessionId: 'session-1',
       taskId: 'task-1',
       text: 'a\nb\nc',
-      wrap: 'never',
     });
     expect(surface.paste).toHaveBeenCalledWith('a\nb\nc');
   });
 
-  it('pasteText always wraps when wrap is always', async () => {
+  it('does not force bracketed mode on a single-line paste', async () => {
     const surface = new FakeTerminalSurface();
     const client = new FakeTerminalSessionClient();
     const controller = new TerminalController(surface);
@@ -517,9 +516,8 @@ describe('TerminalController — serialized input queue', () => {
       sessionId: 'session-1',
       taskId: 'task-1',
       text: 'hi',
-      wrap: 'always',
     });
-    expect(surface.paste).toHaveBeenCalledWith('\u001b[200~hi\u001b[201~');
+    expect(surface.paste).toHaveBeenCalledWith('hi');
   });
 
   it('sendBytes routes through the FIFO queue', async () => {
@@ -568,9 +566,64 @@ describe('TerminalController — serialized input queue', () => {
 
     surface.emitInput('a');
     surface.emitInput('b');
+    await Promise.resolve();
+    expect(client.attachment.write).toHaveBeenCalledTimes(1);
     first.resolve();
     await controller.flushInputQueue();
-    expect((client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0])).toEqual(['a', 'b']);
+    expect(
+      (client.attachment.write.mock.calls as unknown as Array<[string]>).map((call) => call[0]),
+    ).toEqual(['a', 'b']);
+  });
+
+  it('does not replay characters already forwarded when Enter arrives', async () => {
+    const surface = new FakeTerminalSurface();
+    const client = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('session-1', client);
+    surface.emitInput('echo ');
+    surface.emitInput('hello');
+    surface.emitInput('\r');
+    await controller.flushInputQueue();
+    expect(client.attachment.write.mock.calls.flat().join('')).toBe('echo hello\r');
+  });
+
+  it('drops queued input from a detached session and ignores its late failure', async () => {
+    const surface = new FakeTerminalSurface();
+    const first = new FakeTerminalSessionClient();
+    const next = new FakeTerminalSessionClient();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('old', first);
+    const pending = deferred();
+    first.attachment.write.mockImplementationOnce(() => pending.promise);
+    surface.emitInput('old');
+    await Promise.resolve();
+    surface.emitInput('discard');
+    await controller.setSession('new', next);
+    pending.reject(new Error('old session closed'));
+    surface.emitInput('new');
+    await controller.flushInputQueue();
+    expect(first.attachment.write).toHaveBeenCalledTimes(1);
+    expect(next.attachment.write).toHaveBeenCalledWith('new');
+    expect(controller.state).toBe('connected');
+    expect(controller.inputUnavailable).toBe(false);
+  });
+
+  it('rejects a paste confirmation addressed to the previous session', async () => {
+    const surface = new FakeTerminalSurface();
+    const controller = new TerminalController(surface);
+    controller.mount({} as HTMLElement);
+    await controller.setSession('new', new FakeTerminalSessionClient());
+    const result = controller.pasteText({
+      text: 'old clipboard',
+      sessionId: 'old',
+      taskId: 'task',
+      byteLength: 13,
+      lineCount: 1,
+    });
+    expect(result.status).toBe('paste-unavailable');
+    expect(surface.paste).not.toHaveBeenCalled();
   });
 
   describe('slash-command detection', () => {

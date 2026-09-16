@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type {
-  TerminalConnectionFailure,
-  TerminalController,
-} from './terminal-controller';
+import type { TerminalConnectionFailure, TerminalController } from './terminal-controller';
 import {
   decideFocusRestore,
   type FocusRestoreContext,
@@ -49,16 +46,25 @@ export function useTerminalInput(params: UseTerminalInputParams): UseTerminalInp
   const previousSessionIdRef = useRef<string | undefined>(params.sessionId);
   const previousActiveRef = useRef<boolean>(params.active);
   const previousPaneIdRef = useRef<string>(params.paneId);
+  const currentParamsRef = useRef(params);
+  currentParamsRef.current = params;
 
-  const showFeedback = useCallback(
-    (next: TerminalInputFeedback): void => setFeedback(next),
-    [],
-  );
+  const showFeedback = useCallback((next: TerminalInputFeedback): void => setFeedback(next), []);
   const resetFeedback = useCallback(() => setFeedback(undefined), []);
 
   const pasteText = useCallback(
     (text: string): void => {
-      if (params.sessionId === undefined || params.taskId === undefined) return;
+      const current = currentParamsRef.current;
+      if (
+        !current.active ||
+        current.sessionId !== params.sessionId ||
+        current.controller !== params.controller
+      )
+        return;
+      if (params.sessionId === undefined || params.taskId === undefined) {
+        setFeedback({ level: 'error', message: 'Terminal input unavailable.' });
+        return;
+      }
       const result = dispatchPasteText(text, {
         controller: params.controller,
         sessionId: params.sessionId,
@@ -84,10 +90,18 @@ export function useTerminalInput(params: UseTerminalInputParams): UseTerminalInp
   const confirmPaste = useCallback(
     (pending: PendingPasteConfirmation): void => {
       setPendingConfirmation(undefined);
+      if (
+        !params.active ||
+        pending.sessionId !== params.sessionId ||
+        pending.taskId !== params.taskId
+      ) {
+        setFeedback({ level: 'error', message: 'Paste cancelled: target session changed.' });
+        return;
+      }
       const next = dispatchConfirmPaste(pending, params.controller);
       setFeedback(next);
     },
-    [params.controller],
+    [params.active, params.controller, params.sessionId, params.taskId],
   );
 
   const rejectPaste = useCallback(() => {
@@ -101,19 +115,14 @@ export function useTerminalInput(params: UseTerminalInputParams): UseTerminalInp
 
   const tryHandleKeyEvent = useCallback(
     (event: KeyboardEvent): boolean => {
+      if (!params.active) return true;
       const wrapSelection = (): string => {
-        try {
-          const surface = params.controller as unknown as {
-            getSelection?: () => string;
-          };
-          if (surface?.getSelection !== undefined) return surface.getSelection();
-        } catch {
-          return '';
-        }
-        return '';
+        return params.controller?.getSurface().getSelection() ?? '';
       };
       const wrapHasSelection = (): boolean => wrapSelection().length > 0;
       const args: HandleKeyEventArgs = {
+        altKey: event.altKey,
+        type: event.type,
         ctrlKey: event.ctrlKey,
         isComposing: event.isComposing,
         key: event.key,
@@ -123,23 +132,34 @@ export function useTerminalInput(params: UseTerminalInputParams): UseTerminalInp
       };
       const ctx: HandleKeyEventInput = {
         controller: params.controller,
+        onFailure: setFeedback,
         getSelection: wrapSelection,
         hasSelection: wrapHasSelection,
         onCopy: async (text) => {
-          if (typeof navigator === 'undefined' || navigator.clipboard === undefined) return;
+          if (typeof navigator === 'undefined' || navigator.clipboard === undefined)
+            throw new Error('Clipboard unavailable');
           await navigator.clipboard.writeText(text);
         },
-        onPasteFromClipboard: () => readClipboard().then((text) => { pasteText(text); return text; }),
+        onPasteFromClipboard: () =>
+          readClipboard().then((text) => {
+            pasteText(text);
+            return text;
+          }),
       };
-      return handleKeyEvent(args, ctx);
+      const passThrough = handleKeyEvent(args, ctx);
+      if (!passThrough) event.preventDefault();
+      return passThrough;
     },
-    [params.controller, pasteText, readClipboard],
+    [params.active, params.controller, pasteText, readClipboard],
   );
 
   // Focus + key dispatch restoration: react to active tab/pane transitions
   // and session reattachment. Idempotent: every effect iteration computes a
   // pure decision and dispatches at most one call per truthy field.
   useEffect(() => {
+    if (!params.active || previousSessionIdRef.current !== params.sessionId) {
+      setPendingConfirmation(undefined);
+    }
     if (!params.active) {
       previousActiveRef.current = params.active;
       previousPaneIdRef.current = params.paneId;
@@ -165,18 +185,11 @@ export function useTerminalInput(params: UseTerminalInputParams): UseTerminalInp
     if (decision.reassertFocus) params.controller?.reassertFocus();
     if (decision.clearPendingPaste) {
       setPendingConfirmation(undefined);
-      params.controller?.clearPendingPaste();
     }
     previousActiveRef.current = params.active;
     previousPaneIdRef.current = params.paneId;
     previousSessionIdRef.current = params.sessionId;
-  }, [
-    params.active,
-    params.controller,
-    params.paneId,
-    params.sessionId,
-    pendingConfirmation,
-  ]);
+  }, [params.active, params.controller, params.paneId, params.sessionId, pendingConfirmation]);
 
   return {
     confirmPaste,

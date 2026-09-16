@@ -85,6 +85,13 @@ export async function restoreAgentSessionsAfterRestart(
       }
       throw new AgentSessionPersistenceError(current.id);
     }
+    if (options.resumeAttempt !== undefined && options.resumeInitialSize !== undefined) {
+      await options.resumeAttempt(
+        current.id,
+        options.resumeInitialSize,
+        options.reattachEventSink ?? (() => undefined),
+      );
+    }
   }
 
   return Object.freeze({ reconciledSessions: Object.freeze(reconciledSessions) });
@@ -94,11 +101,7 @@ async function tryRecoverSession(
   current: AgentSession,
   options: RestoreAgentSessionsOptions,
 ): Promise<AgentSession | undefined> {
-  if (
-    options.reattachAttempt === undefined ||
-    options.resumeAttempt === undefined ||
-    options.resumeInitialSize === undefined
-  ) {
+  if (options.reattachAttempt === undefined || options.resumeInitialSize === undefined) {
     return undefined;
   }
 
@@ -111,12 +114,9 @@ async function tryRecoverSession(
     return undefined;
   }
 
-  const resumed = await options.resumeAttempt(
-    current.id,
-    options.resumeInitialSize,
-    options.reattachEventSink ?? (() => undefined),
-  );
-  return resumed ? current : undefined;
+  // A successful callback must have adopted this handle into its coordinator.
+  // Resuming here would launch a second writer against the same worktree.
+  return current;
 }
 
 export async function restoreAgentWorkspaceAfterRestart(

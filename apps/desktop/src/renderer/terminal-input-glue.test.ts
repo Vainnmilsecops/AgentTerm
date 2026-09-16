@@ -6,10 +6,7 @@ import type {
   TerminalPasteOutcome,
   TerminalPasteRequest,
 } from './terminal-controller';
-import {
-  BRACKETED_PASTE_BEGIN,
-  BRACKETED_PASTE_END,
-} from './terminal-paste-controller';
+import { BRACKETED_PASTE_BEGIN } from './terminal-paste-controller';
 import {
   dispatchConfirmPaste,
   dispatchPasteText,
@@ -18,7 +15,7 @@ import {
 } from './terminal-input-glue';
 
 class FakeController {
-  public readonly pasteText = vi.fn((_input: TerminalPasteRequest): TerminalPasteOutcome => ({
+  public readonly pasteText = vi.fn<(input: TerminalPasteRequest) => TerminalPasteOutcome>(() => ({
     failure: undefined,
     status: 'accepted',
   }));
@@ -26,6 +23,12 @@ class FakeController {
 }
 
 describe('dispatchPasteText', () => {
+  it('reports missing terminal instead of successful paste', () => {
+    expect(
+      dispatchPasteText('hello', { controller: undefined, sessionId: 's', taskId: 't' }).feedback
+        .level,
+    ).toBe('error');
+  });
   it('routes small single-line text straight to controller.pasteText', () => {
     const controller = new FakeController();
     const result = dispatchPasteText('hello', {
@@ -41,7 +44,6 @@ describe('dispatchPasteText', () => {
       sessionId: 'session-1',
       taskId: 'task-1',
       text: 'hello',
-      wrap: 'never',
     });
   });
 
@@ -124,13 +126,12 @@ describe('dispatchConfirmPaste', () => {
       lineCount: 1,
       sessionId: 'session-1',
       taskId: 'task-1',
-      text: `${BRACKETED_PASTE_BEGIN}${'x'.repeat(9000)}${BRACKETED_PASTE_END}`,
-      wrap: 'auto',
+      text: 'x'.repeat(9000),
     });
     expect(feedback.level).toBe('info');
   });
 
-  it('wraps multi-line buffered text in bracketed-paste markers', () => {
+  it('preserves multiline text for xterm to bracket once', () => {
     const controller = new FakeController();
     const pending = {
       byteLength: 30,
@@ -146,8 +147,7 @@ describe('dispatchConfirmPaste', () => {
       lineCount: 4,
       sessionId: 'session-1',
       taskId: 'task-1',
-      text: `${BRACKETED_PASTE_BEGIN}a\nb\nc\nd${BRACKETED_PASTE_END}`,
-      wrap: 'auto',
+      text: 'a\nb\nc\nd',
     });
   });
 
@@ -189,9 +189,11 @@ describe('handleKeyEvent', () => {
     expect(controller.sendBytes).toHaveBeenCalledWith('\u0003');
   });
 
-  it('returns false and copies when Ctrl+C is pressed with selection', () => {
+  it('returns false and copies when Ctrl+C is pressed with selection', async () => {
     const controller = new FakeController();
-    const onCopy = vi.fn((text: string): void | Promise<void> => { void text; });
+    const onCopy = vi.fn((text: string): void | Promise<void> => {
+      void text;
+    });
     const consumed = handleKeyEvent(
       { ctrlKey: true, isComposing: false, key: 'C', keyCode: 0, metaKey: false, shiftKey: false },
       {
@@ -203,6 +205,7 @@ describe('handleKeyEvent', () => {
       },
     );
     expect(consumed).toBe(false);
+    await Promise.resolve();
     expect(onCopy).toHaveBeenCalledWith('hello');
     expect(controller.sendBytes).not.toHaveBeenCalled();
   });
