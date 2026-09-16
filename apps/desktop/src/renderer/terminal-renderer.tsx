@@ -214,6 +214,33 @@ export function TerminalRenderer({
     };
   }, [inputHook]);
 
+  // Route native paste through the same pane-local confirmation policy.
+  useEffect(() => {
+    const host = surfaceRef.current?.hostElement();
+    if (host === undefined) return;
+    let composing = false;
+    const startComposition = (): void => {
+      composing = true;
+    };
+    const endComposition = (): void => {
+      composing = false;
+    };
+    const onPaste = (event: ClipboardEvent): void => {
+      if (composing || !active || !host.contains(document.activeElement)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      inputHook.pasteText(event.clipboardData?.getData('text/plain') ?? '');
+    };
+    host.addEventListener('paste', onPaste, true);
+    host.addEventListener('compositionstart', startComposition);
+    host.addEventListener('compositionend', endComposition);
+    return () => {
+      host.removeEventListener('paste', onPaste, true);
+      host.removeEventListener('compositionstart', startComposition);
+      host.removeEventListener('compositionend', endComposition);
+    };
+  }, [active, inputHook]);
+
   // Register xterm link provider for HTTP/HTTPS URLs. The renderer is
   // intentionally limited to URL resolution — path resolution belongs to
   // the Application use case `resolveTerminalLinkTarget` and requires a
@@ -296,15 +323,16 @@ export function TerminalRenderer({
   useEffect(() => {
     if (searchState.open) return;
     controllerRef.current?.clearSearch();
-    if (state === 'connected') {
+    if (state === 'connected' && active) {
       controllerRef.current?.focus();
     }
-  }, [searchState.open, state]);
+  }, [active, searchState.open, state]);
 
   const contextMenu = useTerminalContextMenu({
     enabled: state === 'connected',
     onClose: () => undefined,
-    resolveActions: (ctx) => buildContextMenuActions(ctx.sessionId, ctx.hasSelection),
+    resolveActions: (ctx) =>
+      buildContextMenuActions(ctx.sessionId, (surfaceRef.current?.getSelection().length ?? 0) > 0),
     sessionId,
     target: containerRef.current,
   });
@@ -314,18 +342,25 @@ export function TerminalRenderer({
   }) => {
     const surface = surfaceRef.current as TerminalSurface | undefined;
     if (surface === undefined) return;
+    contextMenu.dismiss();
     if (action.kind === 'copy') {
       const text = surface.getSelection();
-      if (text.length > 0) void navigator.clipboard.writeText(text);
+      if (text.length > 0)
+        void navigator.clipboard
+          .writeText(text)
+          .catch(() => inputHook.showFeedback({ level: 'error', message: 'Copy failed.' }));
     } else if (action.kind === 'paste') {
-      void navigator.clipboard.readText().then((text) => inputHook.pasteText(text));
+      void navigator.clipboard
+        .readText()
+        .then((text) => inputHook.pasteText(text))
+        .catch(() => inputHook.showFeedback({ level: 'error', message: 'Paste failed.' }));
     } else if (action.kind === 'select-all') {
       surface.selectAll();
     } else if (action.kind === 'agent-stop') {
       if (sessionId !== undefined) onStopAgent?.(sessionId);
     } else if (action.kind === 'agent-signal') {
       const etx = '\x03'; // Ctrl+C = ETX
-      surfaceRef.current?.paste(etx);
+      controllerRef.current?.sendBytes(etx);
     }
   };
 

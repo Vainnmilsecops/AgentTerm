@@ -193,6 +193,7 @@ export function WorkspaceTerminals({
                   {...(onSlashCommand !== undefined ? { onSlashCommand } : {})}
                   {...(onStopAgent !== undefined ? { onStopAgent } : {})}
                   paneId={pane.id}
+                  taskId={pane.taskId}
                   {...(pane.sessionId === undefined ? {} : { sessionId: pane.sessionId })}
                 />
               ))}

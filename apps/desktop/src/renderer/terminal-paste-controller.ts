@@ -52,13 +52,13 @@ export type PasteEvaluation =
 export function classifyPaste(text: string): PasteClassifier {
   const byteLength = new TextEncoder().encode(text).length;
   // Normalize CRLF to LF so line counts reflect user intent.
-  const normalized = text.replace(/\r\n/gu, '\n');
+  const normalized = text.replace(/\r\n?/gu, '\n');
   const lineCount = normalized.length === 0 ? 1 : normalized.split('\n').length;
   return Object.freeze({ byteLength, lineCount, text });
 }
 
 export function evaluatePaste(input: PasteEvaluationInput): PasteEvaluation {
-  if (input.byteLength >= PAUSE_BREAK_BYTES) {
+  if (input.byteLength > PAUSE_BREAK_BYTES) {
     return { kind: 'rejected', reason: 'TOO_LARGE' };
   }
   const needsConfirm = input.byteLength > PASTE_CONFIRM_BYTES || input.lineCount > 1;

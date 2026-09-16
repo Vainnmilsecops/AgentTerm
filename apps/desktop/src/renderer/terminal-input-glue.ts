@@ -1,15 +1,6 @@
-import type {
-  TerminalConnectionFailure,
-  TerminalController,
-} from './terminal-controller';
+import type { TerminalConnectionFailure, TerminalController } from './terminal-controller';
 import { decideKeyOutcome, ETX_BYTE } from './terminal-keyboard-controller';
-import {
-  classifyPaste,
-  evaluatePaste,
-  formatPasteByteLength,
-  prepareBracketedPasteText,
-  type BracketedPasteWrap,
-} from './terminal-paste-controller';
+import { classifyPaste, evaluatePaste, formatPasteByteLength } from './terminal-paste-controller';
 
 export interface PendingPasteConfirmation {
   readonly byteLength: number;
@@ -63,16 +54,18 @@ export function dispatchPasteText(text: string, input: PasteDispatchInput): Past
       },
     };
   }
-  const wrapMode: BracketedPasteWrap = 'never';
   const outcome = input.controller?.pasteText({
     byteLength: cls.byteLength,
     lineCount: cls.lineCount,
     sessionId: input.sessionId,
     taskId: input.taskId,
-    text: prepareBracketedPasteText(text, wrapMode, cls.lineCount, cls.byteLength),
-    wrap: wrapMode,
+    text,
   });
-  if (outcome?.status === 'paste-unavailable') {
+  if (
+    outcome === undefined ||
+    outcome.status === 'paste-unavailable' ||
+    outcome.status === 'rejected'
+  ) {
     return {
       feedback: {
         level: 'error',
@@ -87,27 +80,25 @@ export function dispatchConfirmPaste(
   pending: PendingPasteConfirmation,
   controller: TerminalController | undefined,
 ): TerminalInputFeedback {
-  const wrapMode: BracketedPasteWrap = 'auto';
   const outcome = controller?.pasteText({
     byteLength: pending.byteLength,
     lineCount: pending.lineCount,
     sessionId: pending.sessionId,
     taskId: pending.taskId,
-    text: prepareBracketedPasteText(
-      pending.text,
-      wrapMode,
-      pending.lineCount,
-      pending.byteLength,
-    ),
-    wrap: wrapMode,
+    text: pending.text,
   });
-  if (outcome?.status === 'paste-unavailable') {
+  if (
+    outcome === undefined ||
+    outcome.status === 'paste-unavailable' ||
+    outcome.status === 'rejected'
+  ) {
     return { level: 'error', message: 'Paste failed — terminal input unavailable.' };
   }
   return { level: 'info', message: 'Pasted text through terminal.paste()' };
 }
 
 export interface HandleKeyEventInput {
+  readonly onFailure?: (feedback: TerminalInputFeedback) => void;
   readonly controller: TerminalController | undefined;
   readonly getSelection: () => string;
   readonly hasSelection: () => boolean;
@@ -116,6 +107,8 @@ export interface HandleKeyEventInput {
 }
 
 export interface HandleKeyEventArgs {
+  readonly altKey?: boolean;
+  readonly type?: string;
   readonly ctrlKey: boolean;
   readonly isComposing: boolean;
   readonly key: string;
@@ -125,9 +118,11 @@ export interface HandleKeyEventArgs {
 }
 
 export function handleKeyEvent(event: HandleKeyEventArgs, ctx: HandleKeyEventInput): boolean {
+  if (event.type !== undefined && event.type !== 'keydown') return true;
   const outcome = decideKeyOutcome(
     {
       composing: event.isComposing,
+      altKey: event.altKey ?? false,
       ctrlKey: event.ctrlKey,
       key: event.key,
       keyCode: event.keyCode,
@@ -139,11 +134,21 @@ export function handleKeyEvent(event: HandleKeyEventArgs, ctx: HandleKeyEventInp
   if (outcome === 'IGNORE') return true;
   if (outcome === 'COPY') {
     const selection = ctx.getSelection();
-    if (selection.length > 0) void ctx.onCopy(selection);
+    if (selection.length > 0) {
+      void Promise.resolve()
+        .then(() => ctx.onCopy(selection))
+        .catch(() => {
+          ctx.onFailure?.({ level: 'error', message: 'Copy failed.' });
+        });
+    }
     return false;
   }
   if (outcome === 'PASTE') {
-    void Promise.resolve(ctx.onPasteFromClipboard());
+    void Promise.resolve()
+      .then(() => ctx.onPasteFromClipboard())
+      .catch(() => {
+        ctx.onFailure?.({ level: 'error', message: 'Paste failed.' });
+      });
     return false;
   }
   ctx.controller?.sendBytes(ETX_BYTE);

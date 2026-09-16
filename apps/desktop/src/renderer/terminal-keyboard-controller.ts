@@ -8,6 +8,7 @@
  */
 
 export interface KeyboardEventLike {
+  readonly altKey?: boolean;
   /** True when the IME composition is in progress. */
   readonly composing: boolean;
   readonly ctrlKey: boolean;
@@ -63,7 +64,7 @@ export function decideKeyOutcome(
   event: KeyboardEventLike,
   context: TerminalKeyContext,
 ): TerminalKeyOutcome {
-  if (isComposing(event)) return 'IGNORE';
+  if (isComposing(event) || event.altKey) return 'IGNORE';
   const key = normalizeKey(event.key);
 
   if (key === 'C' && isModifierActive(event) && !event.shiftKey) {
@@ -78,6 +79,7 @@ export function decideKeyOutcome(
   if (key === 'INSERT' && event.ctrlKey) {
     return event.shiftKey ? 'PASTE' : 'COPY';
   }
+  if (key === 'INSERT' && event.shiftKey) return 'PASTE';
   return 'IGNORE';
 }
 

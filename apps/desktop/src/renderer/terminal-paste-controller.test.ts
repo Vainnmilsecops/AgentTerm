@@ -92,7 +92,7 @@ describe('evaluatePaste — rejected before sending', () => {
     expect(result.kind).toBe('accept');
   });
 
-  it('treats exactly 1 MiB as too large', () => {
+  it('requires confirmation at exactly 1 MiB', () => {
     const result = evaluatePaste({
       byteLength: PAUSE_BREAK_BYTES,
       lineCount: 1,
@@ -100,10 +100,7 @@ describe('evaluatePaste — rejected before sending', () => {
       taskId: 'task-1',
       text: 'x'.repeat(PAUSE_BREAK_BYTES),
     });
-    expect(result.kind).toBe('rejected');
-    if (result.kind === 'rejected') {
-      expect(result.reason).toBe('TOO_LARGE');
-    }
+    expect(result.kind).toBe('confirm');
   });
 
   it('treats just below 1 MiB with multiple lines as requiring confirmation', () => {
@@ -180,9 +177,9 @@ describe('shouldWrapBracketedPaste — wrap policy', () => {
   });
 
   it('never wraps when mode is never', () => {
-    expect(
-      shouldWrapBracketedPaste({ byteLength: 100_000, lineCount: 200, mode: 'never' }),
-    ).toBe(false);
+    expect(shouldWrapBracketedPaste({ byteLength: 100_000, lineCount: 200, mode: 'never' })).toBe(
+      false,
+    );
   });
 
   it('auto wraps multi-line pastes regardless of byte size', () => {
