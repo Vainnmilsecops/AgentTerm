@@ -39,6 +39,7 @@ import {
   requestTaskReview,
   resolveTerminalLinkTarget,
   restoreAgentSessionsAfterRestart,
+  resumeTaskSession,
   reconcileOrphanQualityGateRuns,
   retryTaskExecution,
   runQualityGate,
@@ -48,8 +49,6 @@ import {
   startTaskResearch,
   summarizeTaskReview,
   transitionTask,
-  tryReattachAgentSession,
-  tryResumeAgentSession,
   unregisterQualityGate,
   updateApplicationSettings,
 } from '@agentterm/application';
@@ -70,7 +69,6 @@ import {
   GitHubPullRequestAdapter,
   JsonFileQualityGateCatalog,
   LocalGitProjectDiscovery,
-  NodeHostReattacher,
   NodeQualityGateProcessRunner,
   WindowsConPtyRuntime,
   createBuiltInAgentCatalogFromSettings,
@@ -152,55 +150,31 @@ export async function createProductionDesktopApplication(
       sessions: persistence.sessions,
       tasks: persistence.tasks,
     });
-    const hostReattacher = new NodeHostReattacher();
-    const recoveryDependencies = Object.freeze({
-      agents,
-      clock,
-      hostReattacher,
-      runtime,
-      sessions: persistence.sessions,
-    });
-    const reattachAttempt = async (
-      sessionId: string,
-      initialSize: PtyTerminalSize,
-      eventSink?: PtyRuntimeEventSink,
-    ) => {
-      const result = await tryReattachAgentSession(
-        {
-          ...(eventSink === undefined ? {} : { eventSink }),
-          initialSize,
-          sessionId,
-        },
-        recoveryDependencies,
-      );
-      if (result.kind === 'reattached') {
-        return { handle: result.handle };
-      }
-      return undefined;
-    };
+    // ConPTY does not currently support cross-process attachment. Do not publish
+    // recovered handles until the coordinator can own their complete lifecycle.
     const resumeAttempt = async (
       sessionId: string,
       initialSize: PtyTerminalSize,
       eventSink: PtyRuntimeEventSink,
     ): Promise<boolean> => {
-      const session = await persistence.sessions.findById(sessionId);
-      if (session === undefined || session.providerSessionId === undefined) {
-        return false;
-      }
       try {
-        await tryResumeAgentSession(
+        const resumed = await resumeTaskSession(
           {
+            previousSessionId: sessionId,
+            sessionId: randomUUID(),
+            environment,
             eventSink,
             initialSize,
-            previousSessionId: sessionId,
-            request: {
-              environment: Object.freeze({ ...environment }),
-              workingDirectory: session.taskId,
-            },
           },
-          recoveryDependencies,
+          {
+            coordinator: sessionCoordinator,
+            git,
+            sessions: persistence.sessions,
+            tasks: persistence.tasks,
+            worktrees: persistence.worktrees,
+          },
         );
-        return true;
+        return resumed !== undefined;
       } catch {
         return false;
       }
@@ -218,7 +192,6 @@ export async function createProductionDesktopApplication(
       trustRoots: pluginTrustRoots,
     });
     await restoreAgentSessionsAfterRestart(persistence.sessions, clock, {
-      reattachAttempt,
       resumeAttempt,
       resumeInitialSize: initialTerminalSize,
     });

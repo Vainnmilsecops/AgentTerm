@@ -3,6 +3,7 @@ import {
   TaskPhase,
   createAgentSession,
   recordAgentSessionEvent,
+  setProviderSessionId,
   type AgentSession,
   type AgentSessionActiveStatus,
   type AgentSessionFailureStage,
@@ -13,6 +14,7 @@ import {
   AgentNotConfiguredError,
   AgentSessionActiveConflictError,
   AgentSessionPersistenceError,
+  AgentSessionResumeUnavailableError,
   AgentSessionRuntimeOwnershipError,
   AgentSessionTerminalAttachmentConflictError,
   EntityAlreadyExistsError,
@@ -30,8 +32,11 @@ import type {
   PtyTerminalSize,
   TaskRepository,
 } from './ports';
+import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 
 export interface StartAgentSessionInput {
+  /** A settled prior attempt whose verified provider identity must be resumed. */
+  readonly resumeFromSessionId?: string;
   readonly agentId: string;
   readonly environment: Readonly<Record<string, string>>;
   readonly eventSink?: PtyRuntimeEventSink;
@@ -42,9 +47,7 @@ export interface StartAgentSessionInput {
   readonly taskId: string;
   /** Defaults to RUNNING for compatibility; planning must opt in explicitly. */
   readonly expectedTaskPhase?:
-    | typeof TaskPhase.BACKLOG
-    | typeof TaskPhase.PLANNING
-    | typeof TaskPhase.RUNNING;
+    typeof TaskPhase.BACKLOG | typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING;
   readonly workingDirectory: string;
 }
 
@@ -95,8 +98,7 @@ export class AgentSessionCoordinator {
   private readonly agents: AgentCatalog;
   private readonly clock: () => number;
   private readonly createSessionObserver:
-    | ((sessionId: string) => PtyRuntimeEventSink | undefined)
-    | undefined;
+    ((sessionId: string) => PtyRuntimeEventSink | undefined) | undefined;
   private readonly runtime: PtyRuntime;
   private readonly sessions: AgentSessionRepository;
   private readonly tasks: TaskRepository;
@@ -315,17 +317,48 @@ export class AgentSessionCoordinator {
       throw new AgentSessionActiveConflictError(input.taskId);
     }
 
-    const starting = createAgentSession({
+    let providerSessionId: string | undefined;
+    if (input.resumeFromSessionId !== undefined) {
+      const previous = await this.sessions.findById(input.resumeFromSessionId);
+      if (previous === undefined) {
+        throw new AgentSessionResumeUnavailableError(
+          input.resumeFromSessionId,
+          'PREVIOUS_SESSION_NOT_FOUND',
+        );
+      }
+      if (
+        previous.taskId !== input.taskId ||
+        previous.agentId !== input.agentId ||
+        hasUnsettledTaskCodeWriter(previous)
+      ) {
+        throw new AgentSessionRuntimeOwnershipError(previous.id);
+      }
+      if (!previous.providerSessionId) {
+        throw new AgentSessionResumeUnavailableError(previous.id, 'PROVIDER_SESSION_ID_MISSING');
+      }
+      const availability = await adapter.inspect();
+      if (
+        availability.kind !== 'available' ||
+        !availability.capabilities.includes('SESSION_RESUME')
+      ) {
+        throw new AgentSessionResumeUnavailableError(previous.id, 'RESUME_UNSUPPORTED');
+      }
+      providerSessionId = previous.providerSessionId;
+    }
+    let starting = createAgentSession({
       agentId: input.agentId,
       createdAt: this.clock(),
       id: input.sessionId,
       taskId: input.taskId,
     });
+    if (providerSessionId !== undefined)
+      starting = setProviderSessionId(starting, providerSessionId);
     await this.sessions.insert(starting, input.expectedTaskPhase ?? TaskPhase.RUNNING);
 
     let command;
     try {
       command = await adapter.buildLaunchCommand({
+        ...(providerSessionId === undefined ? {} : { resumeSessionId: providerSessionId }),
         environment: input.environment,
         workingDirectory: input.workingDirectory,
       });

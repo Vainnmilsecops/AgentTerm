@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AgentSessionStatus,
+  createAgentSession,
+  recordAgentSessionEvent,
+  setProviderSessionId,
   createTask,
   type AgentSession,
   type AgentSessionHostOwnership,
@@ -19,6 +22,7 @@ import {
   PtyRuntimeError,
   ConfiguredAgentCatalog,
   type AgentAdapter,
+  type AgentAvailability,
   type AgentIdentity,
   type AgentLaunchRequest,
   type AgentSessionRepository,
@@ -141,7 +145,7 @@ class FakeAgentAdapter implements AgentAdapter {
     this.identity = { displayName: id, id };
   }
 
-  public async inspect(): Promise<never> {
+  public async inspect(): Promise<AgentAvailability> {
     throw new Error('inspect is not used to start a session');
   }
 
@@ -227,6 +231,86 @@ function createFixture(options: { readonly taskExists?: boolean } = {}) {
 }
 
 describe('AgentSessionCoordinator', () => {
+  it('refuses resume when the configured adapter cannot resume', async () => {
+    const fixture = createFixture();
+    const previous = setProviderSessionId(
+      recordAgentSessionEvent(
+        createAgentSession({ id: 'old', taskId: task.id, agentId: 'codex', createdAt: 1 }),
+        {
+          kind: 'RUNTIME_FAILED',
+          stage: 'RUNTIME',
+          code: 'RUNTIME_OWNERSHIP_LOST',
+          fatal: true,
+          occurredAt: 2,
+        },
+      ),
+      'provider-123',
+    );
+    await fixture.sessions.insert(previous);
+    vi.spyOn(fixture.adapter, 'inspect').mockResolvedValue({
+      kind: 'available',
+      capabilities: [],
+      executablePath: 'C:\\tools\\codex.exe',
+    });
+    await expect(
+      fixture.coordinator.start({ ...launchInput, resumeFromSessionId: 'old' }),
+    ).rejects.toMatchObject({ reason: 'RESUME_UNSUPPORTED' });
+    expect(fixture.runtime.specs).toHaveLength(0);
+    expect(await fixture.sessions.findById('session-1')).toBeUndefined();
+  });
+  it('owns a resumed process and preserves its previous session history', async () => {
+    const fixture = createFixture();
+    const previous = setProviderSessionId(
+      recordAgentSessionEvent(
+        createAgentSession({ id: 'old', taskId: task.id, agentId: 'codex', createdAt: 1 }),
+        {
+          kind: 'RUNTIME_FAILED',
+          stage: 'RUNTIME',
+          code: 'RUNTIME_OWNERSHIP_LOST',
+          fatal: true,
+          occurredAt: 2,
+        },
+      ),
+      'provider-123',
+    );
+    await fixture.sessions.insert(previous);
+    vi.spyOn(fixture.adapter, 'inspect').mockResolvedValue({
+      kind: 'available',
+      capabilities: ['SESSION_RESUME'],
+      executablePath: 'C:\\tools\\codex.exe',
+    });
+    fixture.runtime.onOpen = (sink) => sink({ kind: 'started', sequence: 1 });
+    const resumed = await fixture.coordinator.start({ ...launchInput, resumeFromSessionId: 'old' });
+    expect(fixture.adapter.requests[0]?.resumeSessionId).toBe('provider-123');
+    expect(resumed.providerSessionId).toBe('provider-123');
+    expect(await fixture.sessions.findById('old')).toEqual(previous);
+    const attachment = await fixture.coordinator.attachTerminal({
+      sessionId: resumed.id,
+      eventSink: () => {},
+    });
+    await attachment.write('continue\r');
+    expect(fixture.runtime.handle.write).toHaveBeenCalledWith('continue\r');
+    expect(fixture.tasks.update).not.toHaveBeenCalled();
+  });
+
+  it('does not start a fresh conversation when provider resume id is absent', async () => {
+    const fixture = createFixture();
+    const previous = recordAgentSessionEvent(
+      createAgentSession({ id: 'old', taskId: task.id, agentId: 'codex', createdAt: 1 }),
+      {
+        kind: 'RUNTIME_FAILED',
+        stage: 'RUNTIME',
+        code: 'RUNTIME_OWNERSHIP_LOST',
+        fatal: true,
+        occurredAt: 2,
+      },
+    );
+    await fixture.sessions.insert(previous);
+    await expect(
+      fixture.coordinator.start({ ...launchInput, resumeFromSessionId: 'old' }),
+    ).rejects.toMatchObject({ reason: 'PROVIDER_SESSION_ID_MISSING' });
+    expect(fixture.runtime.specs).toHaveLength(0);
+  });
   it('rejects an unknown Agent before reading the Task or creating a Session', async () => {
     const fixture = createFixture();
 

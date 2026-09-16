@@ -8,22 +8,14 @@ import {
   type Task,
 } from '@agentterm/domain';
 
-import {
-  ArtifactProvenanceError,
-  EntityAlreadyExistsError,
-  EntityNotFoundError,
-} from './errors';
+import { ArtifactProvenanceError, EntityAlreadyExistsError, EntityNotFoundError } from './errors';
 import {
   recordBrainstormArtifact,
   recordSweepArtifact,
   type RecordSessionNoteDependencies,
   type RecordSessionNoteInput,
 } from './note-capture-use-cases';
-import type {
-  AgentSessionRepository,
-  ExecutionArtifactRepository,
-  TaskRepository,
-} from './ports';
+import type { AgentSessionRepository, ExecutionArtifactRepository, TaskRepository } from './ports';
 
 class InMemorySessionRepository implements AgentSessionRepository {
   public readonly sessions = new Map<string, AgentSession>();
@@ -32,10 +24,7 @@ class InMemorySessionRepository implements AgentSessionRepository {
     return this.sessions.get(id);
   }
 
-  public async insert(
-    session: AgentSession,
-    _expectedTaskPhase?: 'BACKLOG' | 'PLANNING' | 'RUNNING',
-  ): Promise<void> {
+  public async insert(session: AgentSession): Promise<void> {
     if (this.sessions.has(session.id)) {
       throw new EntityAlreadyExistsError('AgentSession', session.id);
     }
@@ -51,9 +40,7 @@ class InMemorySessionRepository implements AgentSessionRepository {
   }
 
   public async listByTaskId(taskId: string): Promise<readonly AgentSession[]> {
-    return Object.freeze(
-      [...this.sessions.values()].filter((s) => s.taskId === taskId),
-    );
+    return Object.freeze([...this.sessions.values()].filter((s) => s.taskId === taskId));
   }
 }
 
@@ -86,6 +73,30 @@ class InMemoryArtifactRepository implements ExecutionArtifactRepository {
       [...this.artifacts.values()].filter((artifact) => artifact.taskId === taskId),
     );
   }
+
+  public async listRecentByTaskId(
+    taskId: string,
+    limit: number,
+  ): Promise<readonly ExecutionArtifact[]> {
+    return limit <= 0 ? [] : (await this.listByTaskId(taskId)).slice(-limit);
+  }
+
+  public async readReviewEvidenceByTaskId(taskId: string, limit: number) {
+    const artifacts = await this.listByTaskId(taskId);
+    return {
+      evidence:
+        artifacts.length > limit
+          ? []
+          : artifacts.map(({ createdAt, id, kind, phase, sessionId }) => ({
+              createdAt,
+              id,
+              kind,
+              phase,
+              sessionId,
+            })),
+      totalCount: artifacts.length,
+    };
+  }
 }
 
 class InMemoryTaskRepository implements TaskRepository {
@@ -116,10 +127,12 @@ class InMemoryTaskRepository implements TaskRepository {
   }
 }
 
-function makeHarness(opts: {
-  readonly sessionTaskId?: string;
-  readonly taskPhase?: TaskPhase;
-} = {}): {
+function makeHarness(
+  opts: {
+    readonly sessionTaskId?: string;
+    readonly taskPhase?: TaskPhase;
+  } = {},
+): {
   dependencies: RecordSessionNoteDependencies;
   artifacts: InMemoryArtifactRepository;
   sessions: InMemorySessionRepository;
@@ -166,7 +179,7 @@ function makeInput(overrides: Partial<RecordSessionNoteInput> = {}): RecordSessi
 }
 
 describe('note-capture use cases (brainstorm / sweep)', () => {
-  it('records a brainstorm artifact bound to the Task\'s current phase', async () => {
+  it("records a brainstorm artifact bound to the Task's current phase", async () => {
     const harness = makeHarness({ taskPhase: TaskPhase.PLANNING });
     const artifact = await recordBrainstormArtifact(makeInput(), harness.dependencies);
     expect(artifact.kind).toBe(ExecutionArtifactKind.BRAINSTORM);
@@ -175,7 +188,7 @@ describe('note-capture use cases (brainstorm / sweep)', () => {
     expect(harness.artifacts.artifacts.size).toBe(1);
   });
 
-  it('records a sweep artifact bound to the Task\'s current phase', async () => {
+  it("records a sweep artifact bound to the Task's current phase", async () => {
     const harness = makeHarness({ taskPhase: TaskPhase.REVIEW });
     const artifact = await recordSweepArtifact(
       makeInput({
@@ -213,10 +226,7 @@ describe('note-capture use cases (brainstorm / sweep)', () => {
   it('rejects a brainstorm note whose heading is wrong', async () => {
     const harness = makeHarness();
     await expect(
-      recordBrainstormArtifact(
-        makeInput({ content: '# Sweep\n\nBody.' }),
-        harness.dependencies,
-      ),
+      recordBrainstormArtifact(makeInput({ content: '# Sweep\n\nBody.' }), harness.dependencies),
     ).rejects.toBeInstanceOf(TypeError);
   });
 
