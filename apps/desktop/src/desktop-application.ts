@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import {
   AgentSessionCoordinator,
+  inspectSessionRecovery,
   acceptTaskPlan,
   addTaskDependency,
   approveTaskReview,
@@ -150,6 +151,16 @@ export async function createProductionDesktopApplication(
       sessions: persistence.sessions,
       tasks: persistence.tasks,
     });
+    const recoveryDependencies = {
+      agents,
+      coordinator: sessionCoordinator,
+      git,
+      sessions: persistence.sessions,
+      tasks: persistence.tasks,
+      worktrees: persistence.worktrees,
+      qualityGateRuns: persistence.qualityGateRuns,
+      taskDependencies: persistence.taskDependencies,
+    };
     // ConPTY does not currently support cross-process attachment. Do not publish
     // recovered handles until the coordinator can own their complete lifecycle.
     const resumeAttempt = async (
@@ -166,13 +177,7 @@ export async function createProductionDesktopApplication(
             eventSink,
             initialSize,
           },
-          {
-            coordinator: sessionCoordinator,
-            git,
-            sessions: persistence.sessions,
-            tasks: persistence.tasks,
-            worktrees: persistence.worktrees,
-          },
+          recoveryDependencies,
         );
         return resumed !== undefined;
       } catch {
@@ -699,6 +704,25 @@ export async function createProductionDesktopApplication(
           },
           executionDependencies,
         );
+      },
+      inspectSessionRecovery: (input) => {
+        requireOpen();
+        return inspectSessionRecovery(input.sessionId, recoveryDependencies);
+      },
+      resumeAgentSession: async (input): Promise<void> => {
+        requireOpen();
+        const resumed = await resumeTaskSession(
+          {
+            previousSessionId: input.sessionId,
+            sessionId: randomUUID(),
+            environment,
+            initialSize: initialTerminalSize,
+            eventSink: () => {},
+          },
+          recoveryDependencies,
+        );
+        if (resumed === undefined)
+          throw new Error('Session is not eligible for resume. Refresh recovery status.');
       },
       stopAgentSession: async (input): Promise<void> => {
         requireOpen();

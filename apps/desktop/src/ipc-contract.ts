@@ -1,4 +1,5 @@
 import type {
+  SessionRecoveryReadiness,
   AgentSessionTerminalAttachment,
   AgentWorkspaceOverview,
   ApplicationSettingsView,
@@ -71,6 +72,8 @@ export const desktopIpcChannels = Object.freeze({
   retryExecution: 'agentterm:execution:retry',
   runQualityGate: 'agentterm:quality-gates:run',
   stopAgentSession: 'agentterm:session:stop',
+  inspectSessionRecovery: 'agentterm:session:inspect-recovery',
+  resumeAgentSession: 'agentterm:session:resume',
   saveQualityGateConfig: 'agentterm:quality-gates:save-config',
   saveWorkspaceLayout: 'agentterm:workspace-layout:save',
   selectQualityGateConfigPath: 'agentterm:quality-gates:select-config-path',
@@ -394,6 +397,8 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.retryExecution]: AgentTaskRequest;
   readonly [desktopIpcChannels.runQualityGate]: QualityGateRequest;
   readonly [desktopIpcChannels.stopAgentSession]: StopAgentSessionRequest;
+  readonly [desktopIpcChannels.inspectSessionRecovery]: StopAgentSessionRequest;
+  readonly [desktopIpcChannels.resumeAgentSession]: StopAgentSessionRequest;
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigRequest;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: SaveWorkspaceLayoutRequest;
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: EmptyRequest;
@@ -454,6 +459,8 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.retryExecution]: null;
   readonly [desktopIpcChannels.runQualityGate]: null;
   readonly [desktopIpcChannels.stopAgentSession]: null;
+  readonly [desktopIpcChannels.inspectSessionRecovery]: SessionRecoveryReadiness;
+  readonly [desktopIpcChannels.resumeAgentSession]: null;
   readonly [desktopIpcChannels.saveQualityGateConfig]: SaveQualityGateConfigResponse;
   readonly [desktopIpcChannels.saveWorkspaceLayout]: WorkspaceLayoutReadModel;
   readonly [desktopIpcChannels.selectQualityGateConfigPath]: SelectQualityGateConfigPathResponse;
@@ -574,6 +581,8 @@ export interface AgentTermDesktopApi {
   retryTaskExecution(input: { readonly agentId?: string; readonly taskId: string }): Promise<void>;
   runQualityGate(input: QualityGateRequest): Promise<void>;
   stopAgentSession(input: StopAgentSessionRequest): Promise<void>;
+  inspectSessionRecovery(input: StopAgentSessionRequest): Promise<SessionRecoveryReadiness>;
+  resumeAgentSession(input: StopAgentSessionRequest): Promise<void>;
   saveQualityGateConfig(
     input: SaveQualityGateConfigRequest,
   ): Promise<SaveQualityGateConfigResponse>;
@@ -756,6 +765,8 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
         subscriptionId: readSubscriptionId(record.subscriptionId),
       }) as DesktopIpcRequestMap[C];
     }
+    case desktopIpcChannels.inspectSessionRecovery:
+    case desktopIpcChannels.resumeAgentSession:
     case desktopIpcChannels.stopAgentSession: {
       const record = exactRecord(input, ['sessionId']);
       return Object.freeze({

@@ -134,6 +134,19 @@ afterEach(() => {
 });
 
 describe('ClaudeAdapter', () => {
+  it('assigns a UUID to new conversations only when the installed CLI advertises session-id', async () => {
+    const root = createTemporaryDirectory('claude-session-id');
+    const executable = createExecutable(root, executableName('claude'));
+    enqueue(successful('  --session-id <uuid>  Conversation UUID\n  --resume <id>\n'));
+    const command = await new ClaudeAdapter(executable).buildLaunchCommand({
+      environment: {},
+      workingDirectory: root,
+    });
+    expect(command.providerSessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    );
+    expect(command.arguments).toEqual(['--session-id', command.providerSessionId]);
+  });
   it('detects version and only reports resume when the installed CLI advertises it', async () => {
     const executablePath = createExecutable(
       createTemporaryDirectory('claude-inspect'),

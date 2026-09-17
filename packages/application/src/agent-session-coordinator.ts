@@ -362,6 +362,25 @@ export class AgentSessionCoordinator {
         environment: input.environment,
         workingDirectory: input.workingDirectory,
       });
+      if (command.providerSessionId !== undefined) {
+        if (providerSessionId !== undefined && command.providerSessionId !== providerSessionId) {
+          throw new AgentSessionResumeUnavailableError(
+            input.sessionId,
+            'PROVIDER_SESSION_ID_MISMATCH',
+          );
+        }
+        if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(command.providerSessionId)) {
+          throw new AgentSessionResumeUnavailableError(
+            input.sessionId,
+            'PROVIDER_SESSION_ID_MISMATCH',
+          );
+        }
+        await this.sessions.updateOwnership(starting, starting.history.length, {
+          hostOwnership: starting.hostOwnership,
+          providerSessionId: command.providerSessionId,
+        });
+        starting = setProviderSessionId(starting, command.providerSessionId);
+      }
     } catch (error) {
       await this.persistLaunchFailure(
         starting,

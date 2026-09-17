@@ -3,7 +3,11 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AgentWorkspaceOverview, PtyRuntimeEvent } from '@agentterm/application';
-import { RemoveWorkflowPluginBindingError, AdvanceActivePhaseError, WorkflowPluginUpdateError } from '@agentterm/application';
+import {
+  RemoveWorkflowPluginBindingError,
+  AdvanceActivePhaseError,
+  WorkflowPluginUpdateError,
+} from '@agentterm/application';
 
 import {
   registerDesktopIpcHandlers,
@@ -99,7 +103,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     const sender = new FakeSender(7);
 
@@ -159,7 +166,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     const sender = new FakeSender(3);
 
@@ -222,7 +232,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -274,7 +287,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     const sender = new FakeSender(5);
 
@@ -331,7 +347,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     const sender = new FakeSender(6);
 
@@ -399,7 +418,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     await expect(
       ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
@@ -464,7 +486,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     await expect(
       ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
@@ -520,7 +545,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     await expect(
       ipcMain.invoke(desktopIpcChannels.openWorktreeFile, event(sender), {
@@ -594,7 +622,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
     const owner = new FakeSender(11);
     const other = new FakeSender(12);
@@ -676,7 +707,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -724,7 +758,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: 'agtx',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -779,7 +816,10 @@ describe('desktop main IPC handlers', () => {
           pluginId: 'agtx',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     const result = await ipcMain.invoke(
@@ -842,15 +882,18 @@ describe('desktop main IPC handlers', () => {
           pluginId: '',
         }),
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
-      ipcMain.invoke(
-        desktopIpcChannels.installWorkflowPluginForTask,
-        event(new FakeSender(2)),
-        { expectedRevision: -1, path: 'C:/trusted/agtx.json', taskId: 'task-1' },
-      ),
+      ipcMain.invoke(desktopIpcChannels.installWorkflowPluginForTask, event(new FakeSender(2)), {
+        expectedRevision: -1,
+        path: 'C:/trusted/agtx.json',
+        taskId: 'task-1',
+      }),
     ).resolves.toMatchObject({ error: { code: 'INVALID_REQUEST' }, ok: false });
   });
 
@@ -891,7 +934,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     const result = await ipcMain.invoke(
@@ -944,7 +990,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -989,7 +1038,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -1034,7 +1086,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -1083,7 +1138,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     const result = await ipcMain.invoke(
@@ -1132,7 +1190,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -1177,7 +1238,10 @@ describe('desktop main IPC handlers', () => {
           };
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     const result = await ipcMain.invoke(
@@ -1186,7 +1250,13 @@ describe('desktop main IPC handlers', () => {
       { direction: 'next', expectedRevision: 6, taskId: 'task-1' },
     );
     expect(advanceCalls).toEqual([
-      { direction: 'next', expectedRevision: 6, force: undefined, phaseId: undefined, taskId: 'task-1' },
+      {
+        direction: 'next',
+        expectedRevision: 6,
+        force: undefined,
+        phaseId: undefined,
+        taskId: 'task-1',
+      },
     ]);
     expect(result).toEqual({
       ok: true,
@@ -1225,15 +1295,18 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
-      ipcMain.invoke(
-        desktopIpcChannels.advanceWorkflowPluginPhase,
-        event(new FakeSender(16)),
-        { direction: 'sideways', expectedRevision: 6, taskId: 'task-1' },
-      ),
+      ipcMain.invoke(desktopIpcChannels.advanceWorkflowPluginPhase, event(new FakeSender(16)), {
+        direction: 'sideways',
+        expectedRevision: 6,
+        taskId: 'task-1',
+      }),
     ).resolves.toMatchObject({ error: { code: 'INVALID_REQUEST' }, ok: false });
   });
 
@@ -1266,15 +1339,18 @@ describe('desktop main IPC handlers', () => {
           });
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
-      ipcMain.invoke(
-        desktopIpcChannels.advanceWorkflowPluginPhase,
-        event(new FakeSender(17)),
-        { direction: 'next', expectedRevision: 6, taskId: 'task-1' },
-      ),
+      ipcMain.invoke(desktopIpcChannels.advanceWorkflowPluginPhase, event(new FakeSender(17)), {
+        direction: 'next',
+        expectedRevision: 6,
+        taskId: 'task-1',
+      }),
     ).resolves.toMatchObject({
       error: { code: 'ARTIFACT_ALREADY_RECORDED' },
       ok: false,
@@ -1309,7 +1385,10 @@ describe('desktop main IPC handlers', () => {
           throw new Error('not used');
         },
       },
-      shell: { openExternal: async (_url: string) => undefined, openPath: async (_path: string) => '' },
+      shell: {
+        openExternal: async (_url: string) => undefined,
+        openPath: async (_path: string) => '',
+      },
     });
 
     await expect(
@@ -1327,11 +1406,13 @@ describe('desktop main IPC handlers', () => {
   it('routes openMainWindowForTask to the seam and returns null on success', async () => {
     const ipcMain = new FakeIpcMain();
     const application = createApplication();
-    const seam = vi.fn<(input: {
-      readonly focusTerminal: boolean;
-      readonly selectTask: boolean;
-      readonly taskId: string;
-    }) => void>(() => undefined);
+    const seam = vi.fn<
+      (input: {
+        readonly focusTerminal: boolean;
+        readonly selectTask: boolean;
+        readonly taskId: string;
+      }) => void
+    >(() => undefined);
     registerDesktopIpcHandlers({
       application,
       authorize: () => true,
@@ -1444,11 +1525,9 @@ describe('desktop main IPC handlers', () => {
       },
     });
     const sender = new FakeSender(2);
-    const result = await ipcMain.invoke(
-      'agentterm:window:open-main-for-task',
-      event(sender),
-      { taskId: 42 },
-    );
+    const result = await ipcMain.invoke('agentterm:window:open-main-for-task', event(sender), {
+      taskId: 42,
+    });
     expect(result).toEqual({
       error: { code: 'INVALID_REQUEST', message: expect.any(String) },
       ok: false,
@@ -1489,6 +1568,8 @@ function createApplication(
     recordBrainstormArtifact: vi.fn(unavailable),
     recordSweepArtifact: vi.fn(unavailable),
     stopAgentSession: vi.fn(unavailable),
+    inspectSessionRecovery: vi.fn(unavailable),
+    resumeAgentSession: vi.fn(unavailable),
     startTaskExecution: vi.fn(unavailable),
     startTaskPlanning: vi.fn(unavailable),
     startTaskResearch: vi.fn(unavailable),

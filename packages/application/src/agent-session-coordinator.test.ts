@@ -231,6 +231,34 @@ function createFixture(options: { readonly taskExists?: boolean } = {}) {
 }
 
 describe('AgentSessionCoordinator', () => {
+  it('does not spawn if adapter identity cannot be persisted', async () => {
+    const fixture = createFixture();
+    const build = fixture.adapter.buildLaunchCommand.bind(fixture.adapter);
+    vi.spyOn(fixture.adapter, 'buildLaunchCommand').mockImplementation(async (request) => ({
+      ...(await build(request)),
+      providerSessionId: 'provider-new',
+    }));
+    vi.spyOn(fixture.sessions, 'updateOwnership').mockRejectedValue(new Error('DB failure'));
+    await expect(fixture.coordinator.start(launchInput)).rejects.toThrow('DB failure');
+    expect(fixture.runtime.specs).toHaveLength(0);
+    expect((await fixture.sessions.findById('session-1'))?.status).toBe('FAILED');
+  });
+  it('persists adapter conversation identity before the runtime starts', async () => {
+    const fixture = createFixture();
+    const build = fixture.adapter.buildLaunchCommand.bind(fixture.adapter);
+    vi.spyOn(fixture.adapter, 'buildLaunchCommand').mockImplementation(async (request) => ({
+      ...(await build(request)),
+      providerSessionId: 'provider-new',
+    }));
+    let idAtSpawn: string | undefined;
+    const open = fixture.runtime.open.bind(fixture.runtime);
+    vi.spyOn(fixture.runtime, 'open').mockImplementation(async (spec, sink) => {
+      idAtSpawn = (await fixture.sessions.findById('session-1'))?.providerSessionId;
+      return open(spec, sink);
+    });
+    await fixture.coordinator.start(launchInput);
+    expect(idAtSpawn).toBe('provider-new');
+  });
   it('refuses resume when the configured adapter cannot resume', async () => {
     const fixture = createFixture();
     const previous = setProviderSessionId(

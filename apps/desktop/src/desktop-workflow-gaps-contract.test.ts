@@ -155,11 +155,11 @@ describe('desktop IPC workflow-gaps contract', () => {
     expect(ipcContract).toContain(
       "saveQualityGateConfig: 'agentterm:quality-gates:save-config'",
     );
-    expect(ipcContract).toContain(
-      'loadQualityGateConfig(input: QualityGateConfigPathRequest): Promise<LoadQualityGateConfigResponse>',
+    expect(ipcContract).toMatch(
+      /loadQualityGateConfig\(\s*input: QualityGateConfigPathRequest,?\s*\): Promise<LoadQualityGateConfigResponse>/u,
     );
-    expect(ipcContract).toContain(
-      'saveQualityGateConfig(input: SaveQualityGateConfigRequest): Promise<SaveQualityGateConfigResponse>',
+    expect(ipcContract).toMatch(
+      /saveQualityGateConfig\(\s*input: SaveQualityGateConfigRequest,?\s*\): Promise<SaveQualityGateConfigResponse>/u,
     );
     expect(desktopBridge).toContain(
       'loadQualityGateConfig: (input) => invoke(desktopIpcChannels.loadQualityGateConfig, input)',

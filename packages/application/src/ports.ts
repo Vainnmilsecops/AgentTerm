@@ -53,6 +53,8 @@ export interface AgentLaunchRequest {
 }
 
 export interface AgentLaunchCommand extends AgentLaunchRequest {
+  /** Exact conversation identity selected by the adapter, persisted before spawn. */
+  readonly providerSessionId?: string;
   readonly arguments: readonly string[];
   readonly executablePath: string;
 }
