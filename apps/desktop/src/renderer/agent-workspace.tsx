@@ -19,6 +19,7 @@ import { WorkspaceFooterStatus } from './workspace-footer-status';
 import { WorkspaceSettingsGear } from './workspace-settings-gear';
 import { WorkspaceIcon } from './workspace-icons';
 import { SettingsPanel } from './settings-panel';
+import { SessionRecoveryPanel } from './session-recovery-panel';
 import { EmptyState } from './empty-state';
 import { ContextCard } from './context-card';
 import { ArtifactProducer } from './artifact-producer';
@@ -1562,6 +1563,16 @@ export function AgentWorkspaceView({
                       {planningAttempt ? 'Alt+P' : selected.canRetryExecution ? 'Alt+R' : 'Alt+S'}
                     </kbd>
                   </button>
+                  {client !== undefined &&
+                  selected.latestSession !== undefined &&
+                  selected.activeSession === undefined ? (
+                    <SessionRecoveryPanel
+                      key={selected.latestSession.id}
+                      client={client}
+                      sessionId={selected.latestSession.id}
+                      onResumed={onRefresh}
+                    />
+                  ) : null}
                   {selected.canAcceptPlan && selected.latestPlan !== undefined ? (
                     <button
                       className="primary-action button-with-hint"

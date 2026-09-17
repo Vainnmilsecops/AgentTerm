@@ -376,6 +376,15 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.stopAgentSession],
         );
         return null;
+      case desktopIpcChannels.inspectSessionRecovery:
+        return application.inspectSessionRecovery(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.inspectSessionRecovery],
+        );
+      case desktopIpcChannels.resumeAgentSession:
+        await application.resumeAgentSession(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.resumeAgentSession],
+        );
+        return null;
       case desktopIpcChannels.listTaskChanges:
         return application.listTaskChanges(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskChanges],

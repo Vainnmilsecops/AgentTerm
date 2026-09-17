@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type {
   AgentAdapter,
   AgentAvailability,
@@ -71,9 +73,19 @@ export class ClaudeAdapter implements AgentAdapter {
       CLAUDE_PACKAGE,
     );
     const validated = await validateAgentLaunchRequest(request, invocation);
-    const resumeArguments =
-      validated.resumeSessionId === undefined ? [] : ['--resume', validated.resumeSessionId];
+    let providerSessionId = validated.resumeSessionId;
+    let resumeArguments: string[];
+    if (providerSessionId !== undefined) {
+      resumeArguments = ['--resume', providerSessionId];
+    } else {
+      const help = await executeAgentCliProbe(invocation, ['--help']).catch(() => undefined);
+      if (help?.exitCode === 0 && /(?:^|\s)--session-id(?:\s|=)/u.test(help.stdout)) {
+        providerSessionId = randomUUID();
+      }
+      resumeArguments = providerSessionId === undefined ? [] : ['--session-id', providerSessionId];
+    }
     return {
+      ...(providerSessionId === undefined ? {} : { providerSessionId }),
       arguments: [...invocation.prefixArguments, ...resumeArguments],
       environment: validated.environment,
       executablePath: invocation.executablePath,

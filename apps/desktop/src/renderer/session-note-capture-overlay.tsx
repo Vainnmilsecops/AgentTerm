@@ -4,7 +4,7 @@ import type {
   ExecutionArtifact,
   ExecutionArtifactKindValue,
 } from '@agentterm/application';
-import { ExecutionArtifactKind } from '@agentterm/application';
+import { ExecutionArtifactKindValue as ExecutionArtifactKind } from '@agentterm/application';
 
 export type SessionNoteKind = Extract<
   ExecutionArtifactKindValue,

@@ -8,6 +8,28 @@ import {
 } from './ipc-contract';
 
 describe('desktop IPC contract validation', () => {
+  it('accepts only a local session identity for recovery operations', () => {
+    for (const channel of [
+      desktopIpcChannels.inspectSessionRecovery,
+      desktopIpcChannels.resumeAgentSession,
+    ]) {
+      expect(validateDesktopIpcRequest(channel, { sessionId: 'session-1' })).toEqual({
+        sessionId: 'session-1',
+      });
+      expect(() =>
+        validateDesktopIpcRequest(channel, {
+          sessionId: 'session-1',
+          providerSessionId: 'injected',
+        }),
+      ).toThrow(DesktopIpcRequestValidationError);
+      expect(() =>
+        validateDesktopIpcRequest(channel, {
+          sessionId: 'session-1',
+          workingDirectory: 'C:\\other',
+        }),
+      ).toThrow(DesktopIpcRequestValidationError);
+    }
+  });
   it('accepts one exact allowlisted execution request', () => {
     expect(
       validateDesktopIpcRequest(desktopIpcChannels.startExecution, {
@@ -101,14 +123,11 @@ describe('desktop IPC contract validation', () => {
         path: 'C:/agentterm/quality-gates.json',
       },
     ],
-  ] as const)(
-    'rejects malformed or over-capability payloads for %s',
-    (channel, payload) => {
-      expect(() => validateDesktopIpcRequest(channel, payload)).toThrow(
-        DesktopIpcRequestValidationError,
-      );
-    },
-  );
+  ] as const)('rejects malformed or over-capability payloads for %s', (channel, payload) => {
+    expect(() => validateDesktopIpcRequest(channel, payload)).toThrow(
+      DesktopIpcRequestValidationError,
+    );
+  });
 
   it('accepts bounded onboarding requests without exposing a filesystem path', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.openProject, {})).toEqual({});
@@ -149,40 +168,40 @@ describe('desktop IPC contract validation', () => {
     ).toThrow(DesktopIpcRequestValidationError);
   });
 
-  it.each([
-    desktopIpcChannels.recordBrainstormArtifact,
-    desktopIpcChannels.recordSweepArtifact,
-  ])('accepts %s with a complete provenance envelope', (channel) => {
-    expect(
-      validateDesktopIpcRequest(channel, {
+  it.each([desktopIpcChannels.recordBrainstormArtifact, desktopIpcChannels.recordSweepArtifact])(
+    'accepts %s with a complete provenance envelope',
+    (channel) => {
+      expect(
+        validateDesktopIpcRequest(channel, {
+          content: '# Brainstorm\n\nBody.',
+          createdAt: 1_700_000_000_000,
+          id: 'artifact-1',
+          sessionId: 'session-1',
+          taskId: 'task-1',
+        }),
+      ).toEqual({
         content: '# Brainstorm\n\nBody.',
         createdAt: 1_700_000_000_000,
         id: 'artifact-1',
         sessionId: 'session-1',
         taskId: 'task-1',
-      }),
-    ).toEqual({
-      content: '# Brainstorm\n\nBody.',
-      createdAt: 1_700_000_000_000,
-      id: 'artifact-1',
-      sessionId: 'session-1',
-      taskId: 'task-1',
-    });
-  });
+      });
+    },
+  );
 
-  it.each([
-    desktopIpcChannels.recordBrainstormArtifact,
-    desktopIpcChannels.recordSweepArtifact,
-  ])('rejects %s with a missing field', (channel) => {
-    expect(() =>
-      validateDesktopIpcRequest(channel, {
-        content: '# Brainstorm\n\nBody.',
-        createdAt: 1_700_000_000_000,
-        id: 'artifact-1',
-        taskId: 'task-1',
-      }),
-    ).toThrow(DesktopIpcRequestValidationError);
-  });
+  it.each([desktopIpcChannels.recordBrainstormArtifact, desktopIpcChannels.recordSweepArtifact])(
+    'rejects %s with a missing field',
+    (channel) => {
+      expect(() =>
+        validateDesktopIpcRequest(channel, {
+          content: '# Brainstorm\n\nBody.',
+          createdAt: 1_700_000_000_000,
+          id: 'artifact-1',
+          taskId: 'task-1',
+        }),
+      ).toThrow(DesktopIpcRequestValidationError);
+    },
+  );
 
   it('accepts a loadWorkspaceLayout empty payload and a bounded saveWorkspaceLayout payload', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.loadWorkspaceLayout, {})).toEqual({});
@@ -220,9 +239,18 @@ describe('desktop IPC contract validation', () => {
   it.each([
     [desktopIpcChannels.startExecution, { agentId: 'claude', taskId: ' ', token: 'secret' }],
     [desktopIpcChannels.startResearch, { agentId: 'claude', taskId: ' ', token: 'secret' }],
-    [desktopIpcChannels.recordBrainstormArtifact, { content: 'no heading', createdAt: 1, id: 'a', sessionId: ' ', taskId: 't' }],
-    [desktopIpcChannels.recordSweepArtifact, { content: '# Brainstorm\n\nBody.', createdAt: -1, id: 'a', sessionId: 's', taskId: 't' }],
-    [desktopIpcChannels.recordBrainstormArtifact, { content: '# Brainstorm\n\nBody.', createdAt: 1, id: ' ', sessionId: 's', taskId: 't' }],
+    [
+      desktopIpcChannels.recordBrainstormArtifact,
+      { content: 'no heading', createdAt: 1, id: 'a', sessionId: ' ', taskId: 't' },
+    ],
+    [
+      desktopIpcChannels.recordSweepArtifact,
+      { content: '# Brainstorm\n\nBody.', createdAt: -1, id: 'a', sessionId: 's', taskId: 't' },
+    ],
+    [
+      desktopIpcChannels.recordBrainstormArtifact,
+      { content: '# Brainstorm\n\nBody.', createdAt: 1, id: ' ', sessionId: 's', taskId: 't' },
+    ],
     [desktopIpcChannels.getTaskFileDiff, { area: 'UNSTAGED', path: '../secret', taskId: 'task-1' }],
     [desktopIpcChannels.terminalResize, { columns: 0, rows: 24, subscriptionId: 'sub-1' }],
     [desktopIpcChannels.updateSettings, { expectedRevision: -1 }],

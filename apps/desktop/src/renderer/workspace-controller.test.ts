@@ -590,6 +590,12 @@ const pendingReviewOverview = Object.freeze({
 }) as AgentWorkspaceOverview;
 
 class FakeWorkspaceClient implements AgentWorkspaceClient {
+  public readonly inspectSessionRecovery = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+    sessionId,
+    canResume: false,
+    reason: 'PROVIDER_ID_MISSING' as const,
+  }));
+  public readonly resumeAgentSession = vi.fn(async () => undefined);
   public readonly addTaskDependency = vi.fn<AgentWorkspaceClient['addTaskDependency']>(
     async (input) => ({
       dependencyTaskId: input.dependencyTaskId,

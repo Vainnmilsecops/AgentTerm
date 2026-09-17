@@ -30,6 +30,16 @@ class FakeIpcRenderer implements DesktopIpcRenderer {
 }
 
 describe('desktop preload bridge', () => {
+  it('routes resume and readiness through their typed channels', async () => {
+    const ipc = new FakeIpcRenderer();
+    const bridge = createDesktopBridge(ipc, () => 'subscription');
+    await bridge.api.inspectSessionRecovery({ sessionId: 'old' });
+    await bridge.api.resumeAgentSession({ sessionId: 'old' });
+    expect(ipc.calls).toEqual([
+      { channel: desktopIpcChannels.inspectSessionRecovery, input: { sessionId: 'old' } },
+      { channel: desktopIpcChannels.resumeAgentSession, input: { sessionId: 'old' } },
+    ]);
+  });
   it('exposes only the typed AgentTerm capability allowlist', () => {
     const lifecycle = createDesktopBridge(new FakeIpcRenderer(), () => 'sub-1');
 
@@ -46,6 +56,7 @@ describe('desktop preload bridge', () => {
       'createTaskPullRequest',
       'getTaskFileDiff',
       'importQualityGateConfig',
+      'inspectSessionRecovery',
       'inspectTaskPullRequest',
       'installWorkflowPluginForTask',
       'listProjectTasks',
@@ -74,6 +85,7 @@ describe('desktop preload bridge', () => {
       'requestMergeConflictResolution',
       'requestTaskChanges',
       'requestTaskReview',
+      'resumeAgentSession',
       'retryTaskExecution',
       'runQualityGate',
       'saveQualityGateConfig',

@@ -208,6 +208,8 @@ export function createDesktopBridge(
     retryTaskExecution: (input) => invokeVoid(desktopIpcChannels.retryExecution, input),
     runQualityGate: (input) => invokeVoid(desktopIpcChannels.runQualityGate, input),
     stopAgentSession: (input) => invokeVoid(desktopIpcChannels.stopAgentSession, input),
+    inspectSessionRecovery: (input) => invoke(desktopIpcChannels.inspectSessionRecovery, input),
+    resumeAgentSession: (input) => invokeVoid(desktopIpcChannels.resumeAgentSession, input),
     saveQualityGateConfig: (input) => invoke(desktopIpcChannels.saveQualityGateConfig, input),
     saveWorkspaceLayout: (input) => invoke(desktopIpcChannels.saveWorkspaceLayout, input),
     selectQualityGateConfigPath: () => invoke(desktopIpcChannels.selectQualityGateConfigPath, {}),

@@ -433,3 +433,8 @@ export {
 } from './task-merge-conflict-use-cases';
 export type { ProbeTaskMergeConflictsInput, TaskMergeConflictProbe } from './ports';
 export { resumeTaskSession, type ResumeTaskSessionDependencies } from './resume-task-session';
+export {
+  inspectSessionRecovery,
+  type SessionRecoveryReadiness,
+  type SessionRecoveryReason,
+} from './session-recovery-readiness';

@@ -12,7 +12,12 @@ try {
   await build({
     configFile: false,
     base: './',
-    root: resolve(directory, '../tests/electron/input-reliability'),
+    root: resolve(
+      directory,
+      process.argv.includes('--session-recovery')
+        ? '../tests/electron/session-recovery'
+        : '../tests/electron/input-reliability',
+    ),
     build: { outDir: output, emptyOutDir: false },
   });
   const env = { ...process.env };

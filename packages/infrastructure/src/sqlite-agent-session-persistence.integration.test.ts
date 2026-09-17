@@ -51,6 +51,30 @@ async function seedTask(
 }
 
 describe('SQLite Agent Session persistence', () => {
+  it('retains adapter conversation identity across database reopen without changing history', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath);
+      const starting = startingSession('session-provider');
+      const persistence = openSqlitePersistence(databasePath);
+      try {
+        await persistence.sessions.insert(starting);
+        await persistence.sessions.updateOwnership(starting, starting.history.length, {
+          hostOwnership: undefined,
+          providerSessionId: '550e8400-e29b-41d4-a716-446655440000',
+        });
+      } finally {
+        persistence.close();
+      }
+      const reopened = openSqlitePersistence(databasePath);
+      try {
+        const restored = await reopened.sessions.findById(starting.id);
+        expect(restored?.providerSessionId).toBe('550e8400-e29b-41d4-a716-446655440000');
+        expect(restored?.history).toEqual(starting.history);
+      } finally {
+        reopened.close();
+      }
+    });
+  });
   it('admits planning sessions only while Task remains exactly PLANNING', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       await seedTask(databasePath, TaskPhase.PLANNING);
