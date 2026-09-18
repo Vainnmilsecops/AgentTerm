@@ -438,3 +438,11 @@ export {
   type SessionRecoveryReadiness,
   type SessionRecoveryReason,
 } from './session-recovery-readiness';
+export { importTaskContext, validateContextBatch, TaskContextError } from './task-context';
+export type {
+  TaskContextAttachment,
+  TaskContextFile,
+  TaskContextStore,
+  TaskContextRepository,
+  TaskContextDependencies,
+} from './task-context';

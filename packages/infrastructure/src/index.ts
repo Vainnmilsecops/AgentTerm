@@ -42,3 +42,4 @@ export {
   type CreateWorkflowPluginConfiguratorOptions,
   type WorkflowPluginConfiguratorFileSystem,
 } from "./workflow/plugin-configurator";
+export { ManagedTaskContextStore } from './task-context-store';

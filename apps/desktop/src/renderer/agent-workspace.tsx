@@ -20,6 +20,7 @@ import { WorkspaceSettingsGear } from './workspace-settings-gear';
 import { WorkspaceIcon } from './workspace-icons';
 import { SettingsPanel } from './settings-panel';
 import { SessionRecoveryPanel } from './session-recovery-panel';
+import { TaskContextPanel } from './task-context-panel';
 import { EmptyState } from './empty-state';
 import { ContextCard } from './context-card';
 import { ArtifactProducer } from './artifact-producer';
@@ -1563,6 +1564,14 @@ export function AgentWorkspaceView({
                       {planningAttempt ? 'Alt+P' : selected.canRetryExecution ? 'Alt+R' : 'Alt+S'}
                     </kbd>
                   </button>
+                  {client !== undefined && (
+                    <TaskContextPanel
+                      key={`context-${selected.task.id}-${selected.latestSession?.id ?? 'none'}`}
+                      client={client}
+                      taskId={selected.task.id}
+                      sessionId={selected.latestSession?.id}
+                    />
+                  )}
                   {client !== undefined &&
                   selected.latestSession !== undefined &&
                   selected.activeSession === undefined ? (

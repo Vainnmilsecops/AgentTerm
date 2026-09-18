@@ -596,6 +596,8 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     reason: 'PROVIDER_ID_MISSING' as const,
   }));
   public readonly resumeAgentSession = vi.fn(async () => undefined);
+  public readonly importTaskContext = vi.fn(async () => []);
+  public readonly listTaskContext = vi.fn(async () => []);
   public readonly addTaskDependency = vi.fn<AgentWorkspaceClient['addTaskDependency']>(
     async (input) => ({
       dependencyTaskId: input.dependencyTaskId,
