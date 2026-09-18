@@ -1,4 +1,6 @@
 import { createRequire } from 'node:module';
+import type { TaskContextRepository } from '@agentterm/application';
+import { SqliteTaskContextRepository } from './task-context-repository';
 
 import type {
   AgentSessionRepository,
@@ -44,6 +46,7 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
+  readonly contextAttachments: TaskContextRepository;
   readonly artifacts: ExecutionArtifactRepository & TaskPlanningArtifactRepository;
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
   readonly pullRequests: PullRequestRepository;
@@ -113,6 +116,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let isClosed = false;
 
   return Object.freeze({
+    contextAttachments: new SqliteTaskContextRepository(database),
     artifacts,
     projects,
     pullRequests,

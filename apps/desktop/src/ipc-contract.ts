@@ -1,4 +1,6 @@
 import type {
+  TaskContextAttachment,
+  TaskContextFile,
   SessionRecoveryReadiness,
   AgentSessionTerminalAttachment,
   AgentWorkspaceOverview,
@@ -32,6 +34,8 @@ import {
 } from '@agentterm/application';
 
 export const desktopIpcChannels = Object.freeze({
+  importTaskContext: 'agentterm:context:import',
+  listTaskContext: 'agentterm:context:list',
   acceptPlan: 'agentterm:planning:accept',
   addTaskDependency: 'agentterm:task-dependency:add',
   approveReview: 'agentterm:review:approve',
@@ -355,6 +359,8 @@ interface TerminalWriteRequest extends TerminalSubscriptionRequest {
 interface TerminalResizeRequest extends PtyTerminalSize, TerminalSubscriptionRequest {}
 
 export interface DesktopIpcRequestMap {
+  readonly [desktopIpcChannels.importTaskContext]: ImportTaskContextRequest;
+  readonly [desktopIpcChannels.listTaskContext]: { readonly taskId: string };
   readonly [desktopIpcChannels.acceptPlan]: PlanRequest;
   readonly [desktopIpcChannels.addTaskDependency]: TaskDependencyEdgeRequest;
   readonly [desktopIpcChannels.approveReview]: ReviewRequest;
@@ -417,6 +423,8 @@ export interface DesktopIpcRequestMap {
 }
 
 export interface DesktopIpcResponseMap {
+  readonly [desktopIpcChannels.importTaskContext]: readonly TaskContextAttachment[];
+  readonly [desktopIpcChannels.listTaskContext]: readonly TaskContextAttachment[];
   readonly [desktopIpcChannels.acceptPlan]: null;
   readonly [desktopIpcChannels.addTaskDependency]: TaskDependency;
   readonly [desktopIpcChannels.approveReview]: null;
@@ -514,7 +522,15 @@ export interface WorkspaceFocusTaskEvent {
   readonly taskId: string;
 }
 
+export interface ImportTaskContextRequest {
+  readonly taskId: string;
+  readonly sessionId: string;
+  readonly files: readonly TaskContextFile[];
+}
+
 export interface AgentTermDesktopApi {
+  importTaskContext(input: ImportTaskContextRequest): Promise<readonly TaskContextAttachment[]>;
+  listTaskContext(input: { readonly taskId: string }): Promise<readonly TaskContextAttachment[]>;
   acceptTaskPlan(input: PlanRequest): Promise<void>;
   addTaskDependency(input: TaskDependencyEdgeRequest): Promise<TaskDependency>;
   approveTaskReview(input: ReviewRequest): Promise<void>;
@@ -764,6 +780,37 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
         rows: readTerminalDimension(record.rows),
         subscriptionId: readSubscriptionId(record.subscriptionId),
       }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.importTaskContext: {
+      const record = exactRecord(input, ['taskId', 'sessionId', 'files']);
+      if (!Array.isArray(record.files) || record.files.length < 1 || record.files.length > 8)
+        fail();
+      let total = 0;
+      const files = record.files.map((entry: unknown) => {
+        const file = exactRecord(entry, ['name', 'mime', 'bytes']);
+        if (
+          !(file.bytes instanceof Uint8Array) ||
+          file.bytes.byteLength < 1 ||
+          file.bytes.byteLength > 8 * 1024 * 1024
+        )
+          fail();
+        total += file.bytes.byteLength;
+        if (total > 32 * 1024 * 1024) fail();
+        return {
+          name: readBoundedString(file.name, 120),
+          mime: file.mime === '' ? '' : readBoundedString(file.mime, 100),
+          bytes: file.bytes,
+        };
+      });
+      return {
+        taskId: readIdentity(record.taskId),
+        sessionId: readIdentity(record.sessionId),
+        files,
+      } as unknown as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.listTaskContext: {
+      const record = exactRecord(input, ['taskId']);
+      return { taskId: readIdentity(record.taskId) } as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.inspectSessionRecovery:
     case desktopIpcChannels.resumeAgentSession:

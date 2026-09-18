@@ -146,6 +146,7 @@ describe('SQLite migrations', () => {
           'project_roots',
           'projects',
           'quality_gate_runs',
+          'task_context_attachments',
           'task_dependencies',
           'task_pull_request_sync_history',
           'task_pull_requests',
@@ -181,6 +182,7 @@ describe('SQLite migrations', () => {
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
+          { name: 'task-context-attachments', version: 22 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -414,6 +416,7 @@ describe('SQLite migrations', () => {
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
+          { name: 'task-context-attachments', version: 22 },
         ]);
       } finally {
         migrated.close();
@@ -499,6 +502,7 @@ describe('SQLite migrations', () => {
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
+          { name: 'task-context-attachments', version: 22 },
         ]);
       } finally {
         migrated.close();
@@ -603,6 +607,7 @@ describe('SQLite migrations', () => {
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
+          { name: 'task-context-attachments', version: 22 },
         ]);
       } finally {
         migrated.close();
@@ -678,6 +683,7 @@ describe('SQLite migrations', () => {
           { name: 'task-transition-audit', version: 19 },
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
+          { name: 'task-context-attachments', version: 22 },
         ]);
       } finally {
         migrated.close();
@@ -801,8 +807,15 @@ describe('SQLite migrations', () => {
           expect.objectContaining({ name: 'application-settings-mcp-token', version: 17 }),
           expect.objectContaining({ name: 'application-settings-clipboard-access', version: 18 }),
           expect.objectContaining({ name: 'task-transition-audit', version: 19 }),
-          expect.objectContaining({ name: 'application-settings-research-auto-advance', version: 20 }),
-          expect.objectContaining({ name: 'execution-artifact-brainstorm-sweep-kind', version: 21 }),
+          expect.objectContaining({
+            name: 'application-settings-research-auto-advance',
+            version: 20,
+          }),
+          expect.objectContaining({
+            name: 'execution-artifact-brainstorm-sweep-kind',
+            version: 21,
+          }),
+          expect.objectContaining({ name: 'task-context-attachments', version: 22 }),
         ]);
       } finally {
         migrated.close();

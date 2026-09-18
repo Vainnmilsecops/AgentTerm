@@ -4,6 +4,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 import {
   AgentSessionCoordinator,
+  importTaskContext,
   inspectSessionRecovery,
   acceptTaskPlan,
   addTaskDependency,
@@ -63,6 +64,7 @@ import type {
 } from '@agentterm/application';
 import {
   BoundedPaneSnapshotRecorder,
+  ManagedTaskContextStore,
   BuiltInAgentConfigurationInspector,
   GitCliTaskMergeConflictProbe,
   GitCliTaskReviewCodeInspector,
@@ -131,6 +133,7 @@ export async function createProductionDesktopApplication(
   const persistence = openSqlitePersistence(join(dataDirectory, 'agentterm.db'));
   try {
     const clock = options.clock ?? Date.now;
+    const contextStore = new ManagedTaskContextStore(join(dataDirectory, 'task-context'));
     const environment = snapshotLaunchEnvironment(options.environment ?? process.env);
     const shellOpenPath = options.shellOpenPath ?? (async (): Promise<string> => '');
     const settings = await persistence.settings.get();
@@ -708,6 +711,20 @@ export async function createProductionDesktopApplication(
       inspectSessionRecovery: (input) => {
         requireOpen();
         return inspectSessionRecovery(input.sessionId, recoveryDependencies);
+      },
+      importTaskContext: (input) => {
+        requireOpen();
+        return importTaskContext(input, {
+          tasks: persistence.tasks,
+          sessions: persistence.sessions,
+          repository: persistence.contextAttachments,
+          store: contextStore,
+          clock,
+        });
+      },
+      listTaskContext: (input) => {
+        requireOpen();
+        return persistence.contextAttachments.listByTaskId(input.taskId);
       },
       resumeAgentSession: async (input): Promise<void> => {
         requireOpen();

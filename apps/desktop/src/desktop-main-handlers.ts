@@ -122,6 +122,7 @@ const conflictErrors = new Set([
 const notFoundErrors = new Set(['AgentSessionRuntimeOwnershipError', 'EntityNotFoundError']);
 const unavailableErrors = new Set(['AgentNotConfiguredError']);
 const expectedApplicationErrors = new Set([
+  'TaskContextError',
   'AgentAdapterError',
   'AgentSessionPersistenceError',
   'AgentSessionRuntimeOwnershipError',
@@ -379,6 +380,14 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
       case desktopIpcChannels.inspectSessionRecovery:
         return application.inspectSessionRecovery(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.inspectSessionRecovery],
+        );
+      case desktopIpcChannels.importTaskContext:
+        return application.importTaskContext(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.importTaskContext],
+        );
+      case desktopIpcChannels.listTaskContext:
+        return application.listTaskContext(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskContext],
         );
       case desktopIpcChannels.resumeAgentSession:
         await application.resumeAgentSession(
