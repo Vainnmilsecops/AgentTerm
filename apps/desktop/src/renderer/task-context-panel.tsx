@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TaskContextAttachment } from '@agentterm/application';
 import type { AgentTermDesktopApi } from '../ipc-contract';
+import { ContextHandoffPanel } from './context-handoff-panel';
 
 function FilePreview({ file }: { readonly file: File }) {
   const [url, setUrl] = useState<string>();
@@ -29,7 +30,10 @@ export function TaskContextPanel({
   taskId,
   sessionId,
 }: {
-  readonly client: Pick<AgentTermDesktopApi, 'importTaskContext' | 'listTaskContext'>;
+  readonly client: Pick<
+    AgentTermDesktopApi,
+    'importTaskContext' | 'listTaskContext' | 'inspectContextHandoff' | 'prepareContextHandoff'
+  >;
   readonly taskId: string;
   readonly sessionId: string | undefined;
 }) {
@@ -213,18 +217,17 @@ export function TaskContextPanel({
       >
         Refresh
       </button>
-      <button
-        type="button"
-        className="secondary-action"
-        disabled
-        aria-describedby="context-delivery-unavailable"
-      >
-        Send to agent
-      </button>
-      <p id="context-delivery-unavailable">
-        Context delivery is not enabled for this adapter. Files stay in AgentTerm storage; no
-        terminal input is generated.
-      </p>
+      {sessionId ? (
+        <ContextHandoffPanel
+          key={`${taskId}-${sessionId}`}
+          client={client}
+          taskId={taskId}
+          sessionId={sessionId}
+          items={items}
+        />
+      ) : (
+        <p>Start a session before preparing context handoff.</p>
+      )}
     </section>
   );
 }

@@ -597,6 +597,16 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   }));
   public readonly resumeAgentSession = vi.fn(async () => undefined);
   public readonly importTaskContext = vi.fn(async () => []);
+  public readonly inspectContextHandoff = vi.fn(async () => ({
+    canPrepare: false,
+    reason: 'Unsupported',
+  }));
+  public readonly prepareContextHandoff = vi.fn(async () => ({
+    sessionId: '',
+    agentName: '',
+    prompt: '',
+    relativePaths: [],
+  }));
   public readonly listTaskContext = vi.fn(async () => []);
   public readonly addTaskDependency = vi.fn<AgentWorkspaceClient['addTaskDependency']>(
     async (input) => ({

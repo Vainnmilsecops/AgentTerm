@@ -385,6 +385,14 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.importTaskContext(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.importTaskContext],
         );
+      case desktopIpcChannels.inspectContextHandoff:
+        return application.inspectContextHandoff(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.inspectContextHandoff],
+        );
+      case desktopIpcChannels.prepareContextHandoff:
+        return application.prepareContextHandoff(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.prepareContextHandoff],
+        );
       case desktopIpcChannels.listTaskContext:
         return application.listTaskContext(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskContext],

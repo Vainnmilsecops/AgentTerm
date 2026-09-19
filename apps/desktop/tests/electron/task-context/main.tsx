@@ -14,8 +14,29 @@ async function verify() {
     }
   };
   let calls = 0;
+  let handoffs = 0;
   let records: readonly TaskContextAttachment[] = [];
   const client = {
+    inspectContextHandoff: async () => ({ canPrepare: true, reason: 'Text context supported' }),
+    prepareContextHandoff: async (input: {
+      sessionId: string;
+      attachmentIds: readonly string[];
+      confirmWorktreeCopy: true;
+    }) => {
+      if (
+        input.sessionId !== 'session' ||
+        input.attachmentIds[0] !== 'attachment' ||
+        input.confirmWorktreeCopy !== true
+      )
+        throw new Error('Wrong handoff target');
+      handoffs++;
+      return {
+        sessionId: 'session',
+        agentName: 'Test agent',
+        prompt: 'Review @agentterm-context/file.txt',
+        relativePaths: ['agentterm-context/file.txt'],
+      };
+    },
     listTaskContext: async () => records,
     importTaskContext: async (input: {
       taskId: string;
@@ -55,6 +76,15 @@ async function verify() {
       ],
     });
     if (transported[0]?.id !== 'ipc-record') throw new Error('Preload IPC round trip failed');
+    if (!(await bridge.inspectContextHandoff({ taskId: 'task', sessionId: 'session' })).canPrepare)
+      throw new Error('Handoff readiness IPC failed');
+    const handoff = await bridge.prepareContextHandoff({
+      taskId: 'task',
+      sessionId: 'session',
+      attachmentIds: ['ipc-record'],
+      confirmWorktreeCopy: true,
+    });
+    if (handoff.sessionId !== 'session') throw new Error('Handoff preparation IPC failed');
     root.render(<TaskContextPanel client={client} taskId="task" sessionId="session" />);
     await until(() => container.querySelector('input') !== null);
     const transfer = new DataTransfer();
@@ -72,6 +102,18 @@ async function verify() {
       throw new Error('Duplicate or misdirected import');
     if (document.activeElement !== container.querySelector('section'))
       throw new Error('Focus was lost after import');
+    await until(() => container.querySelector('[data-context-handoff-select]') !== null);
+    container.querySelector<HTMLInputElement>('[data-context-handoff-select]')!.click();
+    const prepare = container.querySelector<HTMLButtonElement>('[data-context-handoff-prepare]')!;
+    if (!prepare.disabled) throw new Error('Worktree copy must require consent');
+    container.querySelector<HTMLInputElement>('[data-context-handoff-consent]')!.click();
+    await until(() => !prepare.disabled);
+    prepare.click();
+    prepare.click();
+    await until(
+      () => container.querySelector('textarea')?.value.includes('@agentterm-context/') === true,
+    );
+    if (handoffs !== 1) throw new Error('Duplicate handoff preparation');
     const drop = new DataTransfer();
     drop.items.add(
       new File([new Uint8Array(8 * 1024 * 1024 + 1)], 'large.txt', { type: 'text/plain' }),

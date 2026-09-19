@@ -6,6 +6,8 @@ import {
   validateContextBatch,
   type TaskContextFile,
   type TaskContextStore,
+  type TaskContextAttachment,
+  type TaskContextExporter,
 } from '@agentterm/application';
 
 const types: Readonly<Record<string, string>> = {
@@ -107,10 +109,58 @@ async function ensureDirectory(path: string): Promise<void> {
   }
   await assertDirectory(path);
 }
-export class ManagedTaskContextStore implements TaskContextStore {
+export class ManagedTaskContextStore implements TaskContextStore, TaskContextExporter {
   private readonly root: string;
   constructor(root: string) {
     this.root = resolve(root);
+  }
+  async exportToWorktree(record: TaskContextAttachment, worktreePath: string): Promise<string> {
+    try {
+      const extensions: Readonly<Record<string, string>> = {
+        'text/plain': 'txt',
+        'text/markdown': 'md',
+        'application/json': 'json',
+      };
+      const extension = extensions[record.mime];
+      if (
+        !extension ||
+        record.size < 1 ||
+        record.size > 65536 ||
+        !/^[0-9a-f]{64}$/u.test(record.digest) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(record.id)
+      )
+        throw new TaskContextError('TYPE');
+      const source = join(
+        this.root,
+        createHash('sha256').update(record.taskId).digest('hex'),
+        record.id,
+      );
+      const bytes = await readVerifiedContext(source, record);
+      inspect({ name: record.name, mime: record.mime, bytes });
+      await assertDirectory(worktreePath);
+      const targetRoot = join(worktreePath, 'agentterm-context');
+      await ensureDirectory(targetRoot);
+      const relativePath = `agentterm-context/${record.id}.${extension}`;
+      const target = join(worktreePath, relativePath);
+      let handle;
+      try {
+        handle = await open(target, 'wx', 0o600);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        await readVerifiedContext(target, record);
+        return relativePath;
+      }
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await readVerifiedContext(target, record);
+      return relativePath;
+    } catch {
+      throw new TaskContextError('SAVE_FAILED');
+    }
   }
   async put(taskId: string, file: TaskContextFile) {
     validateContextBatch([file]);
@@ -136,5 +186,52 @@ export class ManagedTaskContextStore implements TaskContextStore {
       size: file.bytes.byteLength,
       digest: createHash('sha256').update(file.bytes).digest('hex'),
     });
+  }
+}
+
+async function readVerifiedContext(path: string, record: TaskContextAttachment): Promise<Buffer> {
+  await assertDirectory(dirname(path));
+  const before = await lstat(path);
+  if (
+    !before.isFile() ||
+    before.isSymbolicLink() ||
+    before.nlink !== 1 ||
+    before.size !== record.size
+  )
+    throw new TaskContextError('SAVE_FAILED');
+  const handle = await open(path, 'r');
+  try {
+    const opened = await handle.stat();
+    if (
+      opened.ino !== before.ino ||
+      opened.dev !== before.dev ||
+      opened.nlink !== 1 ||
+      !opened.isFile()
+    )
+      throw new TaskContextError('SAVE_FAILED');
+    const buffer = Buffer.alloc(record.size + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+    if (
+      length !== record.size ||
+      createHash('sha256').update(buffer.subarray(0, length)).digest('hex') !== record.digest
+    )
+      throw new TaskContextError('SAVE_FAILED');
+    await assertDirectory(dirname(path));
+    const after = await lstat(path);
+    if (
+      after.isSymbolicLink() ||
+      after.ino !== before.ino ||
+      after.dev !== before.dev ||
+      after.nlink !== 1
+    )
+      throw new TaskContextError('SAVE_FAILED');
+    return buffer.subarray(0, length);
+  } finally {
+    await handle.close();
   }
 }

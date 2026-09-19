@@ -17,10 +17,10 @@ Supported intake: UTF-8 TXT/MD, JSON, PNG, JPEG, PDF. Limits: 8 MiB per file,
 Preview is local only; PDFs are not embedded or executed. The desktop CSP permits
 blob URLs only for images; script, object and network restrictions are unchanged.
 
-**Send to agent remains disabled with a reason.** No provider capabilities are
-advertised by this slice, no PTY input is generated, and no base64 is typed into
-the terminal. Workspace-relative export and verified provider-specific delivery
-belong to the next adapter slice.
+**Automatic sending remains disabled.** The [text handoff](context-handoff.md)
+slice adds verified workspace export and Gemini prompt preparation. No PTY input
+is generated and no base64 is typed into the terminal. Images/PDFs still cannot
+be handed off by this flow.
 
 ## Storage and trust boundary
 

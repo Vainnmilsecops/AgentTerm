@@ -1,4 +1,7 @@
 import type {
+  TaskContextHandoff,
+  TaskContextHandoffReadiness,
+  TaskContextHandoffRequest,
   TaskContextAttachment,
   TaskContextFile,
   SessionRecoveryReadiness,
@@ -34,6 +37,8 @@ import {
 } from '@agentterm/application';
 
 export const desktopIpcChannels = Object.freeze({
+  inspectContextHandoff: 'agentterm:context:inspect-handoff',
+  prepareContextHandoff: 'agentterm:context:prepare-handoff',
   importTaskContext: 'agentterm:context:import',
   listTaskContext: 'agentterm:context:list',
   acceptPlan: 'agentterm:planning:accept',
@@ -359,6 +364,11 @@ interface TerminalWriteRequest extends TerminalSubscriptionRequest {
 interface TerminalResizeRequest extends PtyTerminalSize, TerminalSubscriptionRequest {}
 
 export interface DesktopIpcRequestMap {
+  readonly [desktopIpcChannels.inspectContextHandoff]: {
+    readonly taskId: string;
+    readonly sessionId: string;
+  };
+  readonly [desktopIpcChannels.prepareContextHandoff]: TaskContextHandoffRequest;
   readonly [desktopIpcChannels.importTaskContext]: ImportTaskContextRequest;
   readonly [desktopIpcChannels.listTaskContext]: { readonly taskId: string };
   readonly [desktopIpcChannels.acceptPlan]: PlanRequest;
@@ -423,6 +433,8 @@ export interface DesktopIpcRequestMap {
 }
 
 export interface DesktopIpcResponseMap {
+  readonly [desktopIpcChannels.inspectContextHandoff]: TaskContextHandoffReadiness;
+  readonly [desktopIpcChannels.prepareContextHandoff]: TaskContextHandoff;
   readonly [desktopIpcChannels.importTaskContext]: readonly TaskContextAttachment[];
   readonly [desktopIpcChannels.listTaskContext]: readonly TaskContextAttachment[];
   readonly [desktopIpcChannels.acceptPlan]: null;
@@ -529,6 +541,11 @@ export interface ImportTaskContextRequest {
 }
 
 export interface AgentTermDesktopApi {
+  inspectContextHandoff(input: {
+    readonly taskId: string;
+    readonly sessionId: string;
+  }): Promise<TaskContextHandoffReadiness>;
+  prepareContextHandoff(input: TaskContextHandoffRequest): Promise<TaskContextHandoff>;
   importTaskContext(input: ImportTaskContextRequest): Promise<readonly TaskContextAttachment[]>;
   listTaskContext(input: { readonly taskId: string }): Promise<readonly TaskContextAttachment[]>;
   acceptTaskPlan(input: PlanRequest): Promise<void>;
@@ -780,6 +797,36 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
         rows: readTerminalDimension(record.rows),
         subscriptionId: readSubscriptionId(record.subscriptionId),
       }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.inspectContextHandoff: {
+      const record = exactRecord(input, ['taskId', 'sessionId']);
+      return {
+        taskId: readIdentity(record.taskId),
+        sessionId: readIdentity(record.sessionId),
+      } as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.prepareContextHandoff: {
+      const record = exactRecord(input, [
+        'taskId',
+        'sessionId',
+        'attachmentIds',
+        'confirmWorktreeCopy',
+      ]);
+      if (
+        record.confirmWorktreeCopy !== true ||
+        !Array.isArray(record.attachmentIds) ||
+        record.attachmentIds.length < 1 ||
+        record.attachmentIds.length > 8
+      )
+        fail();
+      const attachmentIds = record.attachmentIds.map(readIdentity);
+      if (new Set(attachmentIds).size !== attachmentIds.length) fail();
+      return {
+        taskId: readIdentity(record.taskId),
+        sessionId: readIdentity(record.sessionId),
+        attachmentIds,
+        confirmWorktreeCopy: true,
+      } as unknown as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.importTaskContext: {
       const record = exactRecord(input, ['taskId', 'sessionId', 'files']);

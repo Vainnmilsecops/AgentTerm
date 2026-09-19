@@ -285,7 +285,7 @@ describe('GeminiAdapter', () => {
     const adapter = new GeminiAdapter(executablePath);
 
     await expect(adapter.inspect()).resolves.toEqual({
-      capabilities: ['SESSION_RESUME'],
+      capabilities: ['SESSION_RESUME', 'FILE_CONTEXT'],
       executablePath,
       kind: 'available',
       version: { major: 0, minor: 55, patch: 1, raw: '0.55.1' },
