@@ -1570,6 +1570,8 @@ function createApplication(
     stopAgentSession: vi.fn(unavailable),
     inspectSessionRecovery: vi.fn(unavailable),
     importTaskContext: vi.fn(unavailable),
+    inspectContextHandoff: vi.fn(unavailable),
+    prepareContextHandoff: vi.fn(unavailable),
     listTaskContext: vi.fn(unavailable),
     resumeAgentSession: vi.fn(unavailable),
     startTaskExecution: vi.fn(unavailable),

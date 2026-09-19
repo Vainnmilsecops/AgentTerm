@@ -7,6 +7,29 @@ const request = {
   files: [{ name: 'a.txt', mime: 'text/plain', bytes: new Uint8Array([65]) }],
 };
 describe('context IPC boundary', () => {
+  it('requires explicit worktree-copy consent and only accepts attachment identities', () => {
+    const value = {
+      taskId: 'task',
+      sessionId: 'session',
+      attachmentIds: ['file'],
+      confirmWorktreeCopy: true,
+    };
+    expect(validateDesktopIpcRequest(desktopIpcChannels.prepareContextHandoff, value)).toEqual(
+      value,
+    );
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.prepareContextHandoff, {
+        ...value,
+        confirmWorktreeCopy: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.prepareContextHandoff, {
+        ...value,
+        worktreePath: 'C:/other',
+      }),
+    ).toThrow();
+  });
   it('accepts bounded bytes without a filesystem path', () => {
     expect(validateDesktopIpcRequest(desktopIpcChannels.importTaskContext, request)).toEqual(
       request,

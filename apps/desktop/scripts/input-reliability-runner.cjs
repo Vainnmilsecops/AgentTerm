@@ -3,6 +3,28 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 app.whenReady().then(async () => {
   if (process.argv[3]) {
+    ipcMain.handle('agentterm:context:inspect-handoff', () => ({
+      ok: true,
+      value: { canPrepare: true, reason: 'Test handler' },
+    }));
+    ipcMain.handle('agentterm:context:prepare-handoff', (_event, input) => {
+      if (
+        input.taskId !== 'task' ||
+        input.sessionId !== 'session' ||
+        input.attachmentIds[0] !== 'ipc-record' ||
+        input.confirmWorktreeCopy !== true
+      )
+        throw new Error('Invalid handoff transport');
+      return {
+        ok: true,
+        value: {
+          sessionId: input.sessionId,
+          agentName: 'Test',
+          prompt: 'Test prompt',
+          relativePaths: [],
+        },
+      };
+    });
     ipcMain.handle('agentterm:context:import', (_event, input) => {
       const file = input.files[0];
       if (

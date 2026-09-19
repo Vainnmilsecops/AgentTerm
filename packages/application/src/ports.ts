@@ -30,7 +30,7 @@ export interface AgentIdentity {
   readonly id: string;
 }
 
-export type AgentCapability = 'SESSION_RESUME';
+export type AgentCapability = 'SESSION_RESUME' | 'FILE_CONTEXT';
 
 export type AgentAvailability =
   | {
@@ -60,6 +60,10 @@ export interface AgentLaunchCommand extends AgentLaunchRequest {
 }
 
 export interface AgentAdapter {
+  /** Formats a human-reviewed prompt only; never writes input or submits it. */
+  buildContextPrompt?(
+    files: readonly { readonly relativePath: string; readonly mime: string }[],
+  ): string;
   readonly identity: AgentIdentity;
   inspect(): Promise<AgentAvailability>;
   buildLaunchCommand(request: AgentLaunchRequest): Promise<AgentLaunchCommand>;

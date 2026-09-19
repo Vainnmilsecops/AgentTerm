@@ -5,6 +5,8 @@ import { isAbsolute, join, resolve } from 'node:path';
 import {
   AgentSessionCoordinator,
   importTaskContext,
+  inspectTaskContextHandoff,
+  prepareTaskContextHandoff,
   inspectSessionRecovery,
   acceptTaskPlan,
   addTaskDependency,
@@ -140,6 +142,15 @@ export async function createProductionDesktopApplication(
     const agents = createBuiltInAgentCatalogFromSettings(settings);
     const agentInspector = new BuiltInAgentConfigurationInspector();
     const git = new GitCliTaskWorktreeLifecycle(join(dataDirectory, 'worktrees'));
+    const contextHandoffDependencies = {
+      agents,
+      git,
+      sessions: persistence.sessions,
+      repository: persistence.contextAttachments,
+      worktrees: persistence.worktrees,
+      qualityGateRuns: persistence.qualityGateRuns,
+      exporter: contextStore,
+    };
     const codeInspector = new GitCliTaskReviewCodeInspector();
     const mergeConflictProbe = new GitCliTaskMergeConflictProbe();
     const pullRequestIntegration = new GitHubPullRequestAdapter();
@@ -721,6 +732,14 @@ export async function createProductionDesktopApplication(
           store: contextStore,
           clock,
         });
+      },
+      inspectContextHandoff: (input) => {
+        requireOpen();
+        return inspectTaskContextHandoff(input, contextHandoffDependencies);
+      },
+      prepareContextHandoff: (input) => {
+        requireOpen();
+        return prepareTaskContextHandoff(input, contextHandoffDependencies);
       },
       listTaskContext: (input) => {
         requireOpen();

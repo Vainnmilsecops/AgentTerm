@@ -446,3 +446,11 @@ export type {
   TaskContextRepository,
   TaskContextDependencies,
 } from './task-context';
+export { inspectTaskContextHandoff, prepareTaskContextHandoff } from './task-context-handoff';
+export type {
+  TaskContextExporter,
+  TaskContextHandoff,
+  TaskContextHandoffDependencies,
+  TaskContextHandoffReadiness,
+  TaskContextHandoffRequest,
+} from './task-context-handoff';
