@@ -21,6 +21,19 @@ development shell's PATH. A real authenticated Gemini round trip is still needed
 
 ## Interaction and safety
 
+Before enabling preparation, the read-only handoff inspection checks the latest live
+session and adapter, running quality gates, persisted worktree lifecycle and Git's
+actual worktree inspection. A missing/stale worktree or running gate disables the
+preparation controls with a recovery hint. Git inspection errors produce a static
+retry message, never a raw path or stderr. Refresh rechecks without exporting files,
+repairing Git state or changing Task/session history.
+
+This is a point-in-time preflight, not a reservation or a guarantee that the selected
+files are valid. Preparation rechecks the target under task/worktree locks, then
+validates selected records and their integrity. A previously ready target can still
+be rejected if its state changes. No automatic repair, provider submission or gate
+cancellation is performed.
+
 1. Select attachments associated with the current task for its latest live session.
    Saved TXT/MD/JSON from earlier sessions of the same task can be reused after
    resume, retry or agent switching; no re-import is needed. The installed target
@@ -82,3 +95,18 @@ and overwriting modified exports. They do not claim a provider has read files.
   composition test's 5-second timeout; rerunning after the build passed without
   code or timeout changes. The context smoke emitted a GPU teardown warning after
   PASS; no real provider ingestion or full visual audit is claimed.
+
+### Preflight verification (2026-09-21)
+
+- Added read-only readiness cases for running/finished gates, unavailable worktree
+  metadata, missing/stale Git registration, sanitized Git failures and a target
+  becoming unavailable after a successful preflight (21 focused tests pass).
+- The context Electron smoke passes blocked-state refresh/recovery and stale-prompt
+  removal using controlled responses; this does not exercise a real provider.
+- Desktop dependency build, Application/Desktop typechecks and changed-file ESLint
+  passed. The affected regression command above, expanded to all Application and
+  Desktop tests plus context storage/export tests, passed 961 tests in 80 suites
+  with `--maxWorkers=2`. At default concurrency the existing desktop composition
+  test timed out at 5 seconds; it passed separately without timeout/code changes.
+  That timing sensitivity remains unresolved. Existing build warnings and an
+  Electron GPU teardown warning after smoke PASS remain.

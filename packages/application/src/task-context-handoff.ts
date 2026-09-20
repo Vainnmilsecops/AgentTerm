@@ -68,6 +68,37 @@ export async function inspectTaskContextHandoff(
       canPrepare: false,
       reason: 'The installed adapter does not support text-file context handoff.',
     };
+  if (
+    (await deps.qualityGateRuns.listByTaskId(input.taskId)).some((run) => run.status === 'RUNNING')
+  )
+    return {
+      canPrepare: false,
+      reason: 'A quality gate is running. Wait for it to finish, then refresh handoff support.',
+    };
+  const worktree = await deps.worktrees.findByTaskId(input.taskId);
+  if (worktree?.lifecycleState !== 'PRESENT')
+    return {
+      canPrepare: false,
+      reason: 'The task worktree is unavailable. Check its lifecycle state before retrying.',
+    };
+  try {
+    const inspection = await deps.git.inspect({
+      taskId: input.taskId,
+      recordedWorktree: worktree,
+      repositoryRootPath: worktree.repositoryRootPath,
+    });
+    if (inspection.kind !== 'present')
+      return {
+        canPrepare: false,
+        reason:
+          'The task worktree is missing or has a stale registration. Inspect it before retrying.',
+      };
+  } catch {
+    return {
+      canPrepare: false,
+      reason: 'Could not verify the task worktree. Check repository access and refresh to retry.',
+    };
+  }
   return {
     canPrepare: true,
     reason:
