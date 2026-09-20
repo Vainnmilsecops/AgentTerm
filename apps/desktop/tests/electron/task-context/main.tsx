@@ -17,8 +17,26 @@ async function verify() {
   let handoffs = 0;
   let targetSession = 'session';
   let preflightBlocked = false;
+  let previews = 0;
+  let previewFailure = false;
+  let releasePreview: (() => void) | undefined;
+  let deferPreview = false;
   let records: readonly TaskContextAttachment[] = [];
   const client = {
+    previewTaskContext: async (input: { taskId: string; attachmentId: string }) => {
+      if (input.taskId !== 'task' || input.attachmentId !== 'attachment')
+        throw new Error('Wrong preview target');
+      previews++;
+      if (deferPreview)
+        await new Promise<void>((resolve) => {
+          releasePreview = resolve;
+        });
+      if (previewFailure) throw new Error('private source path must not appear');
+      return {
+        attachmentId: input.attachmentId,
+        text: 'Xin chào 👋\n<script>not executed</script>',
+      };
+    },
     inspectContextHandoff: async () => ({
       canPrepare: !preflightBlocked,
       reason: preflightBlocked
@@ -83,6 +101,15 @@ async function verify() {
       ],
     });
     if (transported[0]?.id !== 'ipc-record') throw new Error('Preload IPC round trip failed');
+    const transportedPreview = await bridge.previewTaskContext({
+      taskId: 'task',
+      attachmentId: 'ipc-record',
+    });
+    if (
+      transportedPreview.attachmentId !== 'ipc-record' ||
+      transportedPreview.text !== 'Xin chào 👋'
+    )
+      throw new Error('Preview isolated IPC round trip failed');
     if (!(await bridge.inspectContextHandoff({ taskId: 'task', sessionId: 'session' })).canPrepare)
       throw new Error('Handoff readiness IPC failed');
     const handoff = await bridge.prepareContextHandoff({
@@ -109,6 +136,52 @@ async function verify() {
       throw new Error('Duplicate or misdirected import');
     if (document.activeElement !== container.querySelector('section'))
       throw new Error('Focus was lost after import');
+    const previewButton = container.querySelector<HTMLButtonElement>(
+      '[data-context-preview-toggle]',
+    );
+    if (!previewButton) throw new Error('Missing saved text preview');
+    if (previews !== 0) throw new Error('Preview eagerly read private context');
+    previewButton.focus();
+    previewButton.click();
+    await until(() => container.querySelector('[data-context-preview-text]') !== null);
+    const previewText = container.querySelector<HTMLElement>('[data-context-preview-text]')!;
+    if (
+      previewText.textContent !== 'Xin chào 👋\n<script>not executed</script>' ||
+      previewText.querySelector('script')
+    )
+      throw new Error('Preview changed Unicode or interpreted markup');
+    if (document.activeElement !== previewText) throw new Error('Preview keyboard focus was lost');
+    previewText.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await until(() => container.querySelector('[data-context-preview-text]') === null);
+    if (document.activeElement !== previewButton)
+      throw new Error('Preview close did not restore focus');
+    previewFailure = true;
+    previewButton.click();
+    await until(() => container.querySelector('[data-context-preview-error]') !== null);
+    if (container.textContent?.includes('private source path'))
+      throw new Error('Preview leaked backend error');
+    previewFailure = false;
+    const retryPreview = container.querySelector<HTMLButtonElement>(
+      '[data-context-preview-retry]',
+    )!;
+    retryPreview.focus();
+    retryPreview.click();
+    await until(() => container.querySelector('[data-context-preview-text]') !== null);
+    if (document.activeElement !== container.querySelector('[data-context-preview-text]'))
+      throw new Error('Retry preview lost keyboard focus');
+    previewButton.click();
+    await until(() => container.querySelector('[data-context-preview-text]') === null);
+    deferPreview = true;
+    previewButton.click();
+    await until(() => releasePreview !== undefined);
+    previewButton.click();
+    releasePreview!();
+    await until(() => previewButton.getAttribute('aria-expanded') === 'false');
+    // Drain the just-resolved response; a closed preview must not reopen itself.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (container.querySelector('[data-context-preview-text]'))
+      throw new Error('Late preview response reopened closed content');
+    deferPreview = false;
     await until(() => container.querySelector('[data-context-handoff-select]') !== null);
     container.querySelector<HTMLInputElement>('[data-context-handoff-select]')!.click();
     const prepare = container.querySelector<HTMLButtonElement>('[data-context-handoff-prepare]')!;
@@ -121,9 +194,13 @@ async function verify() {
       () => container.querySelector('textarea')?.value.includes('@agentterm-context/') === true,
     );
     if (handoffs !== 1) throw new Error('Duplicate handoff preparation');
+    previewButton.click();
+    await until(() => container.querySelector('[data-context-preview-text]') !== null);
     targetSession = 'resumed-session';
     root.render(<TaskContextPanel client={client} taskId="task" sessionId={targetSession} />);
     await until(() => container.textContent?.includes('resumed-session') === true);
+    if (container.querySelector('[data-context-preview-text]'))
+      throw new Error('Session change retained private preview');
     await until(() => container.querySelector('[data-context-handoff-select]') !== null);
     const reused = container.querySelector<HTMLInputElement>('[data-context-handoff-select]')!;
     if (reused.disabled) throw new Error('Historical same-task context cannot be selected');
@@ -204,7 +281,7 @@ async function verify() {
     return {
       ok: true,
       message:
-        'PASS: preview, confirmation, exact target/Unicode bytes, single-flight import, oversized drop rejection, historical context reuse, target consent reset, prompt focus and blocked preflight recovery',
+        'PASS: saved text preview/IPC, literal markup, Unicode, close/retry/late response, focus restoration, import limits, context reuse and preflight recovery',
     };
   } finally {
     root.unmount();

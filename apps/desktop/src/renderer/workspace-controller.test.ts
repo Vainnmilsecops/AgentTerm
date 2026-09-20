@@ -608,6 +608,7 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
     relativePaths: [],
   }));
   public readonly listTaskContext = vi.fn(async () => []);
+  public readonly previewTaskContext = vi.fn(async () => ({ attachmentId: 'file', text: '' }));
   public readonly addTaskDependency = vi.fn<AgentWorkspaceClient['addTaskDependency']>(
     async (input) => ({
       dependencyTaskId: input.dependencyTaskId,

@@ -79,6 +79,7 @@ describe('desktop preload bridge', () => {
       'openProject',
       'openWorktreeFile',
       'prepareContextHandoff',
+      'previewTaskContext',
       'pushTaskBranch',
       'recordBrainstormArtifact',
       'recordSweepArtifact',

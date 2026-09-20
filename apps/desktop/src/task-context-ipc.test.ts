@@ -7,6 +7,17 @@ const request = {
   files: [{ name: 'a.txt', mime: 'text/plain', bytes: new Uint8Array([65]) }],
 };
 describe('context IPC boundary', () => {
+  it('accepts only task and attachment identity for a saved text preview', () => {
+    const value = { taskId: 'task', attachmentId: 'file' };
+    expect(validateDesktopIpcRequest(desktopIpcChannels.previewTaskContext, value)).toEqual(value);
+    for (const extra of [{ path: 'C:/private' }, { text: 'injected' }, { mime: 'text/plain' }])
+      expect(() =>
+        validateDesktopIpcRequest(desktopIpcChannels.previewTaskContext, { ...value, ...extra }),
+      ).toThrow();
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.previewTaskContext, { taskId: 'task' }),
+    ).toThrow();
+  });
   it('requires explicit worktree-copy consent and only accepts attachment identities', () => {
     const value = {
       taskId: 'task',
