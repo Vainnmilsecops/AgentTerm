@@ -21,11 +21,21 @@ development shell's PATH. A real authenticated Gemini round trip is still needed
 
 ## Interaction and safety
 
-1. Select attachments associated with the current task and latest live session.
+1. Select attachments associated with the current task for its latest live session.
+   Saved TXT/MD/JSON from earlier sessions of the same task can be reused after
+   resume, retry or agent switching; no re-import is needed. The installed target
+   adapter must still support FILE_CONTEXT. This does not add support to other providers.
 2. Explicitly consent to worktree copies and the possibility of sharing their
-   contents with the provider when the prompt is eventually submitted.
+   contents with the target provider when the prompt is eventually submitted.
+   The UI shows the original import session beside every file and names the target
+   session in the consent label. Changing the target clears selection, consent and
+   the prepared prompt; the user must select and approve again.
 3. Application rechecks session ownership, adapter support, selected records,
    quality-gate activity and Git worktree identity under task/worktree locks.
+   Each attachment and its source session must belong to this task. Missing or
+   foreign source sessions reject the entire selection before any export. A source
+   session may have exited; only the destination must be the latest live session.
+   No attachment/session metadata is reassigned or duplicated by reuse.
 4. Infrastructure reads a bounded snapshot, verifies size and SHA-256, rejects
    symlinks/junctions/hardlinks and copies to generated relative paths:
    `agentterm-context/<attachment UUID>.txt|md|json`.
@@ -58,3 +68,17 @@ The smoke uses real Electron/React and the built isolated preload for IPC,
 with controlled handlers and an Application client. Filesystem tests use private
 temporary directories, verify content integrity and refuse destination junctions
 and overwriting modified exports. They do not claim a provider has read files.
+
+### Session reuse verification (2026-09-20)
+
+- Application tests cover historical-source reuse without metadata changes,
+  missing/foreign source sessions, foreign task records, mixed-batch preflight,
+  superseded destinations and explicit consent.
+- Electron context smoke covers switching to a new session, source disclosure,
+  cleared selection/consent/prompt, reusing without importing again and prompt focus.
+- Desktop dependency build, Application/Desktop typecheck, changed-file ESLint,
+  and all three input-reliability smoke modes passed. The 80-suite regression run
+  passed 953 tests. An initial concurrent build/test run hit the existing desktop
+  composition test's 5-second timeout; rerunning after the build passed without
+  code or timeout changes. The context smoke emitted a GPU teardown warning after
+  PASS; no real provider ingestion or full visual audit is claimed.

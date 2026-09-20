@@ -102,12 +102,18 @@ export async function prepareTaskContextHandoff(
           (record) =>
             !record ||
             record.taskId !== input.taskId ||
-            record.sessionId !== input.sessionId ||
             record.size > 65536 ||
             !['text/plain', 'text/markdown', 'application/json'].includes(record.mime),
         )
       )
         throw new TaskContextError('TYPE');
+      // Source session is immutable provenance, not the handoff destination.
+      // Verify all sources before the first export; never reassign stored records.
+      for (const sourceId of new Set(records.map((record) => record!.sessionId))) {
+        const source = await deps.sessions.findById(sourceId);
+        if (!source || source.id !== sourceId || source.taskId !== input.taskId)
+          throw new TaskContextError('TARGET');
+      }
       const worktree = await deps.worktrees.findByTaskId(input.taskId);
       if (worktree?.lifecycleState !== 'PRESENT') throw new TaskContextError('TARGET');
       const inspection = await deps.git.inspect({

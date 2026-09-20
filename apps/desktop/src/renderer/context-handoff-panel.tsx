@@ -89,7 +89,7 @@ export function ContextHandoffPanel({
             <legend>Select up to 8 text files, 64 KiB each</legend>
             {items.map((item) => {
               const eligible =
-                item.sessionId === sessionId &&
+                item.taskId === taskId &&
                 item.size <= 65536 &&
                 ['text/plain', 'text/markdown', 'application/json'].includes(item.mime);
               return (
@@ -109,7 +109,13 @@ export function ContextHandoffPanel({
                     }}
                   />
                   {item.name}
-                  {!eligible ? ' — unsupported type, size or session' : ''}
+                  {!eligible ? ' — unsupported type, size or task' : ''}
+                  <small style={{ display: 'block', overflowWrap: 'anywhere' }}>
+                    Imported in session: <code>{item.sessionId}</code>
+                    {item.sessionId !== sessionId
+                      ? ' — reusing saved context; source unchanged'
+                      : ''}
+                  </small>
                 </label>
               );
             })}
@@ -122,9 +128,10 @@ export function ContextHandoffPanel({
               checked={consent}
               onChange={(event) => setConsent(event.currentTarget.checked)}
             />
-            I approve copying the selected files into this task worktree. Copies can appear in Git
-            status and be committed. Submitting the prompt shares their contents with the agent
-            provider.
+            I approve copying the selected files, including any from prior sessions, into this task
+            worktree for session <code style={{ overflowWrap: 'anywhere' }}>{sessionId}</code>.
+            Original import history stays unchanged. Copies can appear in Git status and be
+            committed. Submitting the prompt shares their contents with the target agent provider.
           </label>
           <button
             type="button"

@@ -15,6 +15,7 @@ async function verify() {
   };
   let calls = 0;
   let handoffs = 0;
+  let targetSession = 'session';
   let records: readonly TaskContextAttachment[] = [];
   const client = {
     inspectContextHandoff: async () => ({ canPrepare: true, reason: 'Text context supported' }),
@@ -24,14 +25,14 @@ async function verify() {
       confirmWorktreeCopy: true;
     }) => {
       if (
-        input.sessionId !== 'session' ||
+        input.sessionId !== targetSession ||
         input.attachmentIds[0] !== 'attachment' ||
         input.confirmWorktreeCopy !== true
       )
         throw new Error('Wrong handoff target');
       handoffs++;
       return {
-        sessionId: 'session',
+        sessionId: input.sessionId,
         agentName: 'Test agent',
         prompt: 'Review @agentterm-context/file.txt',
         relativePaths: ['agentterm-context/file.txt'],
@@ -114,6 +115,35 @@ async function verify() {
       () => container.querySelector('textarea')?.value.includes('@agentterm-context/') === true,
     );
     if (handoffs !== 1) throw new Error('Duplicate handoff preparation');
+    targetSession = 'resumed-session';
+    root.render(<TaskContextPanel client={client} taskId="task" sessionId={targetSession} />);
+    await until(() => container.textContent?.includes('resumed-session') === true);
+    await until(() => container.querySelector('[data-context-handoff-select]') !== null);
+    const reused = container.querySelector<HTMLInputElement>('[data-context-handoff-select]')!;
+    if (reused.disabled) throw new Error('Historical same-task context cannot be selected');
+    if (reused.checked || container.querySelector('textarea'))
+      throw new Error('Old selection or prompt survived target change');
+    if (!reused.closest('label')?.textContent?.includes('session'))
+      throw new Error('Source-session provenance is not visible');
+    reused.click();
+    const reusePrepare = container.querySelector<HTMLButtonElement>(
+      '[data-context-handoff-prepare]',
+    )!;
+    const reuseConsent = container.querySelector<HTMLInputElement>(
+      '[data-context-handoff-consent]',
+    )!;
+    if (!reusePrepare.disabled || reuseConsent.checked)
+      throw new Error('Target change did not require new consent');
+    if (!reuseConsent.closest('label')?.textContent?.includes('resumed-session'))
+      throw new Error('Consent does not identify the target session');
+    reuseConsent.click();
+    await until(() => !reusePrepare.disabled);
+    reusePrepare.click();
+    await until(() => container.querySelector('textarea') !== null);
+    if (handoffs !== 2 || calls !== 1 || records[0]?.sessionId !== 'session')
+      throw new Error('Reuse duplicated import or changed source provenance');
+    if (document.activeElement !== container.querySelector('textarea'))
+      throw new Error('Prepared prompt did not receive keyboard focus');
     const drop = new DataTransfer();
     drop.items.add(
       new File([new Uint8Array(8 * 1024 * 1024 + 1)], 'large.txt', { type: 'text/plain' }),
@@ -147,7 +177,7 @@ async function verify() {
     return {
       ok: true,
       message:
-        'PASS: preview, confirmation, exact target/Unicode bytes, single-flight import, oversized drop rejection',
+        'PASS: preview, confirmation, exact target/Unicode bytes, single-flight import, oversized drop rejection, historical context reuse, target consent reset and prompt focus',
     };
   } finally {
     root.unmount();

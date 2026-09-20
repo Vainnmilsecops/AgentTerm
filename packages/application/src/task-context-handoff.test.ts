@@ -47,6 +47,73 @@ const input = {
   confirmWorktreeCopy: true as const,
 };
 describe('prepare task context handoff', () => {
+  it('reuses same-task context from a historical session without changing its provenance', async () => {
+    const f = fixture();
+    f.attachment.sessionId = 'previous';
+    const original = { ...f.attachment };
+    const currentLookup = f.deps.sessions.findById;
+    vi.spyOn(f.deps.sessions, 'findById').mockImplementation(async (id) =>
+      id === 'previous'
+        ? ({ id, taskId: 'task', agentId: 'old-provider', status: 'EXITED' } as never)
+        : currentLookup(id),
+    );
+    const result = await prepareTaskContextHandoff(input, f.deps);
+    expect(result.sessionId).toBe('session');
+    expect(result.relativePaths).toEqual(['agentterm-context/file.txt']);
+    expect(f.exportToWorktree).toHaveBeenCalledWith(original, 'C:/task');
+    expect(f.attachment).toEqual(original);
+  });
+  it.each(['missing', 'foreign'])(
+    'rejects %s source-session provenance before exporting',
+    async (source) => {
+      const f = fixture();
+      f.attachment.sessionId = 'previous';
+      const currentLookup = f.deps.sessions.findById;
+      vi.spyOn(f.deps.sessions, 'findById').mockImplementation(async (id) =>
+        id === 'previous'
+          ? ((source === 'missing'
+              ? undefined
+              : { id, taskId: 'other', status: 'EXITED' }) as never)
+          : currentLookup(id),
+      );
+      await expect(prepareTaskContextHandoff(input, f.deps)).rejects.toThrow();
+      expect(f.exportToWorktree).not.toHaveBeenCalled();
+    },
+  );
+  it('rejects a foreign-task record even when returned by the task repository', async () => {
+    const f = fixture();
+    f.attachment.taskId = 'other';
+    await expect(prepareTaskContextHandoff(input, f.deps)).rejects.toThrow();
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it('validates every source session before exporting any file in a mixed batch', async () => {
+    const f = fixture();
+    const invalid = { ...f.attachment, id: 'second', sessionId: 'missing-source' };
+    vi.spyOn(f.deps.repository, 'listByTaskId').mockResolvedValue([f.attachment, invalid]);
+    const currentLookup = f.deps.sessions.findById;
+    vi.spyOn(f.deps.sessions, 'findById').mockImplementation(async (id) =>
+      id === 'missing-source' ? undefined : currentLookup(id),
+    );
+    await expect(
+      prepareTaskContextHandoff({ ...input, attachmentIds: ['file', 'second'] }, f.deps),
+    ).rejects.toThrow();
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it('refuses a superseded destination even for valid historical context', async () => {
+    const f = fixture();
+    f.attachment.sessionId = 'previous';
+    vi.spyOn(f.deps.sessions, 'listByTaskId').mockResolvedValue([{ id: 'newest' }] as never);
+    await expect(prepareTaskContextHandoff(input, f.deps)).rejects.toThrow();
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it('requires explicit worktree-copy consent for reused context', async () => {
+    const f = fixture();
+    f.attachment.sessionId = 'previous';
+    await expect(
+      prepareTaskContextHandoff({ ...input, confirmWorktreeCopy: false } as never, f.deps),
+    ).rejects.toThrow();
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
   it('refuses superseded sessions', async () => {
     const f = fixture();
     vi.spyOn(f.deps.sessions, 'listByTaskId').mockResolvedValue([{ id: 'newer' }] as never);
