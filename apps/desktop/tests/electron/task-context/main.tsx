@@ -16,9 +16,15 @@ async function verify() {
   let calls = 0;
   let handoffs = 0;
   let targetSession = 'session';
+  let preflightBlocked = false;
   let records: readonly TaskContextAttachment[] = [];
   const client = {
-    inspectContextHandoff: async () => ({ canPrepare: true, reason: 'Text context supported' }),
+    inspectContextHandoff: async () => ({
+      canPrepare: !preflightBlocked,
+      reason: preflightBlocked
+        ? 'A quality gate is running. Refresh after it finishes.'
+        : 'Text context supported',
+    }),
     prepareContextHandoff: async (input: {
       sessionId: string;
       attachmentIds: readonly string[];
@@ -144,6 +150,27 @@ async function verify() {
       throw new Error('Reuse duplicated import or changed source provenance');
     if (document.activeElement !== container.querySelector('textarea'))
       throw new Error('Prepared prompt did not receive keyboard focus');
+    const refreshHandoff = () => {
+      const button = Array.from(container.querySelectorAll('button')).find(
+        (item) => item.textContent === 'Refresh handoff support',
+      );
+      if (!button) throw new Error('Missing handoff refresh action');
+      button.click();
+    };
+    preflightBlocked = true;
+    refreshHandoff();
+    await until(() => container.textContent?.includes('A quality gate is running') === true);
+    if (
+      container.querySelector('[data-context-handoff-prepare]') ||
+      container.querySelector('textarea')
+    )
+      throw new Error('Blocked preflight left a prepare action or stale prompt visible');
+    if (handoffs !== 2) throw new Error('Preflight exported context');
+    preflightBlocked = false;
+    refreshHandoff();
+    await until(() => container.querySelector('[data-context-handoff-prepare]') !== null);
+    if (container.querySelector('textarea') || handoffs !== 2)
+      throw new Error('Refreshing readiness automatically prepared context');
     const drop = new DataTransfer();
     drop.items.add(
       new File([new Uint8Array(8 * 1024 * 1024 + 1)], 'large.txt', { type: 'text/plain' }),
@@ -177,7 +204,7 @@ async function verify() {
     return {
       ok: true,
       message:
-        'PASS: preview, confirmation, exact target/Unicode bytes, single-flight import, oversized drop rejection, historical context reuse, target consent reset and prompt focus',
+        'PASS: preview, confirmation, exact target/Unicode bytes, single-flight import, oversized drop rejection, historical context reuse, target consent reset, prompt focus and blocked preflight recovery',
     };
   } finally {
     root.unmount();

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  inspectTaskContextHandoff,
   prepareTaskContextHandoff,
   type TaskContextHandoffDependencies,
 } from './task-context-handoff';
@@ -46,6 +47,62 @@ const input = {
   attachmentIds: ['file'],
   confirmWorktreeCopy: true as const,
 };
+describe('context handoff preflight', () => {
+  it('reports readiness without copying files', async () => {
+    const f = fixture();
+    expect((await inspectTaskContextHandoff(input, f.deps)).canPrepare).toBe(true);
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it('blocks during a running quality gate and becomes ready after it finishes', async () => {
+    const f = fixture();
+    const runs = vi.spyOn(f.deps.qualityGateRuns, 'listByTaskId');
+    runs.mockResolvedValue([{ status: 'RUNNING' }] as never);
+    expect(await inspectTaskContextHandoff(input, f.deps)).toMatchObject({
+      canPrepare: false,
+      reason: expect.stringMatching(/quality gate/i),
+    });
+    runs.mockResolvedValue([{ status: 'PASSED' }] as never);
+    expect((await inspectTaskContextHandoff(input, f.deps)).canPrepare).toBe(true);
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it.each([undefined, { lifecycleState: 'REMOVED' }])(
+    'blocks unavailable worktree metadata: %j',
+    async (worktree) => {
+      const f = fixture();
+      vi.spyOn(f.deps.worktrees, 'findByTaskId').mockResolvedValue(worktree as never);
+      expect(await inspectTaskContextHandoff(input, f.deps)).toMatchObject({
+        canPrepare: false,
+        reason: expect.stringMatching(/worktree/i),
+      });
+      expect(f.exportToWorktree).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['missing', 'stale-registration'])('blocks Git inspection result %s', async (kind) => {
+    const f = fixture();
+    vi.spyOn(f.deps.git, 'inspect').mockResolvedValue({ kind } as never);
+    expect(await inspectTaskContextHandoff(input, f.deps)).toMatchObject({
+      canPrepare: false,
+      reason: expect.stringMatching(/worktree/i),
+    });
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it('returns a safe retry message when Git inspection throws', async () => {
+    const f = fixture();
+    vi.spyOn(f.deps.git, 'inspect').mockRejectedValue(new Error('C:/private/token=secret'));
+    const result = await inspectTaskContextHandoff(input, f.deps);
+    expect(result.canPrepare).toBe(false);
+    expect(result.reason).toMatch(/refresh|retry/i);
+    expect(JSON.stringify(result)).not.toMatch(/private|secret|token=/);
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+  it('rechecks a previously ready worktree before export', async () => {
+    const f = fixture();
+    expect((await inspectTaskContextHandoff(input, f.deps)).canPrepare).toBe(true);
+    vi.spyOn(f.deps.git, 'inspect').mockResolvedValue({ kind: 'missing' } as never);
+    await expect(prepareTaskContextHandoff(input, f.deps)).rejects.toThrow();
+    expect(f.exportToWorktree).not.toHaveBeenCalled();
+  });
+});
 describe('prepare task context handoff', () => {
   it('reuses same-task context from a historical session without changing its provenance', async () => {
     const f = fixture();
