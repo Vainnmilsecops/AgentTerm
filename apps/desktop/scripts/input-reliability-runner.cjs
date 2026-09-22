@@ -3,6 +3,11 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 app.whenReady().then(async () => {
   if (process.argv[3]) {
+    ipcMain.handle('agentterm:context:preview', (_event, input) => {
+      if (input.taskId !== 'task' || input.attachmentId !== 'ipc-record')
+        throw new Error('Invalid preview target');
+      return { ok: true, value: { attachmentId: 'ipc-record', text: 'Xin chào 👋' } };
+    });
     ipcMain.handle('agentterm:context:inspect-handoff', () => ({
       ok: true,
       value: { canPrepare: true, reason: 'Test handler' },

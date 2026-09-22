@@ -34,7 +34,7 @@ export interface TaskContextDependencies {
   readonly clock: () => number;
 }
 export class TaskContextError extends Error {
-  constructor(code: 'TARGET' | 'LIMIT' | 'TYPE' | 'NAME' | 'SAVE_FAILED') {
+  constructor(code: 'TARGET' | 'LIMIT' | 'TYPE' | 'NAME' | 'SAVE_FAILED' | 'READ_FAILED') {
     super(`CONTEXT_${code}`);
     this.name = 'TaskContextError';
   }

@@ -1,4 +1,5 @@
 import type {
+  TaskContextPreview,
   TaskContextHandoff,
   TaskContextHandoffReadiness,
   TaskContextHandoffRequest,
@@ -41,6 +42,7 @@ export const desktopIpcChannels = Object.freeze({
   prepareContextHandoff: 'agentterm:context:prepare-handoff',
   importTaskContext: 'agentterm:context:import',
   listTaskContext: 'agentterm:context:list',
+  previewTaskContext: 'agentterm:context:preview',
   acceptPlan: 'agentterm:planning:accept',
   addTaskDependency: 'agentterm:task-dependency:add',
   approveReview: 'agentterm:review:approve',
@@ -371,6 +373,10 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.prepareContextHandoff]: TaskContextHandoffRequest;
   readonly [desktopIpcChannels.importTaskContext]: ImportTaskContextRequest;
   readonly [desktopIpcChannels.listTaskContext]: { readonly taskId: string };
+  readonly [desktopIpcChannels.previewTaskContext]: {
+    readonly taskId: string;
+    readonly attachmentId: string;
+  };
   readonly [desktopIpcChannels.acceptPlan]: PlanRequest;
   readonly [desktopIpcChannels.addTaskDependency]: TaskDependencyEdgeRequest;
   readonly [desktopIpcChannels.approveReview]: ReviewRequest;
@@ -437,6 +443,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.prepareContextHandoff]: TaskContextHandoff;
   readonly [desktopIpcChannels.importTaskContext]: readonly TaskContextAttachment[];
   readonly [desktopIpcChannels.listTaskContext]: readonly TaskContextAttachment[];
+  readonly [desktopIpcChannels.previewTaskContext]: TaskContextPreview;
   readonly [desktopIpcChannels.acceptPlan]: null;
   readonly [desktopIpcChannels.addTaskDependency]: TaskDependency;
   readonly [desktopIpcChannels.approveReview]: null;
@@ -548,6 +555,10 @@ export interface AgentTermDesktopApi {
   prepareContextHandoff(input: TaskContextHandoffRequest): Promise<TaskContextHandoff>;
   importTaskContext(input: ImportTaskContextRequest): Promise<readonly TaskContextAttachment[]>;
   listTaskContext(input: { readonly taskId: string }): Promise<readonly TaskContextAttachment[]>;
+  previewTaskContext(input: {
+    readonly taskId: string;
+    readonly attachmentId: string;
+  }): Promise<TaskContextPreview>;
   acceptTaskPlan(input: PlanRequest): Promise<void>;
   addTaskDependency(input: TaskDependencyEdgeRequest): Promise<TaskDependency>;
   approveTaskReview(input: ReviewRequest): Promise<void>;
@@ -854,6 +865,13 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
         sessionId: readIdentity(record.sessionId),
         files,
       } as unknown as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.previewTaskContext: {
+      const record = exactRecord(input, ['taskId', 'attachmentId']);
+      return {
+        taskId: readIdentity(record.taskId),
+        attachmentId: readIdentity(record.attachmentId),
+      } as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.listTaskContext: {
       const record = exactRecord(input, ['taskId']);

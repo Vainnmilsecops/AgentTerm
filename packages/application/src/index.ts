@@ -447,6 +447,12 @@ export type {
   TaskContextDependencies,
 } from './task-context';
 export { inspectTaskContextHandoff, prepareTaskContextHandoff } from './task-context-handoff';
+export { previewTaskContext } from './task-context-preview';
+export type {
+  TaskContextTextReader,
+  TaskContextPreview,
+  TaskContextPreviewDependencies,
+} from './task-context-preview';
 export type {
   TaskContextExporter,
   TaskContextHandoff,

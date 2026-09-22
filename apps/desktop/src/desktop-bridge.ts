@@ -213,6 +213,7 @@ export function createDesktopBridge(
     inspectContextHandoff: (input) => invoke(desktopIpcChannels.inspectContextHandoff, input),
     prepareContextHandoff: (input) => invoke(desktopIpcChannels.prepareContextHandoff, input),
     listTaskContext: (input) => invoke(desktopIpcChannels.listTaskContext, input),
+    previewTaskContext: (input) => invoke(desktopIpcChannels.previewTaskContext, input),
     resumeAgentSession: (input) => invokeVoid(desktopIpcChannels.resumeAgentSession, input),
     saveQualityGateConfig: (input) => invoke(desktopIpcChannels.saveQualityGateConfig, input),
     saveWorkspaceLayout: (input) => invoke(desktopIpcChannels.saveWorkspaceLayout, input),

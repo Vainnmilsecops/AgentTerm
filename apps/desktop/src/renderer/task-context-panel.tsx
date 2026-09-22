@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { TaskContextAttachment } from '@agentterm/application';
 import type { AgentTermDesktopApi } from '../ipc-contract';
 import { ContextHandoffPanel } from './context-handoff-panel';
+import { SavedContextPreview } from './saved-context-preview';
 
 function FilePreview({ file }: { readonly file: File }) {
   const [url, setUrl] = useState<string>();
@@ -32,7 +33,11 @@ export function TaskContextPanel({
 }: {
   readonly client: Pick<
     AgentTermDesktopApi,
-    'importTaskContext' | 'listTaskContext' | 'inspectContextHandoff' | 'prepareContextHandoff'
+    | 'importTaskContext'
+    | 'listTaskContext'
+    | 'inspectContextHandoff'
+    | 'prepareContextHandoff'
+    | 'previewTaskContext'
   >;
   readonly taskId: string;
   readonly sessionId: string | undefined;
@@ -203,6 +208,11 @@ export function TaskContextPanel({
             Session: {item.sessionId}
             <br />
             <small>SHA-256: {item.digest}</small>
+            <SavedContextPreview
+              key={`${taskId}-${sessionId ?? ''}-${item.id}-${item.digest}`}
+              client={client}
+              item={item}
+            />
           </li>
         ))}
       </ul>

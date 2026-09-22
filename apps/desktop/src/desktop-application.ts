@@ -5,6 +5,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import {
   AgentSessionCoordinator,
   importTaskContext,
+  previewTaskContext,
   inspectTaskContextHandoff,
   prepareTaskContextHandoff,
   inspectSessionRecovery,
@@ -740,6 +741,14 @@ export async function createProductionDesktopApplication(
       prepareContextHandoff: (input) => {
         requireOpen();
         return prepareTaskContextHandoff(input, contextHandoffDependencies);
+      },
+      previewTaskContext: (input) => {
+        requireOpen();
+        return previewTaskContext(input, {
+          tasks: persistence.tasks,
+          repository: persistence.contextAttachments,
+          reader: contextStore,
+        });
       },
       listTaskContext: (input) => {
         requireOpen();

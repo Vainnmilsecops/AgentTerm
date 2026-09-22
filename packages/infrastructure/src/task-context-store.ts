@@ -8,6 +8,7 @@ import {
   type TaskContextStore,
   type TaskContextAttachment,
   type TaskContextExporter,
+  type TaskContextTextReader,
 } from '@agentterm/application';
 
 const types: Readonly<Record<string, string>> = {
@@ -109,10 +110,35 @@ async function ensureDirectory(path: string): Promise<void> {
   }
   await assertDirectory(path);
 }
-export class ManagedTaskContextStore implements TaskContextStore, TaskContextExporter {
+export class ManagedTaskContextStore
+  implements TaskContextStore, TaskContextExporter, TaskContextTextReader
+{
   private readonly root: string;
   constructor(root: string) {
     this.root = resolve(root);
+  }
+  async readText(record: TaskContextAttachment): Promise<string> {
+    try {
+      if (
+        !['text/plain', 'text/markdown', 'application/json'].includes(record.mime) ||
+        !Number.isInteger(record.size) ||
+        record.size < 1 ||
+        record.size > 65536 ||
+        !/^[0-9a-f]{64}$/u.test(record.digest) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(record.id)
+      )
+        throw new TaskContextError('TYPE');
+      const source = join(
+        this.root,
+        createHash('sha256').update(record.taskId).digest('hex'),
+        record.id,
+      );
+      const bytes = await readVerifiedContext(source, record);
+      inspect({ name: record.name, mime: record.mime, bytes });
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      throw new TaskContextError('READ_FAILED');
+    }
   }
   async exportToWorktree(record: TaskContextAttachment, worktreePath: string): Promise<string> {
     try {

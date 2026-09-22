@@ -22,6 +22,30 @@ slice adds verified workspace export and Gemini prompt preparation. No PTY input
 is generated and no base64 is typed into the terminal. Images/PDFs still cannot
 be handed off by this flow.
 
+### Reopen saved text locally
+
+Use **Preview saved text** beside an imported TXT/MD/JSON file (up to 64 KiB).
+No active session, worktree or provider installation is needed. This reads the
+managed copy, not the original source file or an exported worktree copy. It does
+not import again, alter provenance or send anything to an agent.
+
+The IPC request accepts only Task and attachment IDs. Application verifies Task
+ownership and preview limits; Infrastructure reads a bounded snapshot and verifies
+size, SHA-256, strict UTF-8/type and regular-file identity, rejecting symlinks,
+junctions and hardlinks. Missing/tampered files show a safe error and Retry; no
+partial or silently truncated content is returned. Limits are checked in both
+Application and Infrastructure. PDFs, images and larger text remain unavailable
+for saved preview, with a visible explanation.
+
+Content is rendered literally, never as HTML/Markdown or terminal input. Preview
+loads only on request; Close/Escape removes it from view and component state and
+restores button focus. Late responses cannot reopen a closed/unmounted preview.
+Changing Task/session closes previews. Content is held temporarily in renderer
+memory, not logged or saved into layout/settings; memory is not securely zeroed.
+The verified snapshot can become stale if on-disk bytes change afterward; handoff
+performs its own integrity check. The same trusted-local-account limitations below
+still apply.
+
 ## Storage and trust boundary
 
 - Browser File input supplies bounded bytes, never an absolute source path.
@@ -57,6 +81,7 @@ previews use Chromium decoding of user-selected content, not trusted content.
 
 ## Validation
 
+- `pnpm exec vitest run packages/application/src/task-context-preview.test.ts packages/infrastructure/src/task-context-preview.test.ts apps/desktop/src/task-context-preview.integration.test.ts apps/desktop/src/task-context-ipc.test.ts`
 - `pnpm exec vitest run packages/application/src/task-context.test.ts packages/infrastructure/src/task-context-store.test.ts packages/infrastructure/src/sqlite-task-context.integration.test.ts apps/desktop/src/task-context-ipc.test.ts`
 - `pnpm exec vitest run packages/infrastructure/src/sqlite-migrations.integration.test.ts`
 - `node apps/desktop/scripts/input-reliability-smoke.mjs --task-context`
@@ -67,3 +92,15 @@ events with a controlled Application client. It also round-trips Unicode bytes
 through the built, isolated preload and Electron IPC with a controlled main handler.
 The filesystem/SQLite integration
 uses the real import use case. No provider account or paid agent call is used.
+
+Saved-preview verification (2026-09-21): the affected regression suite passed
+981 tests in 84 files with `--maxWorkers=2`. Desktop dependency build,
+Application/Infrastructure/Desktop typechecks, scoped ESLint and all three
+Electron input-reliability smoke modes passed. Preview tests include real
+SQLite/private-file reopen, cross-task denial, tampering, invalid UTF-8, hardlinks,
+junctions, size boundaries, literal markup, IPC transport, focus, Retry and late
+response dismissal. The first integration fixture required correcting its test-only
+Domain import and accounting for normal startup session recovery before comparing
+history. The keyboard Retry regression was reproduced and fixed. Existing Vite
+bundle/config warnings and Electron GPU teardown messages after PASS remain;
+no full visual/accessibility audit or real agent submission is claimed.

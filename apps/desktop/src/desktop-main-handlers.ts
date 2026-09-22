@@ -393,6 +393,10 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
         return application.prepareContextHandoff(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.prepareContextHandoff],
         );
+      case desktopIpcChannels.previewTaskContext:
+        return application.previewTaskContext(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.previewTaskContext],
+        );
       case desktopIpcChannels.listTaskContext:
         return application.listTaskContext(
           request as DesktopIpcRequestMap[typeof desktopIpcChannels.listTaskContext],
