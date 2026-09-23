@@ -31,11 +31,13 @@ try {
     base: './',
     root: resolve(
       directory,
-      process.argv.includes('--task-context')
-        ? '../tests/electron/task-context'
-        : process.argv.includes('--session-recovery')
-          ? '../tests/electron/session-recovery'
-          : '../tests/electron/input-reliability',
+      process.argv.includes('--task-attention')
+        ? '../tests/electron/task-attention'
+        : process.argv.includes('--task-context')
+          ? '../tests/electron/task-context'
+          : process.argv.includes('--session-recovery')
+            ? '../tests/electron/session-recovery'
+            : '../tests/electron/input-reliability',
     ),
     build: { outDir: output, emptyOutDir: false },
   });

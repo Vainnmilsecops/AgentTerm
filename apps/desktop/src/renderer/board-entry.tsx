@@ -31,6 +31,7 @@ import {
   projectOverviewToBoard,
 } from "./board-view";
 import type { AgentWorkspaceClient } from "./workspace-controller";
+import { TaskAttentionCenter } from "./task-attention-center";
 
 /**
  * Standalone Board entry point used by the Electron `/board` route.
@@ -87,18 +88,23 @@ export function BoardEntry({
     <BoardEntryWithOverview
       client={client}
       overview={overview}
+      onRefresh={async () => {
+        setOverview(await client.loadWorkspace());
+      }}
       {...(onActivateTask === undefined ? {} : { onActivateTask })}
     />
   );
 }
 
 interface BoardEntryWithOverviewProps {
+  readonly onRefresh: () => Promise<void>;
   readonly client: AgentWorkspaceClient;
   readonly overview: AgentWorkspaceOverview;
   readonly onActivateTask?: (taskId: string) => void;
 }
 
 function BoardEntryWithOverview({
+  onRefresh,
   client,
   overview,
   onActivateTask,
@@ -167,6 +173,8 @@ function BoardEntryWithOverview({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const listener = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-attention-dialog]'))
+        return;
       const command = resolveBoardKeyboardKey({
         ctrlKey: event.ctrlKey,
         key: event.key,
@@ -203,6 +211,13 @@ function BoardEntryWithOverview({
 
   return (
     <div data-board-window-root="">
+      <TaskAttentionCenter
+        overview={overview}
+        onRefresh={onRefresh}
+        onOpenTask={async (taskId) => {
+          await client.openMainWindowForTask({ focusTerminal: false, selectTask: true, taskId });
+        }}
+      />
       <BoardView
         focus={focus}
         overview={overview}

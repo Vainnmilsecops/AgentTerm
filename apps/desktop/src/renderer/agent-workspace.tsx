@@ -21,6 +21,7 @@ import { WorkspaceIcon } from './workspace-icons';
 import { SettingsPanel } from './settings-panel';
 import { SessionRecoveryPanel } from './session-recovery-panel';
 import { TaskContextPanel } from './task-context-panel';
+import { TaskAttentionCenter } from './task-attention-center';
 import { EmptyState } from './empty-state';
 import { ContextCard } from './context-card';
 import { ArtifactProducer } from './artifact-producer';
@@ -102,7 +103,7 @@ export interface AgentWorkspaceViewProps extends AgentWorkspaceProps {
     readonly taskId: string;
   }) => void;
   readonly onRefreshPullRequest: () => void;
-  readonly onRefresh: () => void;
+  readonly onRefresh: () => void | Promise<void>;
   readonly onRegisterQualityGate: (input: {
     readonly arguments: readonly string[];
     readonly executablePath: string;
@@ -239,7 +240,7 @@ export function AgentWorkspace({ client }: AgentWorkspaceProps) {
       onCloseWorkspaceTab={(tabId) => controller?.closeWorkspaceTab(tabId)}
       onCycleWorkspacePane={(delta) => controller?.cycleWorkspacePane(delta)}
       onCycleWorkspaceTab={(delta) => controller?.cycleWorkspaceTab(delta)}
-      onRefresh={() => void controller?.refresh()}
+      onRefresh={() => controller?.refresh()}
       onRegisterQualityGate={(input) =>
         controller?.registerQualityGate(input) ??
         Promise.reject(new Error('Workspace controller is not available.'))
@@ -670,6 +671,8 @@ export function AgentWorkspaceView({
     if (snapshot.kind !== 'ready' || newTaskOpen) return;
 
     const handleGlobalKeyDown = (event: KeyboardEvent): void => {
+      if (event.target instanceof Element && event.target.closest('[data-attention-dialog]'))
+        return;
       const shortcut = resolveWorkspaceGlobalShortcut(event);
       if (shortcut === undefined) return;
       event.preventDefault();
@@ -698,6 +701,8 @@ export function AgentWorkspaceView({
       focusTarget(shortcut.replace('focus-', '') as WorkspaceFocusTarget);
     };
     const handleMnemonicKeyDown = (event: KeyboardEvent): void => {
+      if (event.target instanceof Element && event.target.closest('[data-attention-dialog]'))
+        return;
       if (event.defaultPrevented || selected === undefined || actionsBusy) return;
       const action = resolveWorkspaceMnemonic(
         {
@@ -1106,6 +1111,22 @@ export function AgentWorkspaceView({
         </p>
       )}
       <WorkspaceTopbar
+        attention={
+          <TaskAttentionCenter
+            overview={snapshot.overview}
+            error={snapshot.actionError}
+            onRefresh={onRefresh}
+            onOpenTask={(taskId) => {
+              onSelectTask(taskId);
+              openInspector();
+              requestAnimationFrame(() => {
+                document
+                  .querySelector<HTMLElement>('.task-inspector__close')
+                  ?.focus({ preventScroll: true });
+              });
+            }}
+          />
+        }
         backgroundInert={narrowViewport && navigatorOpen}
         layout={layout}
         newTaskDisabled={snapshot.overview.projects.length === 0}
@@ -1856,6 +1877,7 @@ function InspectorDisclosure({
 }
 
 function WorkspaceTopbar({
+  attention,
   backgroundInert = false,
   layout,
   navigatorOpen,
@@ -1869,6 +1891,7 @@ function WorkspaceTopbar({
   settings,
   viewMode,
 }: {
+  readonly attention?: React.ReactNode;
   readonly backgroundInert?: boolean;
   readonly layout: ReturnType<typeof readPersistedLayout>;
   readonly navigatorOpen?: boolean;
@@ -1910,6 +1933,7 @@ function WorkspaceTopbar({
         <kbd>Ctrl+Shift+P</kbd>
       </button>
       <div className="workspace-topbar__actions">
+        {attention}
         <button
           aria-label={viewMode === 'board' ? 'Switch to list view' : 'Switch to board view'}
           aria-pressed={viewMode === 'board'}

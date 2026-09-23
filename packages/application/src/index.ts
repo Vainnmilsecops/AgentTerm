@@ -1,4 +1,10 @@
 export {
+  deriveTaskAttention,
+  type TaskAttentionItem,
+  type TaskAttentionKind,
+  type TaskAttentionReason,
+} from './task-attention';
+export {
   ApplicationSettingsConflictError,
   ApplicationSettingsValidationError,
   AgentAdapterError,
