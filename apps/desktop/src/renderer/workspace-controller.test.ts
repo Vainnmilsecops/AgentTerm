@@ -2693,6 +2693,8 @@ describe('AgentWorkspaceView', () => {
     );
 
     expect(markup).toContain('Current plan');
+    expect(markup).toContain('aria-label="Needs attention: 1 tasks"');
+    expect(markup).toContain('Plan awaiting acceptance');
     expect(markup).toContain('plan-visible');
     expect(markup).toContain('1. Inspect.');
     expect(markup).toContain('Revise plan');

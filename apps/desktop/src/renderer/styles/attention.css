@@ -1,0 +1,112 @@
+.attention-trigger {
+  white-space: nowrap;
+  gap: var(--space-2);
+}
+
+.attention-count {
+  border-radius: var(--radius-xs);
+  padding: 0 var(--space-1);
+  color: var(--warning);
+  background: var(--warning-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.attention-center {
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 3rem);
+  margin: auto;
+  padding: var(--space-5);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  background: var(--surface-panel);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+.attention-center::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+.attention-center__header,
+.attention-center__toolbar,
+.attention-center__task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.attention-center h2,
+.attention-center h3,
+.attention-center p {
+  margin: 0;
+}
+.attention-center h2 {
+  font-size: var(--text-lg);
+}
+.attention-center h3 {
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+.attention-center__task > div {
+  min-width: 0;
+}
+.attention-center button {
+  flex-shrink: 0;
+  min-height: 2rem;
+}
+.attention-center button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: wait;
+}
+.attention-center__hint,
+.attention-center time {
+  color: var(--text-secondary);
+}
+.attention-center > .attention-center__hint {
+  margin: var(--space-3) 0;
+}
+.attention-center__list {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+.attention-center__list > li {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.attention-center__reasons {
+  padding-left: var(--space-4);
+  margin: var(--space-3) 0 0;
+}
+.attention-center__reasons li {
+  padding-block: var(--space-1);
+}
+.attention-center__reasons time,
+.attention-center__reasons .attention-center__hint {
+  display: block;
+  font-size: var(--text-xs);
+}
+.attention-center__empty {
+  padding: var(--space-5) 0;
+}
+.attention-center :focus-visible,
+.attention-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .attention-trigger {
+    max-width: 8rem;
+    white-space: normal;
+    font-size: var(--text-xs);
+  }
+  .attention-center {
+    padding: var(--space-3);
+  }
+  .attention-center__task {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}

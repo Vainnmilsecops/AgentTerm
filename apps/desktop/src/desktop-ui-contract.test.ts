@@ -20,6 +20,7 @@ const styleModules = [
   'terminal.css',
   'overlays.css',
   'responsive.css',
+  'attention.css',
 ] as const;
 
 const stylesByModule = Object.fromEntries(
