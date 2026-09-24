@@ -1407,3 +1407,124 @@
 .workspace-footer__dot--exited {
   background: var(--text-muted);
 }
+
+.task-activity {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.task-activity__heading,
+.task-activity__item-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.task-activity__heading h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
+.task-activity__count,
+.task-activity__hint,
+.task-activity__item-top,
+.task-activity__item p,
+.task-activity__message {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.task-activity__hint,
+.task-activity__item p,
+.task-activity__message {
+  margin: 0;
+}
+
+.task-activity__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.task-activity__filter {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-muted);
+  background: var(--surface-plane);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.task-activity__filter[aria-pressed='true'] {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+  background: var(--surface-elevated);
+}
+
+.task-activity__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 0 0 var(--space-3);
+  list-style: none;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.task-activity__item {
+  position: relative;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--surface-plane);
+  overflow-wrap: anywhere;
+}
+
+.task-activity__item::before {
+  position: absolute;
+  top: 1rem;
+  left: calc(-1 * var(--space-3) - 4px);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  content: '';
+}
+
+.task-activity__type {
+  color: var(--accent-primary);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
+.task-activity__item time {
+  text-align: right;
+}
+
+.task-activity__item strong {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.task-activity__link {
+  justify-self: start;
+  border: 0;
+  padding: 0;
+  color: var(--accent-primary);
+  background: none;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.task-activity__more {
+  justify-self: start;
+}

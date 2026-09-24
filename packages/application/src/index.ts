@@ -324,6 +324,12 @@ export {
   type WorkspaceProjectOverview,
   type WorkspaceTaskOverview,
 } from './workspace-overview';
+export {
+  loadTaskActivity,
+  type TaskActivityDependencies,
+  type TaskActivityItem,
+  type TaskActivityTimeline,
+} from './task-activity';
 export { createTask, transitionTask, type TransitionTaskInput } from './task-use-cases';
 export {
   assertCanEnterPlanning,

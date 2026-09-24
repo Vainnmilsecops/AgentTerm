@@ -212,6 +212,10 @@ export function registerDesktopIpcHandlers(input: RegisterDesktopIpcHandlersInpu
     switch (channel) {
       case desktopIpcChannels.loadWorkspace:
         return application.loadWorkspace();
+      case desktopIpcChannels.loadTaskActivity:
+        return application.loadTaskActivity(
+          request as DesktopIpcRequestMap[typeof desktopIpcChannels.loadTaskActivity],
+        );
       case desktopIpcChannels.openBoardWindow: {
         input.openBoardWindow();
         return null;

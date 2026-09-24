@@ -830,6 +830,9 @@ class FakeWorkspaceClient implements AgentWorkspaceClient {
   public readonly loadWorkspaceLayout = vi.fn<AgentWorkspaceClient['loadWorkspaceLayout']>(
     async () => undefined,
   );
+  public readonly loadTaskActivity = vi.fn<AgentWorkspaceClient['loadTaskActivity']>(
+    async ({ taskId }) => ({ taskId, items: [] }),
+  );
   public readonly saveWorkspaceLayout = vi.fn<AgentWorkspaceClient['saveWorkspaceLayout']>(
     async () => ({ layout: { activeTabId: undefined, tabs: [] }, revision: 1, updatedAt: 1 }),
   );
@@ -3483,6 +3486,34 @@ describe('AgentWorkspaceView', () => {
     );
     expect(markup).not.toContain('output-test');
     expect(markup).not.toContain('D:\\worktrees');
+  });
+
+  it('keeps the activity timeline collapsed until the Task inspector disclosure opens', () => {
+    const markup = renderToStaticMarkup(
+      createElement(AgentWorkspaceView, {
+        client: new FakeWorkspaceClient(),
+        onApproveReview: () => undefined,
+        onRefresh: () => undefined,
+        onRequestChanges: () => undefined,
+        onRequestReview: () => undefined,
+        onRetry: () => undefined,
+        onRetryTask: () => undefined,
+        onSelectTask: () => undefined,
+        onStartTask: () => undefined,
+        snapshot: {
+          actionError: undefined,
+          kind: 'ready',
+          layout: defaultWorkspaceLayout,
+          overview: failedOverview,
+          selectedAgentId: 'codex',
+          selectedTaskId: runningTask.id,
+          activeAction: undefined,
+          terminalSessionId: undefined,
+        },
+      }),
+    );
+    expect(markup).toContain('Activity timeline');
+    expect(markup).not.toContain('Loading Task activity');
   });
 
   it('states clearly when AgentTerm has not recorded Quality Gate evidence', () => {

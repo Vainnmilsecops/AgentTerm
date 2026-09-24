@@ -26,6 +26,7 @@ import type {
   TaskFileDiff,
   TaskMergeConflictResult,
   TaskPullRequestState,
+  TaskActivityTimeline,
   TaskReviewSummary,
   UpdateApplicationSettingsInput,
   WorkspaceLayoutReadModel,
@@ -67,6 +68,7 @@ export const desktopIpcChannels = Object.freeze({
   listTaskReviews: 'agentterm:review:list',
   loadQualityGateConfig: 'agentterm:quality-gates:load-config',
   loadSettings: 'agentterm:settings:load',
+  loadTaskActivity: 'agentterm:task-activity:load',
   loadWorkspace: 'agentterm:workspace:load',
   loadWorkspaceLayout: 'agentterm:workspace-layout:load',
   openBoardWindow: 'agentterm:window:open-board',
@@ -403,6 +405,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.listTaskReviews]: TaskRequest;
   readonly [desktopIpcChannels.loadQualityGateConfig]: QualityGateConfigPathRequest;
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
+  readonly [desktopIpcChannels.loadTaskActivity]: TaskRequest;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: EmptyRequest;
   readonly [desktopIpcChannels.openBoardWindow]: EmptyRequest;
@@ -470,6 +473,7 @@ export interface DesktopIpcResponseMap {
   readonly [desktopIpcChannels.listTaskReviews]: readonly TaskReviewSummary[];
   readonly [desktopIpcChannels.loadQualityGateConfig]: LoadQualityGateConfigResponse;
   readonly [desktopIpcChannels.loadSettings]: ApplicationSettingsView;
+  readonly [desktopIpcChannels.loadTaskActivity]: TaskActivityTimeline;
   readonly [desktopIpcChannels.loadWorkspace]: AgentWorkspaceOverview;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: WorkspaceLayoutReadModel | undefined;
   readonly [desktopIpcChannels.openBoardWindow]: null;
@@ -606,6 +610,7 @@ export interface AgentTermDesktopApi {
   ): Promise<LoadQualityGateConfigResponse>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
+  loadTaskActivity(input: TaskRequest): Promise<TaskActivityTimeline>;
   loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
   openBoardWindow(): Promise<void>;
   openExternalLink(input: { readonly url: string }): Promise<void>;
@@ -888,6 +893,7 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.createPullRequest:
     case desktopIpcChannels.beginTaskPlanning:
     case desktopIpcChannels.inspectPullRequest:
+    case desktopIpcChannels.loadTaskActivity:
     case desktopIpcChannels.listTaskChanges:
     case desktopIpcChannels.listTaskDependencies:
     case desktopIpcChannels.listTaskReviews:

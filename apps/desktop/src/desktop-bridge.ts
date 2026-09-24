@@ -182,6 +182,7 @@ export function createDesktopBridge(
     listTaskReviews: (input) => invoke(desktopIpcChannels.listTaskReviews, input),
     loadQualityGateConfig: (input) => invoke(desktopIpcChannels.loadQualityGateConfig, input),
     loadSettings: () => invoke(desktopIpcChannels.loadSettings, {}),
+    loadTaskActivity: (input) => invoke(desktopIpcChannels.loadTaskActivity, input),
     loadWorkspace: () => invoke(desktopIpcChannels.loadWorkspace, {}),
     loadWorkspaceLayout: () => invoke(desktopIpcChannels.loadWorkspaceLayout, {}),
     openBoardWindow: () => invokeVoid(desktopIpcChannels.openBoardWindow, {}),

@@ -22,6 +22,7 @@ import { SettingsPanel } from './settings-panel';
 import { SessionRecoveryPanel } from './session-recovery-panel';
 import { TaskContextPanel } from './task-context-panel';
 import { TaskAttentionCenter } from './task-attention-center';
+import { TaskActivityTimeline } from './task-activity-timeline';
 import { EmptyState } from './empty-state';
 import { ContextCard } from './context-card';
 import { ArtifactProducer } from './artifact-producer';
@@ -1781,6 +1782,25 @@ export function AgentWorkspaceView({
                 />
               </InspectorDisclosure>
               <InspectorDisclosure
+                badge="History"
+                key={`activity-${selected.task.id}`}
+                lazy
+                title="Activity timeline"
+              >
+                {client === undefined ? (
+                  <p className="task-activity__message">Task activity is unavailable.</p>
+                ) : (
+                  <TaskActivityTimeline
+                    client={client}
+                    key={selected.task.id}
+                    onOpenPullRequest={onOpenExternalLink}
+                    onReveal={focusWorkspaceTarget}
+                    refreshKey={snapshot.overview}
+                    taskId={selected.task.id}
+                  />
+                )}
+              </InspectorDisclosure>
+              <InspectorDisclosure
                 defaultOpen={selected.task.phase === 'PLANNING'}
                 title="Plan and Pull Request"
               >
@@ -1857,21 +1877,28 @@ function InspectorDisclosure({
   badge,
   children,
   defaultOpen = false,
+  lazy = false,
   title,
 }: {
   readonly badge?: string;
   readonly children: React.ReactNode;
   readonly defaultOpen?: boolean;
+  readonly lazy?: boolean;
   readonly title: string;
 }) {
+  const [opened, setOpened] = useState(defaultOpen);
   return (
-    <details className="inspector-disclosure" open={defaultOpen}>
+    <details
+      className="inspector-disclosure"
+      onToggle={lazy ? (event) => setOpened(event.currentTarget.open) : undefined}
+      open={defaultOpen}
+    >
       <summary>
         <span>{title}</span>
         {badge === undefined ? null : <span className="inspector-disclosure__badge">{badge}</span>}
         <WorkspaceIcon className="inspector-disclosure__chevron" name="chevron-right" size={15} />
       </summary>
-      <div className="inspector-disclosure__content">{children}</div>
+      <div className="inspector-disclosure__content">{lazy && !opened ? null : children}</div>
     </details>
   );
 }
