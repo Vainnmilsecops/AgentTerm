@@ -194,7 +194,9 @@ describe('desktop main IPC handlers', () => {
 
   it('returns typed successful responses from the explicit handler allowlist', async () => {
     const ipcMain = new FakeIpcMain();
-    const application = createApplication();
+    const application = createApplication({
+      loadTaskActivity: vi.fn(async ({ taskId }) => ({ taskId, items: [] })),
+    });
     registerDesktopIpcHandlers({
       application,
       authorize: () => true,
@@ -241,6 +243,12 @@ describe('desktop main IPC handlers', () => {
     await expect(
       ipcMain.invoke(desktopIpcChannels.loadWorkspace, event(new FakeSender(1)), {}),
     ).resolves.toEqual({ ok: true, value: emptyWorkspace });
+    await expect(
+      ipcMain.invoke(desktopIpcChannels.loadTaskActivity, event(new FakeSender(1)), {
+        taskId: 'task-1',
+      }),
+    ).resolves.toEqual({ ok: true, value: { taskId: 'task-1', items: [] } });
+    expect(application.loadTaskActivity).toHaveBeenCalledWith({ taskId: 'task-1' });
     expect([...ipcMain.handlers.keys()].sort()).toEqual(Object.values(desktopIpcChannels).sort());
   });
 

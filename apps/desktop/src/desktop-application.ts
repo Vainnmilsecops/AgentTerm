@@ -27,6 +27,7 @@ import {
   listTaskReviews,
   loadAgentWorkspace,
   loadApplicationSettings,
+  loadTaskActivity,
   loadWorkspaceLayout,
   openProject as openApplicationProject,
   pushTaskBranch,
@@ -507,6 +508,18 @@ export async function createProductionDesktopApplication(
           },
           persistence.taskTransitions,
         );
+      },
+      loadTaskActivity: async ({ taskId }) => {
+        requireOpen();
+        return loadTaskActivity(taskId, {
+          tasks: persistence.tasks,
+          sessions: persistence.sessions,
+          artifacts: persistence.artifacts,
+          qualityGateRuns: persistence.qualityGateRuns,
+          reviews: persistence.reviews,
+          taskTransitions: persistence.taskTransitions,
+          pullRequests: persistence.pullRequests,
+        });
       },
       loadWorkspaceLayout: async () => {
         requireOpen();

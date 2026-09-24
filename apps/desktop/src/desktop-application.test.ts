@@ -13,9 +13,7 @@ const sampleLayout = () => ({
     {
       activePaneId: 'pane:task-1:main',
       id: 'tab:task-1',
-      panes: [
-        { id: 'pane:task-1:main', sessionId: undefined, taskId: 'task-1' },
-      ],
+      panes: [{ id: 'pane:task-1:main', sessionId: undefined, taskId: 'task-1' }],
       taskId: 'task-1',
     },
   ],
@@ -102,6 +100,18 @@ describe('production desktop Application composition', () => {
         canStartPlanning: true,
         task: { id: created.taskId, phase: 'PLANNING' },
       });
+      const activity = await application.loadTaskActivity({ taskId: created.taskId });
+      expect(activity.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'ARTIFACT', artifactId: 'artifact-research-1' }),
+          expect.objectContaining({
+            kind: 'PHASE_TRANSITION',
+            fromPhase: 'BACKLOG',
+            toPhase: 'PLANNING',
+          }),
+        ]),
+      );
+      expect(JSON.stringify(activity)).not.toContain('Spike findings recorded');
     } finally {
       application.dispose();
       rmSync(directory, { force: true, recursive: true });

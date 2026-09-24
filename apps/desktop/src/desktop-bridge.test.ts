@@ -30,6 +30,21 @@ class FakeIpcRenderer implements DesktopIpcRenderer {
 }
 
 describe('desktop preload bridge', () => {
+  it('routes a Task activity read through the typed IPC channel', async () => {
+    const ipc = new FakeIpcRenderer();
+    ipc.response = () => ({ ok: true, value: { taskId: 'task-1', items: [] } });
+    const bridge = createDesktopBridge(ipc, () => 'subscription');
+    await expect(bridge.api.loadTaskActivity({ taskId: 'task-1' })).resolves.toEqual({
+      taskId: 'task-1',
+      items: [],
+    });
+    expect(ipc.calls).toEqual([
+      {
+        channel: desktopIpcChannels.loadTaskActivity,
+        input: { taskId: 'task-1' },
+      },
+    ]);
+  });
   it('routes resume and readiness through their typed channels', async () => {
     const ipc = new FakeIpcRenderer();
     const bridge = createDesktopBridge(ipc, () => 'subscription');
@@ -70,6 +85,7 @@ describe('desktop preload bridge', () => {
       'listTaskReviews',
       'loadQualityGateConfig',
       'loadSettings',
+      'loadTaskActivity',
       'loadWorkspace',
       'loadWorkspaceLayout',
       'observeWorkspaceFocusTask',

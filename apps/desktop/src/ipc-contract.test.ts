@@ -8,6 +8,20 @@ import {
 } from './ipc-contract';
 
 describe('desktop IPC contract validation', () => {
+  it('accepts only a Task id when reading its activity timeline', () => {
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, { taskId: 'task-1' }),
+    ).toEqual({ taskId: 'task-1' });
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, {
+        taskId: 'task-1',
+        sourcePath: 'C:\\private',
+      }),
+    ).toThrow(DesktopIpcRequestValidationError);
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, { taskId: '' }),
+    ).toThrow(DesktopIpcRequestValidationError);
+  });
   it('accepts only a local session identity for recovery operations', () => {
     for (const channel of [
       desktopIpcChannels.inspectSessionRecovery,
