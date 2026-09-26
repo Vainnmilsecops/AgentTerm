@@ -21,6 +21,40 @@ afterEach(() => {
 });
 
 describe('NodeQualityGateProcessRunner with real processes', () => {
+  it.runIf(process.platform === 'win32')(
+    'starts Node with an empty configured environment without inheriting ambient variables',
+    async () => {
+      const workingDirectory = createTemporaryDirectory('empty-environment');
+      const name = 'AGENTTERM_GATE_AMBIENT_SENTINEL';
+      const previous = process.env[name];
+      process.env[name] = 'must-not-be-inherited';
+      try {
+        const result = await new NodeQualityGateProcessRunner().run({
+          arguments: [
+            '-e',
+            `if (!process.env.SystemRoot) process.exit(23); if (process.env.${name}) process.exit(24); process.stdout.write('WINDOWS_SYSTEM_ROOT_AVAILABLE');`,
+          ],
+          environment: {},
+          executablePath: process.execPath,
+          maxOutputBytes: 1_024,
+          redactValues: [],
+          timeoutMs: 5_000,
+          workingDirectory,
+        });
+        expect(result).toMatchObject({
+          exitCode: 0,
+          kind: 'exited',
+          output: 'WINDOWS_SYSTEM_ROOT_AVAILABLE',
+          truncated: false,
+        });
+        expect(result.output).not.toContain('must-not-be-inherited');
+      } finally {
+        if (previous === undefined) delete process.env[name];
+        else process.env[name] = previous;
+      }
+    },
+  );
+
   it('runs structured arguments in the exact Unicode working directory and captures a nonzero exit', async () => {
     const workingDirectory = createTemporaryDirectory('thử-nghiệm');
     const injectionMarker = join(workingDirectory, 'must-not-exist.txt');

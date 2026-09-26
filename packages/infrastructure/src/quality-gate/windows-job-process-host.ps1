@@ -537,6 +537,16 @@ try {
         }
         $environment.Add($name, [string] $value)
     }
+    # Native Windows runtimes (including Node/OpenSSL) require SystemRoot even
+    # when a gate intentionally supplies no ambient environment. Inherit only
+    # this OS prerequisite, never the host's PATH, credentials, or other vars.
+    if (-not $environment.ContainsKey('SystemRoot')) {
+        $systemRoot = [Environment]::GetEnvironmentVariable('SystemRoot')
+        if ([string]::IsNullOrWhiteSpace($systemRoot) -or $systemRoot.Contains([char] 0)) {
+            throw 'invalid request'
+        }
+        $environment.Add('SystemRoot', $systemRoot)
+    }
 
     Add-Type -TypeDefinition $source -Language CSharp
     $result = [AgentTerm.QualityGate.WindowsJobProcess]::Run(
