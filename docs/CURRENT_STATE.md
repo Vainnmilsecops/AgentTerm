@@ -201,7 +201,10 @@ Updated: 2026-09-13
   runner drains stdout and stderr, applies explicit sensitive-value redaction, retains at most
   256 KiB, and never persists its environment. On Windows, a static packaged host creates the
   configured process suspended, assigns it to a kill-on-close Job Object, then resumes it and waits
-  for zero active descendants; missing or malformed settlement evidence fails closed.
+  for zero active descendants; missing or malformed settlement evidence fails closed. The host adds
+  only the OS `SystemRoot` value when the configured environment omits it, because Node/OpenSSL
+  cannot initialize with an otherwise empty explicit Windows environment. It does not inherit the
+  host's PATH, credentials, or other ambient variables into the gate process.
 - The desktop Vite build uses relative asset URLs for Electron's `file://` loader, and its smoke
   check verifies nonempty rendered content, the preload allowlist, and absence of renderer `require`,
   `process`, and raw IPC instead of accepting `did-finish-load` alone. The CSP permits only the inline
