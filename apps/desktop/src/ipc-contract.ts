@@ -27,6 +27,7 @@ import type {
   TaskMergeConflictResult,
   TaskPullRequestState,
   TaskActivityTimeline,
+  TaskActivityPageInput,
   TaskReviewSummary,
   UpdateApplicationSettingsInput,
   WorkspaceLayoutReadModel,
@@ -405,7 +406,7 @@ export interface DesktopIpcRequestMap {
   readonly [desktopIpcChannels.listTaskReviews]: TaskRequest;
   readonly [desktopIpcChannels.loadQualityGateConfig]: QualityGateConfigPathRequest;
   readonly [desktopIpcChannels.loadSettings]: EmptyRequest;
-  readonly [desktopIpcChannels.loadTaskActivity]: TaskRequest;
+  readonly [desktopIpcChannels.loadTaskActivity]: TaskActivityPageInput;
   readonly [desktopIpcChannels.loadWorkspace]: EmptyRequest;
   readonly [desktopIpcChannels.loadWorkspaceLayout]: EmptyRequest;
   readonly [desktopIpcChannels.openBoardWindow]: EmptyRequest;
@@ -610,7 +611,7 @@ export interface AgentTermDesktopApi {
   ): Promise<LoadQualityGateConfigResponse>;
   loadSettings(): Promise<ApplicationSettingsView>;
   loadWorkspace(): Promise<AgentWorkspaceOverview>;
-  loadTaskActivity(input: TaskRequest): Promise<TaskActivityTimeline>;
+  loadTaskActivity(input: TaskActivityPageInput): Promise<TaskActivityTimeline>;
   loadWorkspaceLayout(): Promise<WorkspaceLayoutReadModel | undefined>;
   openBoardWindow(): Promise<void>;
   openExternalLink(input: { readonly url: string }): Promise<void>;
@@ -893,7 +894,6 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.createPullRequest:
     case desktopIpcChannels.beginTaskPlanning:
     case desktopIpcChannels.inspectPullRequest:
-    case desktopIpcChannels.loadTaskActivity:
     case desktopIpcChannels.listTaskChanges:
     case desktopIpcChannels.listTaskDependencies:
     case desktopIpcChannels.listTaskReviews:
@@ -901,6 +901,35 @@ export function validateDesktopIpcRequest<C extends DesktopIpcChannel>(
     case desktopIpcChannels.requestReview: {
       const record = exactRecord(input, ['taskId']);
       return Object.freeze({ taskId: readIdentity(record.taskId) }) as DesktopIpcRequestMap[C];
+    }
+    case desktopIpcChannels.loadTaskActivity: {
+      const record = readRecord(input);
+      assertExactKeys(
+        Object.keys(record),
+        record.cursor === undefined ? ['taskId', 'filter'] : ['taskId', 'filter', 'cursor'],
+      );
+      const filter = record.filter;
+      if (
+        typeof filter !== 'string' ||
+        !['ALL', 'SESSION', 'ARTIFACT', 'QUALITY_GATE', 'REVIEW', 'PHASE', 'PULL_REQUEST'].includes(
+          filter,
+        )
+      )
+        fail();
+      const cursor =
+        record.cursor === undefined ? undefined : exactRecord(record.cursor, ['occurredAt', 'id']);
+      return Object.freeze({
+        taskId: readIdentity(record.taskId),
+        filter,
+        ...(cursor === undefined
+          ? {}
+          : {
+              cursor: Object.freeze({
+                occurredAt: readNonnegativeSafeInteger(cursor.occurredAt),
+                id: readBoundedString(cursor.id, 1024),
+              }),
+            }),
+      }) as DesktopIpcRequestMap[C];
     }
     case desktopIpcChannels.unregisterQualityGate: {
       const record = exactRecord(input, ['gateId']);

@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
-import type { TaskActivityItem, TaskActivityTimeline } from '@agentterm/application';
+import type {
+  TaskActivityFilter,
+  TaskActivityItem,
+  TaskActivityTimeline,
+} from '@agentterm/application';
 
 import type { AgentWorkspaceClient } from './workspace-controller';
 
-export type TaskActivityFilter =
-  'ALL' | 'SESSION' | 'ARTIFACT' | 'QUALITY_GATE' | 'REVIEW' | 'PHASE' | 'PULL_REQUEST';
 export type TaskActivityTarget = 'artifacts' | 'checks' | 'review';
 
 const filters: readonly { readonly id: TaskActivityFilter; readonly label: string }[] = [
@@ -17,26 +19,6 @@ const filters: readonly { readonly id: TaskActivityFilter; readonly label: strin
   { id: 'PHASE', label: 'Phases' },
   { id: 'PULL_REQUEST', label: 'PRs' },
 ];
-
-const initialVisibleCount = 20;
-
-export function filterTaskActivity(
-  items: readonly TaskActivityItem[],
-  filter: TaskActivityFilter,
-): readonly TaskActivityItem[] {
-  if (filter === 'ALL') return items;
-  return items.filter((item) =>
-    filter === 'SESSION'
-      ? item.kind.startsWith('SESSION_')
-      : filter === 'REVIEW'
-        ? item.kind.startsWith('REVIEW_')
-        : filter === 'PULL_REQUEST'
-          ? item.kind === 'PULL_REQUEST_SNAPSHOT'
-          : filter === 'PHASE'
-            ? item.kind === 'PHASE_TRANSITION'
-            : item.kind === filter,
-  );
-}
 
 export interface TaskActivityTimelineProps {
   readonly client: AgentWorkspaceClient;
@@ -61,15 +43,25 @@ export function TaskActivityTimeline({
 }: TaskActivityTimelineProps) {
   const [state, setState] = useState<ActivityLoadState>({ kind: 'loading' });
   const [filter, setFilter] = useState<TaskActivityFilter>('ALL');
-  const [visibleCount, setVisibleCount] = useState(initialVisibleCount);
   const [reload, setReload] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState(false);
+  const [focusNewItemId, setFocusNewItemId] = useState<string>();
+  const generation = useRef(0);
+  const morePending = useRef(false);
 
   useEffect(() => {
     let current = true;
+    generation.current += 1;
+    morePending.current = false;
     setState({ kind: 'loading' });
-    void client.loadTaskActivity({ taskId }).then(
+    setLoadingMore(false);
+    setMoreError(false);
+    setFocusNewItemId(undefined);
+    void client.loadTaskActivity({ taskId, filter }).then(
       (timeline) => {
-        if (current) setState({ kind: 'ready', timeline });
+        if (current && timeline.taskId === taskId) setState({ kind: 'ready', timeline });
+        else if (current) setState({ kind: 'error' });
       },
       () => {
         if (current) setState({ kind: 'error' });
@@ -77,8 +69,47 @@ export function TaskActivityTimeline({
     );
     return () => {
       current = false;
+      generation.current += 1;
     };
-  }, [client, refreshKey, reload, taskId]);
+  }, [client, filter, refreshKey, reload, taskId]);
+
+  const showMore = () => {
+    if (state.kind !== 'ready' || state.timeline.nextCursor === undefined || morePending.current)
+      return;
+    const cursor = state.timeline.nextCursor;
+    const requestedGeneration = generation.current;
+    morePending.current = true;
+    setLoadingMore(true);
+    setMoreError(false);
+    void client.loadTaskActivity({ taskId, filter, cursor }).then(
+      (page) => {
+        if (requestedGeneration !== generation.current) return;
+        morePending.current = false;
+        setLoadingMore(false);
+        if (page.taskId !== taskId) {
+          setMoreError(true);
+          return;
+        }
+        const known = new Set(state.timeline.items.map((item) => item.id));
+        const appended = page.items.filter((item) => !known.has(item.id));
+        setFocusNewItemId(appended[0]?.id);
+        setState({
+          kind: 'ready',
+          timeline: {
+            taskId,
+            items: [...state.timeline.items, ...appended],
+            nextCursor: page.nextCursor,
+          },
+        });
+      },
+      () => {
+        if (requestedGeneration !== generation.current) return;
+        morePending.current = false;
+        setLoadingMore(false);
+        setMoreError(true);
+      },
+    );
+  };
 
   if (state.kind === 'loading') {
     return (
@@ -104,40 +135,50 @@ export function TaskActivityTimeline({
   return (
     <TaskActivityTimelineView
       filter={filter}
+      focusNewItemId={focusNewItemId}
+      loadingMore={loadingMore}
+      moreError={moreError}
       onFilterChange={(next) => {
+        if (next === filter) return;
+        generation.current += 1;
+        morePending.current = false;
         setFilter(next);
-        setVisibleCount(initialVisibleCount);
       }}
       onOpenPullRequest={onOpenPullRequest}
       onReveal={onReveal}
-      onShowMore={() => setVisibleCount((count) => count + initialVisibleCount)}
+      onShowMore={showMore}
       timeline={state.timeline}
-      visibleCount={visibleCount}
     />
   );
 }
 
 export interface TaskActivityTimelineViewProps {
   readonly filter: TaskActivityFilter;
+  readonly focusNewItemId?: string | undefined;
+  readonly loadingMore: boolean;
+  readonly moreError: boolean;
   readonly onFilterChange: (filter: TaskActivityFilter) => void;
   readonly onOpenPullRequest: ((url: string) => void) | undefined;
   readonly onReveal: (target: TaskActivityTarget) => void;
   readonly onShowMore: () => void;
   readonly timeline: TaskActivityTimeline;
-  readonly visibleCount: number;
 }
 
 export function TaskActivityTimelineView({
   filter,
+  focusNewItemId,
+  loadingMore,
+  moreError,
   onFilterChange,
   onOpenPullRequest,
   onReveal,
   onShowMore,
   timeline,
-  visibleCount,
 }: TaskActivityTimelineViewProps) {
-  const filtered = filterTaskActivity(timeline.items, filter);
-  const visible = filtered.slice(0, visibleCount);
+  const newItemRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    newItemRef.current?.focus();
+  }, [focusNewItemId]);
   return (
     <section aria-label="Task activity" className="task-activity">
       <div className="task-activity__heading">
@@ -145,7 +186,9 @@ export function TaskActivityTimelineView({
           <p className="eyebrow">History</p>
           <h3>Task activity</h3>
         </div>
-        <span className="task-activity__count">{timeline.items.length} events</span>
+        <span aria-live="polite" className="task-activity__count">
+          {timeline.items.length} loaded events
+        </span>
       </div>
       <p className="task-activity__hint">
         Read-only history from saved sessions and evidence. PR entries show the latest stored
@@ -164,7 +207,7 @@ export function TaskActivityTimelineView({
           </button>
         ))}
       </div>
-      {filtered.length === 0 ? (
+      {timeline.items.length === 0 ? (
         <p className="task-activity__message">
           {filter === 'ALL'
             ? 'No saved activity for this Task yet.'
@@ -173,8 +216,13 @@ export function TaskActivityTimelineView({
       ) : (
         <>
           <ol className="task-activity__list">
-            {visible.map((item) => (
-              <li className="task-activity__item" key={item.id}>
+            {timeline.items.map((item) => (
+              <li
+                className="task-activity__item"
+                key={item.id}
+                ref={item.id === focusNewItemId ? newItemRef : undefined}
+                tabIndex={item.id === focusNewItemId ? -1 : undefined}
+              >
                 <div className="task-activity__item-top">
                   <span className="task-activity__type">{activityType(item)}</span>
                   <time dateTime={new Date(item.occurredAt).toISOString()}>
@@ -219,17 +267,27 @@ export function TaskActivityTimelineView({
               </li>
             ))}
           </ol>
-          {visible.length < filtered.length ? (
-            <button
-              className="secondary-action task-activity__more"
-              onClick={onShowMore}
-              type="button"
-            >
-              Show older activity ({filtered.length - visible.length} remaining)
-            </button>
-          ) : null}
         </>
       )}
+      {moreError ? (
+        <p className="task-activity__message" role="alert">
+          Older activity could not be loaded. Retry below.
+        </p>
+      ) : null}
+      {timeline.nextCursor !== undefined ? (
+        <button
+          className="secondary-action task-activity__more"
+          disabled={loadingMore}
+          onClick={onShowMore}
+          type="button"
+        >
+          {loadingMore
+            ? 'Loading older activity…'
+            : moreError
+              ? 'Retry older activity'
+              : 'Show older activity'}
+        </button>
+      ) : null}
     </section>
   );
 }

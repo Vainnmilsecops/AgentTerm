@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { TaskActivityTimeline } from '@agentterm/application';
 
-import { filterTaskActivity, TaskActivityTimelineView } from './task-activity-timeline';
+import { TaskActivityTimelineView } from './task-activity-timeline';
 
 const timeline: TaskActivityTimeline = {
   taskId: 'task-1',
@@ -43,16 +43,6 @@ const timeline: TaskActivityTimeline = {
 };
 
 describe('TaskActivityTimelineView', () => {
-  it('filters by evidence type without changing the persisted timeline', () => {
-    expect(filterTaskActivity(timeline.items, 'SESSION').map((item) => item.id)).toEqual([
-      'session:1:1',
-    ]);
-    expect(filterTaskActivity(timeline.items, 'ARTIFACT').map((item) => item.id)).toEqual([
-      'artifact:1',
-    ]);
-    expect(timeline.items).toHaveLength(3);
-  });
-
   it('renders accessible event context, evidence navigation and a PR snapshot label', () => {
     const html = renderToStaticMarkup(
       createElement(TaskActivityTimelineView, {
@@ -62,7 +52,8 @@ describe('TaskActivityTimelineView', () => {
         onReveal: vi.fn(),
         onShowMore: vi.fn(),
         timeline,
-        visibleCount: 20,
+        loadingMore: false,
+        moreError: false,
       }),
     );
     expect(html).toContain('Task activity');
@@ -83,8 +74,9 @@ describe('TaskActivityTimelineView', () => {
         onOpenPullRequest: vi.fn(),
         onReveal: vi.fn(),
         onShowMore: vi.fn(),
-        timeline,
-        visibleCount: 20,
+        timeline: { taskId: timeline.taskId, items: [] },
+        loadingMore: false,
+        moreError: false,
       }),
     );
     expect(empty).toContain('No review activity');
@@ -95,10 +87,12 @@ describe('TaskActivityTimelineView', () => {
         onOpenPullRequest: vi.fn(),
         onReveal: vi.fn(),
         onShowMore: vi.fn(),
-        timeline,
-        visibleCount: 1,
+        timeline: { ...timeline, nextCursor: { occurredAt: 10, id: 'session:1:1' } },
+        loadingMore: false,
+        moreError: false,
       }),
     );
     expect(limited).toContain('Show older activity');
+    expect(limited).toContain('3 loaded events');
   });
 });

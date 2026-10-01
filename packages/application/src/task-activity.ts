@@ -93,7 +93,42 @@ export type TaskActivityItem =
 
 export interface TaskActivityTimeline {
   readonly items: readonly TaskActivityItem[];
+  readonly nextCursor?: TaskActivityCursor | undefined;
   readonly taskId: string;
+}
+
+export type TaskActivityFilter =
+  'ALL' | 'SESSION' | 'ARTIFACT' | 'QUALITY_GATE' | 'REVIEW' | 'PHASE' | 'PULL_REQUEST';
+
+export interface TaskActivityCursor {
+  readonly occurredAt: number;
+  readonly id: string;
+}
+
+export interface TaskActivityPageInput {
+  readonly taskId: string;
+  readonly filter: TaskActivityFilter;
+  readonly cursor?: TaskActivityCursor;
+}
+
+export interface TaskActivityReader {
+  listPage(input: TaskActivityPageInput): Promise<TaskActivityTimeline>;
+}
+
+/** The reader returns only metadata for a bounded page; it must not load full Task histories. */
+export async function loadTaskActivityPage(
+  input: TaskActivityPageInput,
+  dependencies: {
+    readonly tasks: Pick<TaskRepository, 'findById'>;
+    readonly reader: TaskActivityReader;
+  },
+): Promise<TaskActivityTimeline> {
+  if ((await dependencies.tasks.findById(input.taskId)) === undefined) {
+    throw new EntityNotFoundError('Task', input.taskId);
+  }
+  const page = await dependencies.reader.listPage(input);
+  if (page.taskId !== input.taskId) throw new Error('Task activity history is inconsistent.');
+  return page;
 }
 
 /** Reads existing Task evidence only; this projection never records an activity of its own. */

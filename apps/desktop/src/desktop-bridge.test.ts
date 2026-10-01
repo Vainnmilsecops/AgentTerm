@@ -34,14 +34,16 @@ describe('desktop preload bridge', () => {
     const ipc = new FakeIpcRenderer();
     ipc.response = () => ({ ok: true, value: { taskId: 'task-1', items: [] } });
     const bridge = createDesktopBridge(ipc, () => 'subscription');
-    await expect(bridge.api.loadTaskActivity({ taskId: 'task-1' })).resolves.toEqual({
-      taskId: 'task-1',
-      items: [],
-    });
+    await expect(bridge.api.loadTaskActivity({ taskId: 'task-1', filter: 'ALL' })).resolves.toEqual(
+      {
+        taskId: 'task-1',
+        items: [],
+      },
+    );
     expect(ipc.calls).toEqual([
       {
         channel: desktopIpcChannels.loadTaskActivity,
-        input: { taskId: 'task-1' },
+        input: { taskId: 'task-1', filter: 'ALL' },
       },
     ]);
   });

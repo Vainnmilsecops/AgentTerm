@@ -8,18 +8,47 @@ import {
 } from './ipc-contract';
 
 describe('desktop IPC contract validation', () => {
-  it('accepts only a Task id when reading its activity timeline', () => {
+  it('accepts only a Task-scoped filtered page and bounded cursor for activity', () => {
     expect(
-      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, { taskId: 'task-1' }),
-    ).toEqual({ taskId: 'task-1' });
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, {
+        taskId: 'task-1',
+        filter: 'SESSION',
+        cursor: { occurredAt: 100, id: 'session:s1:1' },
+      }),
+    ).toEqual({
+      taskId: 'task-1',
+      filter: 'SESSION',
+      cursor: { occurredAt: 100, id: 'session:s1:1' },
+    });
     expect(() =>
       validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, {
         taskId: 'task-1',
+        filter: 'ALL',
         sourcePath: 'C:\\private',
       }),
     ).toThrow(DesktopIpcRequestValidationError);
     expect(() =>
-      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, { taskId: '' }),
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, { taskId: '', filter: 'ALL' }),
+    ).toThrow(DesktopIpcRequestValidationError);
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, {
+        taskId: 'task-1',
+        filter: 'ALL',
+        cursor: { occurredAt: -1, id: 'bad' },
+      }),
+    ).toThrow(DesktopIpcRequestValidationError);
+    expect(
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, {
+        taskId: 'task-1',
+        filter: 'PULL_REQUEST',
+        cursor: { occurredAt: 100, id: 'p'.repeat(540) },
+      }),
+    ).toMatchObject({ cursor: { id: 'p'.repeat(540) } });
+    expect(() =>
+      validateDesktopIpcRequest(desktopIpcChannels.loadTaskActivity, {
+        taskId: 'task-1',
+        filter: 'BOGUS',
+      }),
     ).toThrow(DesktopIpcRequestValidationError);
   });
   it('accepts only a local session identity for recovery operations', () => {

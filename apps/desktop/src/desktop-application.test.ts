@@ -100,7 +100,10 @@ describe('production desktop Application composition', () => {
         canStartPlanning: true,
         task: { id: created.taskId, phase: 'PLANNING' },
       });
-      const activity = await application.loadTaskActivity({ taskId: created.taskId });
+      const activity = await application.loadTaskActivity({
+        taskId: created.taskId,
+        filter: 'ALL',
+      });
       expect(activity.items).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: 'ARTIFACT', artifactId: 'artifact-research-1' }),

@@ -4,6 +4,7 @@ import { SqliteTaskContextRepository } from './task-context-repository';
 
 import type {
   AgentSessionRepository,
+  TaskActivityReader,
   ApplicationSettingsRepository,
   ExecutionArtifactRepository,
   TaskPlanningArtifactRepository,
@@ -39,6 +40,7 @@ import {
 import { SqliteWorkflowPluginBindingRepository } from './workflow-plugin-bindings';
 import { SqliteWorkspaceLayoutRepository } from './workspace-layout-repository';
 import { SqliteTaskTransitionLog } from './task-transition-audit';
+import { SqliteTaskActivityReader } from './task-activity-reader';
 
 type NodeSqliteModule = typeof import('node:sqlite');
 
@@ -46,6 +48,7 @@ type NodeSqliteModule = typeof import('node:sqlite');
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as NodeSqliteModule;
 
 export interface SqlitePersistence {
+  readonly taskActivity: TaskActivityReader;
   readonly contextAttachments: TaskContextRepository;
   readonly artifacts: ExecutionArtifactRepository & TaskPlanningArtifactRepository;
   readonly projects: LocalProjectLocator & ProjectCatalog & ProjectRepository;
@@ -116,6 +119,7 @@ export function openSqlitePersistence(databasePath: string): SqlitePersistence {
   let isClosed = false;
 
   return Object.freeze({
+    taskActivity: new SqliteTaskActivityReader(database),
     contextAttachments: new SqliteTaskContextRepository(database),
     artifacts,
     projects,
