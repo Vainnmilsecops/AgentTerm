@@ -16,4 +16,10 @@ The Task inspector exposes recent sessions, artifacts, quality-gate runs, review
 
 ## Consequences
 
-The projection uses existing repository ports and needs no migration. It loads full metadata history only for the selected Task, so very large Task histories may eventually need paged repository reads. Older entries remain visible in the timeline even when existing inspector detail sections show only their latest bounded records. An exact retry/resume action label requires durable attempt-origin metadata in a separate future change.
+The initial projection used existing repository ports and needed no migration. Older entries remain visible in the timeline even when existing inspector detail sections show only their latest bounded records. An exact retry/resume action label requires durable attempt-origin metadata in a separate future change.
+
+## Pagination follow-up
+
+The desktop now reads 20 metadata-only events per request through a SQLite-backed Application port, ordered by `(occurredAt DESC, id DESC)` with a Task-scoped keyset cursor. Filters run before paging, so an empty first page means no matching history rather than no match among the first 20 events. The renderer shows the loaded count, supports retrying a failed older page, and discards responses after Task/filter/overview changes. This adds no table, migration, or activity write. The original full-history projection remains available to non-desktop callers but is no longer on the desktop timeline read path.
+
+Keyset paging prevents duplicate immutable events when new history arrives. Quality-gate, review, and PR entries are mutable snapshots, however; if one changes timestamp between page requests, a refresh is needed for an exact current view. Pagination does not create a database snapshot across user clicks.

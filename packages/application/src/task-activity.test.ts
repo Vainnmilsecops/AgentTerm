@@ -10,7 +10,11 @@ import type {
 } from '@agentterm/domain';
 
 import { EntityNotFoundError } from './errors';
-import { loadTaskActivity, type TaskActivityDependencies } from './task-activity';
+import {
+  loadTaskActivity,
+  loadTaskActivityPage,
+  type TaskActivityDependencies,
+} from './task-activity';
 import type { TaskPullRequest } from './ports';
 
 const task: Task = { id: 'task-1', projectId: 'project-1', title: 'Timeline', phase: 'REVIEW' };
@@ -237,5 +241,46 @@ describe('loadTaskActivity', () => {
     await expect(loadTaskActivity(task.id, dependencies({ artifacts: [foreign] }))).rejects.toThrow(
       'Task activity history is inconsistent.',
     );
+  });
+});
+
+describe('loadTaskActivityPage', () => {
+  it('reads only a bounded page after confirming the Task exists', async () => {
+    const reader = {
+      listPage: vi.fn(async () => ({
+        taskId: task.id,
+        items: [],
+        nextCursor: undefined,
+      })),
+    };
+    const result = await loadTaskActivityPage(
+      { taskId: task.id, filter: 'SESSION' },
+      { tasks: { findById: async () => task }, reader },
+    );
+    expect(result).toEqual({ taskId: task.id, items: [], nextCursor: undefined });
+    expect(reader.listPage).toHaveBeenCalledWith({ taskId: task.id, filter: 'SESSION' });
+  });
+
+  it('rejects a missing Task before reading any history', async () => {
+    const reader = { listPage: vi.fn() };
+    await expect(
+      loadTaskActivityPage(
+        { taskId: 'missing', filter: 'ALL' },
+        { tasks: { findById: async () => undefined }, reader },
+      ),
+    ).rejects.toEqual(new EntityNotFoundError('Task', 'missing'));
+    expect(reader.listPage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reader page scoped to another Task', async () => {
+    await expect(
+      loadTaskActivityPage(
+        { taskId: task.id, filter: 'ALL' },
+        {
+          tasks: { findById: async () => task },
+          reader: { listPage: async () => ({ taskId: 'foreign', items: [] }) },
+        },
+      ),
+    ).rejects.toThrow('Task activity history is inconsistent.');
   });
 });

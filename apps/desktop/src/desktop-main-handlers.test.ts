@@ -246,9 +246,10 @@ describe('desktop main IPC handlers', () => {
     await expect(
       ipcMain.invoke(desktopIpcChannels.loadTaskActivity, event(new FakeSender(1)), {
         taskId: 'task-1',
+        filter: 'ALL',
       }),
     ).resolves.toEqual({ ok: true, value: { taskId: 'task-1', items: [] } });
-    expect(application.loadTaskActivity).toHaveBeenCalledWith({ taskId: 'task-1' });
+    expect(application.loadTaskActivity).toHaveBeenCalledWith({ taskId: 'task-1', filter: 'ALL' });
     expect([...ipcMain.handlers.keys()].sort()).toEqual(Object.values(desktopIpcChannels).sort());
   });
 

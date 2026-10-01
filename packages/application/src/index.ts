@@ -326,8 +326,13 @@ export {
 } from './workspace-overview';
 export {
   loadTaskActivity,
+  loadTaskActivityPage,
+  type TaskActivityCursor,
   type TaskActivityDependencies,
+  type TaskActivityFilter,
   type TaskActivityItem,
+  type TaskActivityPageInput,
+  type TaskActivityReader,
   type TaskActivityTimeline,
 } from './task-activity';
 export { createTask, transitionTask, type TransitionTaskInput } from './task-use-cases';
