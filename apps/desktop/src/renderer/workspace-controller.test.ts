@@ -2405,8 +2405,9 @@ describe('WorkspaceController', () => {
 });
 
 describe('WorkspaceController readiness helpers', () => {
-  it('rejects artifact production only when the selected Task is DONE', () => {
-    expect(WorkspaceController.canProduceArtifact('BACKLOG')).toBe(true);
+  it('offers artifact capture only when the current phase has a producer', () => {
+    expect(WorkspaceController.canProduceArtifact('BACKLOG')).toBe(false);
+    expect(WorkspaceController.canProduceArtifact('BACKLOG', true)).toBe(true);
     expect(WorkspaceController.canProduceArtifact('PLANNING')).toBe(true);
     expect(WorkspaceController.canProduceArtifact('RUNNING')).toBe(true);
     expect(WorkspaceController.canProduceArtifact('REVIEW')).toBe(true);
@@ -2482,6 +2483,8 @@ describe('command palette discoverability', () => {
     expect(markup).toContain('Ctrl+Shift+P');
     expect(markup).toContain('id="workspace-sidebar"');
     expect(markup).toContain('id="workspace-main"');
+    expect(markup).toContain('id="workspace-artifact-producer"');
+    expect(markup).toContain('data-artifact-content');
     expect(markup).toContain('data-active-terminal-pane="true"');
   });
 

@@ -1,7 +1,13 @@
 export type WorkspaceFocusTarget =
-  'artifacts' | 'changes' | 'checks' | 'review' | 'sidebar' | 'terminal' | 'workspace';
+  | 'artifact-producer'
+  | 'artifacts'
+  | 'changes'
+  | 'checks'
+  | 'review'
+  | 'sidebar'
+  | 'terminal'
+  | 'workspace';
 
-export type WorkspaceCommandArtifactKind = 'execution-summary' | 'plan' | 'review';
 export type WorkspaceCommandQualityGateKind = 'BUILD' | 'LINT' | 'TEST' | 'TYPECHECK';
 export type WorkspaceCommandTaskPhase = 'BACKLOG' | 'DONE' | 'PLANNING' | 'REVIEW' | 'RUNNING';
 
@@ -42,7 +48,6 @@ export interface WorkspaceCommandTask {
 
 export interface WorkspaceCommandContext {
   readonly actionBusy: boolean;
-  readonly now: number;
   readonly qualityGates: readonly {
     readonly id: string;
     readonly kind: WorkspaceCommandQualityGateKind;
@@ -60,14 +65,6 @@ export interface WorkspaceCommandActions {
   addDependency(dependencyTaskId: string, taskId: string): Promise<void> | void;
   checkMergeConflicts(): Promise<void> | void;
   focus(target: WorkspaceFocusTarget): void;
-  produceArtifact(input: {
-    readonly content: string;
-    readonly createdAt: number;
-    readonly id: string;
-    readonly kind: WorkspaceCommandArtifactKind;
-    readonly sessionId: string | undefined;
-    readonly taskId: string;
-  }): Promise<unknown> | unknown;
   registerQualityGate(input: {
     readonly arguments: readonly string[];
     readonly executablePath: string;
@@ -343,16 +340,7 @@ export function buildWorkspaceCommands(
         id: 'artifact:produce',
         keywords: ['artifact produce capture summary plan review'],
         label: 'Produce artifact',
-        run: () => {
-          void actions.produceArtifact({
-            content: '',
-            createdAt: context.now,
-            id: `palette-${String(context.now)}`,
-            kind: 'execution-summary',
-            sessionId: undefined,
-            taskId: selected.id,
-          });
-        },
+        run: () => actions.focus('artifact-producer'),
       }),
     );
   }

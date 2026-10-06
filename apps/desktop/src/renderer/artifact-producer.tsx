@@ -95,6 +95,7 @@ export function ArtifactProducer({
       aria-label="Produce execution artifact"
       className="artifact-producer"
       data-artifact-producer
+      id="workspace-artifact-producer"
       onSubmit={(event) => {
         event.preventDefault();
         void handleSubmit();

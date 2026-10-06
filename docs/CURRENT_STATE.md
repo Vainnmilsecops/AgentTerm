@@ -1,6 +1,6 @@
 # AgentTerm Current State
 
-Updated: 2026-09-13
+Updated: 2026-10-06
 
 ## Current State
 
@@ -292,7 +292,9 @@ into the renderer. Persisted executable overrides are read when that immutable c
 startup; changing Settings does not restart or mutate an active Session and takes effect after the next
 application composition.
 The production IPC surface covers the actions already consumed by the workspace. Artifact production
-and dependency editing still have no renderer workflow. Quality Gate IPC exposes `loadQualityGateConfig`,
+and dependency editing have inspector workflows. The command palette's `Produce artifact` action
+opens the selected Task's composer and focuses its Markdown field instead of submitting an empty
+artifact. Quality Gate IPC exposes `loadQualityGateConfig`,
 `saveQualityGateConfig`, `importQualityGateConfig`, and `selectQualityGateConfigPath`; the production
 composition still intentionally exposes an empty gate catalog until an operator seeds the first
 trusted configuration file.

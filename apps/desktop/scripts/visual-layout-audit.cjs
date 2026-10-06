@@ -211,6 +211,10 @@ async function auditInteractiveContracts() {
     traceAudit('interactive-project-navigation-audited');
     const newTaskDialogFocus = await auditNewTaskDialogFocus(window.webContents);
     traceAudit('interactive-dialog-audited');
+    const artifactPaletteFocus = await auditArtifactPaletteFocus(window.webContents);
+    traceAudit('interactive-artifact-palette-audited');
+    const artifactTaskSwitch = await auditArtifactTaskSwitch(window.webContents);
+    traceAudit('interactive-artifact-task-switch-audited');
 
     window.setContentSize(resizedViewport.width, resizedViewport.height, false);
     await waitForViewportSize(window.webContents, resizedViewport);
@@ -218,6 +222,8 @@ async function auditInteractiveContracts() {
     traceAudit('interactive-resized');
     const responsiveDrawerFocus = await auditResponsiveDrawerFocus(window.webContents);
     traceAudit('interactive-drawers-audited');
+    const compactArtifactPaletteFocus = await auditArtifactPaletteFocus(window.webContents, true);
+    traceAudit('interactive-compact-artifact-palette-audited');
 
     const screenshotPath = join(outputDirectory, 'workspace-dynamic-1600x900-to-520x480.png');
     const screenshot = await captureSettledPage(window);
@@ -231,12 +237,18 @@ async function auditInteractiveContracts() {
       ...assessLayoutMeasurement(completeMeasurement),
       ...assessTerminalResizeRange(terminalResizeRange),
       ...newTaskDialogFocus.violations,
+      ...artifactPaletteFocus.violations,
+      ...artifactTaskSwitch.violations,
+      ...compactArtifactPaletteFocus.violations,
       ...responsiveDrawerFocus.violations,
       ...terminalProjectNavigation.violations,
     ];
     return Object.freeze({
       from: initialViewport,
       measurement: completeMeasurement,
+      artifactPaletteFocus,
+      artifactTaskSwitch,
+      compactArtifactPaletteFocus,
       newTaskDialogFocus,
       responsiveDrawerFocus,
       screenshotPath,
@@ -248,6 +260,115 @@ async function auditInteractiveContracts() {
   } finally {
     if (!window.isDestroyed()) window.destroy();
   }
+}
+
+async function auditArtifactTaskSwitch(webContents) {
+  await webContents.executeJavaScript(
+    `document.querySelector('[data-task-id="task-planning"]')?.click()`,
+    true,
+  );
+  const planningSelected = await waitForPageCondition(
+    webContents,
+    `document.querySelector('[data-task-id="task-planning"][aria-current="true"]') !== null`,
+  );
+  const planningDraft = await webContents.executeJavaScript(
+    `document.querySelector('#workspace-artifact-producer [data-artifact-content]')?.value ?? ''`,
+    true,
+  );
+  await webContents.executeJavaScript(
+    `document.querySelector('[data-task-id="task-running"]')?.click()`,
+    true,
+  );
+  await waitForPageCondition(
+    webContents,
+    `document.querySelector('[data-task-id="task-running"][aria-current="true"]') !== null`,
+  );
+  const state = Object.freeze({
+    planningSelected,
+    planningDraftReset: planningDraft === '# Plan\n\n',
+  });
+  return Object.freeze({
+    ...state,
+    violations: Object.freeze(
+      Object.values(state).every(Boolean)
+        ? []
+        : [
+            auditViolation(
+              'ARTIFACT_DRAFT_WRONG_TASK',
+              'Switching Tasks must reset the artifact composer to the selected Task and phase.',
+              [JSON.stringify(state)],
+            ),
+          ],
+    ),
+  });
+}
+
+async function auditArtifactPaletteFocus(webContents, compact = false) {
+  const paletteOpened = await activateSurface(
+    webContents,
+    '[aria-label="Open command palette"]',
+    '[aria-label="Command palette"]',
+  );
+  const commandPresent =
+    paletteOpened &&
+    (await waitForSelectorState(webContents, '[data-palette-command-id="artifact:produce"]', true));
+  if (commandPresent) {
+    await webContents.executeJavaScript(
+      `document.querySelector('[data-palette-command-id="artifact:produce"]')?.click()`,
+      true,
+    );
+  }
+  const editorFocused =
+    commandPresent &&
+    (await waitForActiveElementMatches(
+      webContents,
+      '#workspace-artifact-producer [data-artifact-content]',
+    ));
+  const disclosureOpened =
+    editorFocused &&
+    (await webContents.executeJavaScript(
+      `document.querySelector('#workspace-artifact-producer')?.closest('details')?.open === true`,
+      true,
+    ));
+  const paletteClosed = await waitForSelectorState(
+    webContents,
+    '[aria-label="Command palette"]',
+    false,
+  );
+  await webContents.executeJavaScript(
+    `(() => {
+      const disclosure = document.querySelector('#workspace-artifact-producer')?.closest('details');
+      if (disclosure instanceof HTMLDetailsElement) disclosure.open = false;
+      document.querySelector(${JSON.stringify(compact ? '.task-inspector__close' : '[aria-label="Open command palette"]')})?.focus();
+    })()`,
+    true,
+  );
+  if (compact) sendEscape(webContents);
+  const inspectorClosed = compact
+    ? await waitForSelectorState(webContents, '.task-inspector[data-open="true"]', false)
+    : true;
+  const state = Object.freeze({
+    commandPresent,
+    disclosureOpened,
+    editorFocused,
+    inspectorClosed,
+    paletteClosed,
+    paletteOpened,
+  });
+  return Object.freeze({
+    ...state,
+    violations: Object.freeze(
+      Object.values(state).every(Boolean)
+        ? []
+        : [
+            auditViolation(
+              'ARTIFACT_PALETTE_FOCUS',
+              'Produce artifact must open the composer and focus Markdown input without saving an empty artifact.',
+              [JSON.stringify(state)],
+            ),
+          ],
+    ),
+  });
 }
 
 async function auditTerminalProjectNavigation(webContents) {

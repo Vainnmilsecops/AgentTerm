@@ -688,8 +688,9 @@ export class WorkspaceController {
 
   public static canProduceArtifact(
     phase: AgentWorkspaceOverview['projects'][number]['tasks'][number]['task']['phase'],
+    pluginRequiresResearch = false,
   ): boolean {
-    return phase !== 'DONE';
+    return phase !== 'DONE' && (phase !== 'BACKLOG' || pluginRequiresResearch);
   }
 
   public static canEditDependencies(
