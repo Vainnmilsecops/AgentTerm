@@ -13,7 +13,6 @@ import {
 
 const baseContext: WorkspaceCommandContext = {
   actionBusy: false,
-  now: 1_700_000_000_000,
   qualityGates: [
     { id: 'lint', kind: 'LINT' },
     { id: 'tests', kind: 'TEST' },
@@ -51,7 +50,7 @@ function createActions() {
     addDependency: vi.fn<WorkspaceCommandActions['addDependency']>(),
     checkMergeConflicts: vi.fn<WorkspaceCommandActions['checkMergeConflicts']>(),
     focus: vi.fn<WorkspaceCommandActions['focus']>(),
-    produceArtifact: vi.fn<WorkspaceCommandActions['produceArtifact']>(),
+    produceArtifact: vi.fn(),
     registerQualityGate: vi.fn<WorkspaceCommandActions['registerQualityGate']>(),
     removeDependency: vi.fn<WorkspaceCommandActions['removeDependency']>(),
     requestReview: vi.fn<WorkspaceCommandActions['requestReview']>(),
@@ -135,10 +134,8 @@ describe('workspace command registry', () => {
     expect(actions.focus).toHaveBeenCalledWith('terminal');
     expect(actions.runQualityGate).toHaveBeenCalledWith('lint');
     expect(actions.unregisterQualityGate).toHaveBeenCalledWith('tests');
-    expect(actions.produceArtifact).toHaveBeenCalledOnce();
-    expect(actions.produceArtifact).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'execution-summary', taskId: 'task-vietnamese' }),
-    );
+    expect(actions.focus).toHaveBeenCalledWith('artifact-producer');
+    expect(actions.produceArtifact).not.toHaveBeenCalled();
     expect(actions.addDependency).toHaveBeenCalledWith('task-review', 'task-vietnamese');
     expect(actions.removeDependency).toHaveBeenCalledWith('task-blocker', 'task-vietnamese');
     expect(actions.focus).toHaveBeenCalledWith('checks');

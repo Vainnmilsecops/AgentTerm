@@ -605,8 +605,15 @@ export function AgentWorkspaceView({
         requestAnimationFrame(() => focusWorkspaceTarget(target));
         return;
       }
-      if (compactInspector && ['artifacts', 'changes', 'checks', 'review'].includes(target)) {
+      if (
+        compactInspector &&
+        ['artifact-producer', 'artifacts', 'changes', 'checks', 'review'].includes(target)
+      ) {
         openInspector();
+        requestAnimationFrame(() => focusWorkspaceTarget(target));
+        return;
+      }
+      if (target === 'artifact-producer') {
         requestAnimationFrame(() => focusWorkspaceTarget(target));
         return;
       }
@@ -824,7 +831,6 @@ export function AgentWorkspaceView({
   const commands = buildWorkspaceCommands(
     {
       actionBusy: actionsBusy,
-      now: Date.now(),
       qualityGates: snapshot.qualityGates ?? [],
       selectedAgentId: snapshot.selectedAgentId,
       selectedTask:
@@ -833,7 +839,10 @@ export function AgentWorkspaceView({
           : {
               canCheckMergeConflicts:
                 selected.task.phase === 'REVIEW' || selected.task.phase === 'RUNNING',
-              canProduceArtifact: selected.task.phase !== 'DONE',
+              canProduceArtifact: WorkspaceController.canProduceArtifact(
+                selected.task.phase,
+                selected.workflowPlugin?.activePhaseId === 'research',
+              ),
               canRequestReview: selected.canRequestReview,
               canRetryExecution: selected.canRetryExecution,
               canRevisePlan: selected.canRevisePlan,
@@ -872,7 +881,6 @@ export function AgentWorkspaceView({
       },
       checkMergeConflicts: () => onCheckMergeConflicts?.(),
       focus: focusTarget,
-      produceArtifact: onProduceArtifact,
       registerQualityGate: onRegisterQualityGate,
       removeDependency: (dependencyTaskId, taskId) => {
         onRemoveDependency({ dependencyTaskId, taskId });
@@ -985,7 +993,10 @@ export function AgentWorkspaceView({
       const filtered = current.filter((id) => id !== command.id);
       return [command.id, ...filtered].slice(0, 5);
     });
-    const restoreFocus = command.category !== 'Navigate' && !command.id.startsWith('task:');
+    const restoreFocus =
+      command.category !== 'Navigate' &&
+      !command.id.startsWith('task:') &&
+      command.id !== 'artifact:produce';
     closePalette(restoreFocus);
     void Promise.resolve(command.run()).catch(() => undefined);
   };
@@ -1832,6 +1843,7 @@ export function AgentWorkspaceView({
               >
                 <ReviewHistory reviews={selected.reviewHistory} />
                 <ArtifactProducer
+                  key={selected.task.id}
                   activeSessionId={selected.activeSession?.id}
                   disabled={snapshot.activeAction !== undefined}
                   onProduce={(input) =>
@@ -3417,6 +3429,7 @@ function findProject(
 }
 
 const focusTargetIds: Readonly<Record<WorkspaceFocusTarget, string>> = Object.freeze({
+  'artifact-producer': 'workspace-artifact-producer',
   artifacts: 'workspace-artifacts',
   changes: 'workspace-changes',
   checks: 'workspace-checks',
@@ -3433,7 +3446,11 @@ function focusWorkspaceTarget(target: WorkspaceFocusTarget): void {
       : document.getElementById(focusTargetIds[target]);
   const disclosure = element?.closest('details');
   if (disclosure instanceof HTMLDetailsElement) disclosure.open = true;
-  element?.focus({ preventScroll: true });
+  const focusElement =
+    target === 'artifact-producer'
+      ? element?.querySelector<HTMLTextAreaElement>('[data-artifact-content]')
+      : element;
+  focusElement?.focus({ preventScroll: true });
   element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 

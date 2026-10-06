@@ -17,6 +17,7 @@ function createTaskOverview(id, phase, title, brief, overrides = {}) {
   return Object.freeze({
     activeSession: undefined,
     artifacts: Object.freeze([]),
+    autoAdvanceCount: 0,
     blocked: false,
     canAcceptPlan: false,
     canApproveReview: false,
@@ -29,6 +30,7 @@ function createTaskOverview(id, phase, title, brief, overrides = {}) {
     canStartExecution: phase === 'RUNNING',
     canStartPlanning: phase === 'PLANNING',
     dependencies: Object.freeze([]),
+    dependents: Object.freeze([]),
     latestPlan: undefined,
     latestReview: undefined,
     latestSession: undefined,
@@ -36,6 +38,7 @@ function createTaskOverview(id, phase, title, brief, overrides = {}) {
     qualityGateRuns: Object.freeze([]),
     reviewHistory: Object.freeze([]),
     task: Object.freeze({ brief, id, phase, projectId: project.id, title }),
+    workflowPlugin: undefined,
     ...overrides,
   });
 }
@@ -164,10 +167,12 @@ const api = Object.freeze({
   listQualityGateDetails: async () => Object.freeze([]),
   listQualityGates: async () => Object.freeze([]),
   listTaskChanges: async () => emptyChanges,
+  listTaskContext: async () => Object.freeze([]),
   listTaskDependencies: async () => Object.freeze([]),
   listTaskReviews: async () => Object.freeze([]),
   loadSettings: async () => settings,
   loadWorkspace: async () => workspace,
+  loadWorkspaceLayout: async () => undefined,
   openProject: async () => 'CANCELLED',
   pushTaskBranch: noOperation,
   refreshTaskPullRequest: noOperation,
@@ -177,6 +182,8 @@ const api = Object.freeze({
   requestTaskReview: noOperation,
   retryTaskExecution: noOperation,
   runQualityGate: noOperation,
+  saveWorkspaceLayout: async ({ expectedRevision, layout }) =>
+    Object.freeze({ layout, revision: expectedRevision + 1, updatedAt: Date.now() }),
   startTaskExecution: noOperation,
   startTaskPlanning: noOperation,
   unregisterQualityGate: async () => false,
