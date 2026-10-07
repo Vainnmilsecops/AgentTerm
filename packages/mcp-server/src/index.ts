@@ -10,9 +10,13 @@ export { runMcpStdioServer } from './stdio-loop';
 export {
   MCP_JSON_RPC_ERRORS,
   MCP_TOOL_DEFINITIONS,
+  MCP_PROTOCOL_VERSIONS,
+  McpInvalidParamsError,
   type McpJsonRpcError,
   type McpJsonRpcId,
   type McpJsonRpcRequest,
+  type McpJsonRpcMessage,
+  type McpJsonRpcNotification,
   type McpJsonRpcResponse,
   type McpJsonRpcResponseError,
   type McpJsonRpcResponseSuccess,

@@ -338,7 +338,10 @@ plus its M2.3 close-out, M2.5 (plugin uninstall), M3 (research artifact
 * **MCP write tools** (`create_task`, `move_task`, `send_to_task`).
   Intentionally out of scope for the read-only server (ADR-009 §AD-5);
   introducing them later must reuse the same authorization discipline
-  that the IPC channel allowlist enforces today.
+  that the IPC channel allowlist enforces today. The read-only protocol now
+  implements standard initialization/discovery/calling (ADR-022), but a dedicated
+  stdio launch/registration host and its local authorization/data ownership
+  contract must be established before exposing writes.
 
 Anything else mentioned in earlier `Next Step` paragraphs (M1 just
 shipped, M2 deferred, etc.) is historical and superseded by the
@@ -346,6 +349,15 @@ shipped, M2 deferred, etc.) is historical and superseded by the
 
 ## Recently Shipped
 
+- **Read-only MCP protocol interoperability** (ADR-022): adds the standard
+  initialize/initialized, ping, tools/list, and tools/call exchange to the
+  existing four Application read views. Legacy direct JSON-RPC calls remain
+  supported. Stdio now frames bytes before UTF-8 decoding, responds to a single
+  line immediately, accepts a complete final message at EOF, limits input frames
+  to 1 MiB, and awaits output writes. Argument validation and sanitized errors
+  protect the protocol boundary. Tests include a built host over real Node
+  process pipes. This does not add a standalone launch command or write tools;
+  see [the host contract](MCP.md).
 - **Workspace tab/pane layout restore** (no new ADR; close-out of
   earlier renderer-side persistence): shipped on 2026-09-13. Workspace
   tabs, panes, active-tab/pane selection, and per-pane Session binding
@@ -477,9 +489,9 @@ shipped, M2 deferred, etc.) is historical and superseded by the
   window via the command palette for the dedicated focus model.
 - **M4 — Minimal MCP read-only server** (ADR-009 §AD-5, ADR-009 §M4):
   shipped via PR #36 on 2026-09-05 (`5b56731`). Adds
-  `packages/mcp-server` exporting `agenttermMcpServe(deps)` — a stdio
+  `packages/mcp-server` exporting `bootstrapMcpServer(options)` — a stdio
   JSON-RPC server wrapping the four read use cases
-  (`list_projects`, `list_tasks`, `get_task`, `read_pane_content`).
+  (tool names `list-projects`, `list-tasks`, `get-task`, `read-pane-content`).
   Authentication requires an explicit `agentterm-mcp-token` from
   Settings; the server never reads from a remote network and never
   mutates Domain transition ports.

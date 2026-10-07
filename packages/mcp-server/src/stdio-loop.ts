@@ -1,11 +1,10 @@
 import { McpServer } from './server';
-import {
-  MCP_JSON_RPC_ERRORS,
-  type McpJsonRpcRequest,
-  type McpJsonRpcResponse,
-} from './protocol';
+import { MCP_JSON_RPC_ERRORS, type McpJsonRpcMessage, type McpJsonRpcResponse } from './protocol';
+
+export const MAX_MCP_MESSAGE_BYTES = 1_048_576;
 
 export interface McpStdioServerOptions {
+  /** Explicit local transport grant. Never read a token from a JSON-RPC payload. */
   readonly authToken: string | undefined;
   readonly input?: NodeJS.ReadableStream;
   readonly output?: NodeJS.WritableStream;
@@ -15,25 +14,25 @@ export interface McpStdioServerOptions {
 export async function runMcpStdioServer(options: McpStdioServerOptions): Promise<void> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
-  await pumpJsonRpc(input, output, options.server, options.authToken);
-}
-
-async function pumpJsonRpc(
-  input: NodeJS.ReadableStream,
-  output: NodeJS.WritableStream,
-  server: McpServer,
-  authToken: string | undefined,
-): Promise<void> {
-  const decoder = new LineDecoder();
-  for await (const line of readLines(input)) {
-    decoder.push(line);
-    while (decoder.hasMessage()) {
-      const raw = decoder.consume();
-      const response = await handleRaw(raw, server, authToken);
-      if (response !== undefined) {
-        writeResponse(output, response);
-      }
-    }
+  for await (const frame of readFrames(input)) {
+    const response =
+      frame.kind === 'message'
+        ? await handleRaw(frame.raw, options.server, options.authToken)
+        : {
+            error: {
+              code:
+                frame.kind === 'oversized'
+                  ? MCP_JSON_RPC_ERRORS.INVALID_REQUEST
+                  : MCP_JSON_RPC_ERRORS.PARSE_ERROR,
+              message:
+                frame.kind === 'oversized'
+                  ? 'MCP message exceeds the 1 MiB limit.'
+                  : 'MCP message must be valid UTF-8.',
+            },
+            id: null,
+            jsonrpc: '2.0' as const,
+          };
+    if (response !== undefined) await writeResponse(output, response);
   }
 }
 
@@ -42,85 +41,119 @@ async function handleRaw(
   server: McpServer,
   authToken: string | undefined,
 ): Promise<McpJsonRpcResponse | undefined> {
-  if (raw.trim().length === 0) {
-    return undefined;
-  }
+  if (raw.trim().length === 0) return undefined;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (error) {
+  } catch {
     return {
       error: {
         code: MCP_JSON_RPC_ERRORS.PARSE_ERROR,
-        data: error instanceof Error ? error.message : String(error),
         message: 'JSON-RPC payload could not be parsed.',
       },
-      id: 0,
+      id: null,
       jsonrpc: '2.0',
     };
   }
-  if (!isJsonRpcRequest(parsed)) {
+  if (!isJsonRpcMessage(parsed)) {
     return {
       error: {
-        code: MCP_JSON_RPC_ERRORS.INVALID_PARAMS,
-        message: 'JSON-RPC payload is not a valid Request object.',
+        code: MCP_JSON_RPC_ERRORS.INVALID_REQUEST,
+        message: 'JSON-RPC payload is not a valid message.',
       },
-      id: 0,
+      id: null,
       jsonrpc: '2.0',
     };
   }
-  const dispatch = await server.dispatch(parsed, { token: authToken });
-  return dispatch.response;
+  return (await server.dispatch(parsed, { token: authToken })).response;
 }
 
-function writeResponse(output: NodeJS.WritableStream, response: McpJsonRpcResponse): void {
-  const payload = JSON.stringify(response);
-  output.write(`${payload}\n`);
+async function writeResponse(
+  output: NodeJS.WritableStream,
+  response: McpJsonRpcResponse,
+): Promise<void> {
+  const payload = JSON.stringify(response) + '\n';
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error): void => {
+      output.removeListener('error', onError);
+      reject(error);
+    };
+    output.once('error', onError);
+    try {
+      output.write(payload, (error?: Error | null) => {
+        // Node emits the error event after the write callback. Keep its listener
+        // until then so a failed output cannot become an unhandled stream error.
+        if (error) {
+          reject(error);
+          return;
+        }
+        output.removeListener('error', onError);
+        resolve();
+      });
+    } catch (error) {
+      output.removeListener('error', onError);
+      reject(error);
+    }
+  });
 }
 
-function isJsonRpcRequest(value: unknown): value is McpJsonRpcRequest {
-  if (value === null || typeof value !== 'object') {
-    return false;
-  }
+function isJsonRpcMessage(value: unknown): value is McpJsonRpcMessage {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   return (
     record.jsonrpc === '2.0' &&
     typeof record.method === 'string' &&
-    (typeof record.id === 'number' || typeof record.id === 'string')
+    (record.id === undefined ||
+      typeof record.id === 'string' ||
+      (typeof record.id === 'number' && Number.isSafeInteger(record.id))) &&
+    (record.params === undefined ||
+      (record.params !== null &&
+        typeof record.params === 'object' &&
+        !Array.isArray(record.params)))
   );
 }
 
-async function* readLines(stream: NodeJS.ReadableStream): AsyncIterable<string> {
-  let buffer = '';
+type Frame =
+  | { readonly kind: 'message'; readonly raw: string }
+  | { readonly kind: 'oversized' | 'invalid-utf8' };
+
+/** Frame bytes before decoding so a split UTF-8 code point is never replaced. */
+async function* readFrames(stream: NodeJS.ReadableStream): AsyncIterable<Frame> {
+  const buffer = Buffer.allocUnsafe(MAX_MCP_MESSAGE_BYTES);
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  let length = 0;
+  let discarding = false;
+  const finish = (): Frame => {
+    if (discarding) return { kind: 'oversized' };
+    try {
+      return { kind: 'message', raw: decoder.decode(buffer.subarray(0, length)) };
+    } catch {
+      return { kind: 'invalid-utf8' };
+    }
+  };
   for await (const chunk of stream) {
-    buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    let newlineIndex = buffer.indexOf('\n');
-    while (newlineIndex !== -1) {
-      yield buffer.slice(0, newlineIndex).replace(/\r$/u, '');
-      buffer = buffer.slice(newlineIndex + 1);
-      newlineIndex = buffer.indexOf('\n');
+    const bytes = typeof chunk === 'string' ? Buffer.from(chunk, 'utf8') : Buffer.from(chunk);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const newline = bytes.indexOf(10, offset);
+      const end = newline === -1 ? bytes.length : newline;
+      const segmentLength = end - offset;
+      if (!discarding) {
+        if (length + segmentLength > MAX_MCP_MESSAGE_BYTES) {
+          discarding = true;
+          length = 0;
+        } else {
+          bytes.copy(buffer, length, offset, end);
+          length += segmentLength;
+        }
+      }
+      if (newline === -1) break;
+      yield finish();
+      length = 0;
+      discarding = false;
+      offset = end + 1;
     }
   }
-  if (buffer.length > 0) {
-    yield buffer.replace(/\r$/u, '');
-  }
-}
-
-class LineDecoder {
-  private buffer = '';
-
-  public push(line: string): void {
-    this.buffer = this.buffer.length === 0 ? line : `${this.buffer}\n${line}`;
-  }
-
-  public hasMessage(): boolean {
-    return this.buffer.includes('\n');
-  }
-
-  public consume(): string {
-    const newlineIndex = this.buffer.indexOf('\n');
-    const head = this.buffer.slice(0, newlineIndex);
-    this.buffer = this.buffer.slice(newlineIndex + 1);
-    return head;
-  }
+  // Retain compatibility with a complete final JSON message at clean EOF.
+  if (length > 0 || discarding) yield finish();
 }

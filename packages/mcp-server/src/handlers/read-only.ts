@@ -7,7 +7,7 @@ import {
 } from '@agentterm/application';
 
 import type { McpToolHandler } from '../server';
-import { MCP_TOOL_DEFINITIONS, type McpToolDefinition } from '../protocol';
+import { MCP_TOOL_DEFINITIONS, McpInvalidParamsError, type McpToolDefinition } from '../protocol';
 
 export function buildReadOnlyHandlers(
   dependencies: McpReadOnlyViewDependencies,
@@ -17,6 +17,7 @@ export function buildReadOnlyHandlers(
     'get-task': {
       definition: definitions.get('get-task') as McpToolDefinition,
       async invoke(params: Readonly<Record<string, unknown>>) {
+        assertKeys(params, ['taskId']);
         const taskId = requireString(params.taskId, 'taskId');
         const detail = await readMcpTask(dependencies, { taskId });
         return detail ?? null;
@@ -25,7 +26,8 @@ export function buildReadOnlyHandlers(
     'list-projects': {
       definition: definitions.get('list-projects') as McpToolDefinition,
       async invoke(params: Readonly<Record<string, unknown>>) {
-        const limit = optionalNumber(params.limit);
+        assertKeys(params, ['limit']);
+        const limit = optionalNumber(params.limit, 200);
         const projects = await listMcpProjects(dependencies, limit === undefined ? {} : { limit });
         return projects;
       },
@@ -33,8 +35,9 @@ export function buildReadOnlyHandlers(
     'list-tasks': {
       definition: definitions.get('list-tasks') as McpToolDefinition,
       async invoke(params: Readonly<Record<string, unknown>>) {
+        assertKeys(params, ['projectId', 'limit']);
         const projectId = optionalString(params.projectId);
-        const limit = optionalNumber(params.limit);
+        const limit = optionalNumber(params.limit, 800);
         return listMcpTasks(dependencies, {
           ...(projectId === undefined ? {} : { projectId }),
           ...(limit === undefined ? {} : { limit }),
@@ -44,8 +47,9 @@ export function buildReadOnlyHandlers(
     'read-pane-content': {
       definition: definitions.get('read-pane-content') as McpToolDefinition,
       async invoke(params: Readonly<Record<string, unknown>>) {
+        assertKeys(params, ['sessionId', 'maximumLines']);
         const sessionId = requireString(params.sessionId, 'sessionId');
-        const maximumLines = optionalNumber(params.maximumLines);
+        const maximumLines = optionalNumber(params.maximumLines, 800);
         return readMcpPaneContent(dependencies, {
           ...(maximumLines === undefined ? {} : { maximumLines }),
           sessionId,
@@ -58,14 +62,17 @@ export function buildReadOnlyHandlers(
 function collectDefinitions(): ReadonlyMap<string, McpToolDefinition> {
   const map = new Map<string, McpToolDefinition>();
   for (const definition of MCP_TOOL_DEFINITIONS) {
-    map.set(definition.name, definition);
+    map.set(definition.name, {
+      ...definition,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    });
   }
   return map;
 }
 
 function requireString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim().length === 0) {
-    throw new TypeError(`MCP parameter '${field}' must be a non-empty string.`);
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > 256) {
+    throw new McpInvalidParamsError(`MCP parameter '${field}' must be a non-empty string.`);
   }
   return value;
 }
@@ -74,18 +81,23 @@ function optionalString(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (typeof value !== 'string') {
-    throw new TypeError('MCP string parameter must be a string.');
+  return requireString(value, 'projectId');
+}
+
+function optionalNumber(value: unknown, maximum: number): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > maximum) {
+    throw new McpInvalidParamsError(
+      'MCP count parameter must be a positive integer within its documented limit.',
+    );
   }
   return value;
 }
 
-function optionalNumber(value: unknown): number | undefined {
-  if (value === undefined) {
-    return undefined;
+function assertKeys(params: Readonly<Record<string, unknown>>, allowed: readonly string[]): void {
+  if (Object.keys(params).some((key) => !allowed.includes(key))) {
+    throw new McpInvalidParamsError('Unexpected MCP tool argument.');
   }
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new TypeError('MCP numeric parameter must be a finite number.');
-  }
-  return value;
 }
