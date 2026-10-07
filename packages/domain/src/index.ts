@@ -32,6 +32,7 @@ export {
   type AgentSessionActiveStatus,
   type AgentSessionEvent,
   type AgentSessionFailureStage,
+  type AgentSessionOrigin,
   type AgentSessionProcessExitedEvent,
   type AgentSessionRuntimeFailedEvent,
   type AgentSessionStartRequestedEvent,

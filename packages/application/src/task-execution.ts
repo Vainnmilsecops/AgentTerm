@@ -139,6 +139,7 @@ export async function retryTaskExecution(
       { ...input, agentId },
       dependencies,
       TaskPhase.RUNNING,
+      { kind: 'RETRY', previousSessionId: previousSession.id },
     );
     return Object.freeze({ ...execution, previousSession });
   });
@@ -169,6 +170,9 @@ export async function startTaskPlanning(
       { ...input, agentId },
       dependencies,
       TaskPhase.PLANNING,
+      previousSession === undefined
+        ? undefined
+        : { kind: 'RETRY', previousSessionId: previousSession.id },
     );
     return Object.freeze({ ...execution, previousSession });
   });
@@ -197,11 +201,7 @@ async function startTaskExecutionExclusive(
     throw new TaskExecutionRetryError('RETRY_REQUIRED', input.taskId, input.sessionId);
   }
 
-  return executeTaskAttempt(
-    { ...input, agentId },
-    dependencies,
-    TaskPhase.RUNNING,
-  );
+  return executeTaskAttempt({ ...input, agentId }, dependencies, TaskPhase.RUNNING);
 }
 
 async function assertNoOwnedRuntime(
@@ -220,6 +220,7 @@ async function executeTaskAttempt(
   input: StartTaskExecutionInput & { readonly agentId: string },
   dependencies: StartTaskExecutionDependencies,
   expectedPhase: typeof TaskPhase.PLANNING | typeof TaskPhase.RUNNING,
+  origin?: { readonly kind: 'RETRY'; readonly previousSessionId: string },
 ): Promise<TaskExecutionStartResult> {
   const worktree = await ensureTaskWorktree(
     { taskId: input.taskId },
@@ -255,6 +256,7 @@ async function executeTaskAttempt(
       ...(input.eventSink === undefined ? {} : { eventSink: input.eventSink }),
       initialInput: createTaskKickoff(currentTask, expectedPhase),
       initialSize: input.initialSize,
+      ...(origin === undefined ? {} : { origin }),
       sessionId: input.sessionId,
       taskId: input.taskId,
       expectedTaskPhase: expectedPhase,

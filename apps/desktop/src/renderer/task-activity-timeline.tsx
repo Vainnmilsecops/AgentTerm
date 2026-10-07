@@ -246,7 +246,7 @@ function activityType(item: TaskActivityItem): string {
 function activityTitle(item: TaskActivityItem): string {
   switch (item.kind) {
     case 'SESSION_STARTED':
-      return `Attempt ${item.attempt} started · ${item.agentId}`;
+      return `Attempt ${item.attempt} ${item.origin.kind === 'RETRY' ? 'retried' : item.origin.kind === 'RESUME' ? 'resumed' : 'started'} · ${item.agentId}`;
     case 'SESSION_STOP_REQUESTED':
       return `Attempt ${item.attempt} stop requested · ${item.agentId}`;
     case 'SESSION_EXITED':
@@ -271,9 +271,11 @@ function activityTitle(item: TaskActivityItem): string {
 function activityDetail(item: TaskActivityItem): string {
   switch (item.kind) {
     case 'SESSION_STARTED':
-      return item.continuedFromSessionId === undefined
-        ? `Session ${item.sessionId}`
-        : `Session ${item.sessionId} · provider conversation continued from ${item.continuedFromSessionId}`;
+      return item.origin.kind === 'RETRY' || item.origin.kind === 'RESUME'
+        ? `Session ${item.sessionId} · from ${item.origin.previousSessionId}`
+        : item.continuedFromSessionId === undefined
+          ? `Session ${item.sessionId}`
+          : `Session ${item.sessionId} · provider conversation continued from ${item.continuedFromSessionId}`;
     case 'SESSION_STOP_REQUESTED':
     case 'SESSION_EXITED':
     case 'SESSION_FAILED':

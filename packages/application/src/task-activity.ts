@@ -37,6 +37,7 @@ interface SessionActivity extends ActivityBase {
   readonly agentId: string;
   readonly attempt: number;
   readonly continuedFromSessionId: string | undefined;
+  readonly origin: AgentSession['origin'];
   readonly kind: 'SESSION_STARTED' | 'SESSION_STOP_REQUESTED' | 'SESSION_EXITED' | 'SESSION_FAILED';
   readonly sessionId: string;
 }
@@ -135,7 +136,7 @@ export async function loadTaskActivity(
   for (const [index, session] of orderedSessions.entries()) {
     const byProvider = providerConversations.get(session.agentId) ?? new Map<string, string>();
     const continuedFromSessionId =
-      session.providerSessionId === undefined
+      (session.origin?.kind ?? 'UNKNOWN') !== 'UNKNOWN' || session.providerSessionId === undefined
         ? undefined
         : byProvider.get(session.providerSessionId);
     appendSessionActivity(items, session, index + 1, continuedFromSessionId);
@@ -253,6 +254,7 @@ function appendSessionActivity(
         agentId: session.agentId,
         attempt,
         continuedFromSessionId,
+        origin: session.origin ?? { kind: 'UNKNOWN' },
         id: `session:${session.id}:${event.sequence}`,
         kind,
         occurredAt: event.occurredAt,

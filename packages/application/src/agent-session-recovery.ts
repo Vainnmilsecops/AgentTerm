@@ -133,6 +133,7 @@ export async function tryResumeAgentSession(
     agentId: previous.agentId,
     createdAt: now,
     id: newSessionId,
+    origin: { kind: 'RESUME', previousSessionId: previous.id },
     taskId: previous.taskId,
   });
 

@@ -183,6 +183,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
           { name: 'task-context-attachments', version: 22 },
+          { name: 'agent-session-origin', version: 23 },
         ]);
         expect(indexes).toEqual([
           { name: 'agent_session_events_runtime_sequence_index' },
@@ -417,6 +418,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
           { name: 'task-context-attachments', version: 22 },
+          { name: 'agent-session-origin', version: 23 },
         ]);
       } finally {
         migrated.close();
@@ -503,6 +505,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
           { name: 'task-context-attachments', version: 22 },
+          { name: 'agent-session-origin', version: 23 },
         ]);
       } finally {
         migrated.close();
@@ -575,6 +578,12 @@ describe('SQLite migrations', () => {
             task_id: 'task-1',
           },
         ]);
+        expect(
+          migrated.prepare('SELECT attempt_origin, origin_session_id FROM agent_sessions').get(),
+        ).toEqual({
+          attempt_origin: 'UNKNOWN',
+          origin_session_id: null,
+        });
         expect(migrated.prepare('SELECT count(*) AS count FROM quality_gate_runs').get()).toEqual({
           count: 0,
         });
@@ -608,6 +617,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
           { name: 'task-context-attachments', version: 22 },
+          { name: 'agent-session-origin', version: 23 },
         ]);
       } finally {
         migrated.close();
@@ -684,6 +694,7 @@ describe('SQLite migrations', () => {
           { name: 'application-settings-research-auto-advance', version: 20 },
           { name: 'execution-artifact-brainstorm-sweep-kind', version: 21 },
           { name: 'task-context-attachments', version: 22 },
+          { name: 'agent-session-origin', version: 23 },
         ]);
       } finally {
         migrated.close();
@@ -816,6 +827,7 @@ describe('SQLite migrations', () => {
             version: 21,
           }),
           expect.objectContaining({ name: 'task-context-attachments', version: 22 }),
+          expect.objectContaining({ name: 'agent-session-origin', version: 23 }),
         ]);
       } finally {
         migrated.close();

@@ -1154,6 +1154,7 @@ describe('retryTaskExecution', () => {
 
     expect(retried.previousSession.agentId).toBe('codex');
     expect(retried.session.agentId).toBe('other-agent');
+    expect(retried.session.origin).toEqual({ kind: 'RETRY', previousSessionId: 'session-codex' });
     expect(fixture.adapter.requests).toEqual([]);
     expect(fixture.otherAdapter.requests).toHaveLength(1);
     expect(fixture.runtime.specs[0]?.executablePath).toBe('C:\\tools\\other-agent.exe');

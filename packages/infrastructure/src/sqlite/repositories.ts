@@ -1532,17 +1532,17 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     this.database = database;
     this.findByIdStatement = database.prepare(
       `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
-              host_ownership, provider_session_id
+              host_ownership, provider_session_id, attempt_origin, origin_session_id
        FROM agent_sessions WHERE id = ?`,
     );
     this.listByTaskIdStatement = database.prepare(
       `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
-              host_ownership, provider_session_id
+              host_ownership, provider_session_id, attempt_origin, origin_session_id
        FROM agent_sessions WHERE task_id = ? ORDER BY ordinal`,
     );
     this.listActiveStatement = database.prepare(
       `SELECT id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
-              host_ownership, provider_session_id
+              host_ownership, provider_session_id, attempt_origin, origin_session_id
        FROM agent_sessions AS session
        WHERE ${unsettledAgentSessionWriterSql('session')}
        ORDER BY session.task_id, session.ordinal`,
@@ -1574,8 +1574,8 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
     this.insertSessionStatement = database.prepare(
       `INSERT INTO agent_sessions (
          id, task_id, agent_id, ordinal, status, created_at, ended_at, history_sequence,
-         host_ownership, provider_session_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         host_ownership, provider_session_id, attempt_origin, origin_session_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.insertEventStatement = database.prepare(
       `INSERT INTO agent_session_events (
@@ -1702,6 +1702,8 @@ export class SqliteAgentSessionRepository implements AgentSessionRepository {
         session.history.length,
         session.hostOwnership === undefined ? null : serializeHostOwnership(session.hostOwnership),
         session.providerSessionId ?? null,
+        session.origin.kind,
+        'previousSessionId' in session.origin ? session.origin.previousSessionId : null,
       );
       const initialEvent = session.history[0];
       if (initialEvent === undefined) {
