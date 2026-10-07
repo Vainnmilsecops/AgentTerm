@@ -16,4 +16,4 @@ The Task inspector exposes recent sessions, artifacts, quality-gate runs, review
 
 ## Consequences
 
-The projection uses existing repository ports and needs no migration. It loads full metadata history only for the selected Task, so very large Task histories may eventually need paged repository reads. Older entries remain visible in the timeline even when existing inspector detail sections show only their latest bounded records. An exact retry/resume action label requires durable attempt-origin metadata in a separate future change.
+The projection uses existing repository ports and needs no timeline table. It loads full metadata history only for the selected Task, so very large Task histories may eventually need paged repository reads. Older entries remain visible in the timeline even when existing inspector detail sections show only their latest bounded records. Migration 23 adds immutable attempt-origin metadata to Agent Sessions. New attempts can now be labeled start, retry, or resume from recorded intent; pre-migration attempts remain `UNKNOWN`, and only those legacy rows may use provider-identity continuation as a cautious hint.

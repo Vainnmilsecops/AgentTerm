@@ -1,5 +1,6 @@
 import { projectsAndTasksMigration } from './0001-projects-and-tasks';
 import { taskContextAttachmentsMigration } from './0022-task-context-attachments';
+import { agentSessionOriginMigration } from './0023-agent-session-origin';
 import { projectRootsMigration } from './0002-project-roots';
 import { taskWorktreesMigration } from './0003-task-worktrees';
 import { agentSessionsMigration } from './0004-agent-sessions';
@@ -50,4 +51,5 @@ export const sqliteMigrations: readonly SqliteMigration[] = [
   applicationSettingsResearchAutoAdvanceMigration,
   executionArtifactBrainstormSweepKindMigration,
   taskContextAttachmentsMigration,
+  agentSessionOriginMigration,
 ];

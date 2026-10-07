@@ -311,6 +311,7 @@ describe('AgentSessionCoordinator', () => {
     const resumed = await fixture.coordinator.start({ ...launchInput, resumeFromSessionId: 'old' });
     expect(fixture.adapter.requests[0]?.resumeSessionId).toBe('provider-123');
     expect(resumed.providerSessionId).toBe('provider-123');
+    expect(resumed.origin).toEqual({ kind: 'RESUME', previousSessionId: 'old' });
     expect(await fixture.sessions.findById('old')).toEqual(previous);
     const attachment = await fixture.coordinator.attachTerminal({
       sessionId: resumed.id,
@@ -319,6 +320,18 @@ describe('AgentSessionCoordinator', () => {
     await attachment.write('continue\r');
     expect(fixture.runtime.handle.write).toHaveBeenCalledWith('continue\r');
     expect(fixture.tasks.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a retry origin without a settled predecessor in the same Task', async () => {
+    const fixture = createFixture();
+    await expect(
+      fixture.coordinator.start({
+        ...launchInput,
+        origin: { kind: 'RETRY', previousSessionId: 'missing' },
+      }),
+    ).rejects.toThrow();
+    expect(await fixture.sessions.findById(launchInput.sessionId)).toBeUndefined();
+    expect(fixture.runtime.specs).toHaveLength(0);
   });
 
   it('does not start a fresh conversation when provider resume id is absent', async () => {

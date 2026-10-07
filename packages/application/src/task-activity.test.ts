@@ -52,6 +52,42 @@ function dependencies(
 }
 
 describe('loadTaskActivity', () => {
+  it('projects recorded retry and resume origins without inferring from provider identity', async () => {
+    const sessions = [
+      { id: 'one', createdAt: 1, agentId: 'codex', origin: { kind: 'START' } },
+      {
+        id: 'two',
+        createdAt: 2,
+        agentId: 'claude',
+        origin: { kind: 'RETRY', previousSessionId: 'one' },
+      },
+      {
+        id: 'three',
+        createdAt: 3,
+        agentId: 'claude',
+        origin: { kind: 'RESUME', previousSessionId: 'two' },
+      },
+    ].map((session) => ({
+      ...session,
+      taskId: task.id,
+      history: [
+        { kind: 'START_REQUESTED', occurredAt: session.createdAt, sequence: 1, status: 'STARTING' },
+      ],
+    })) as unknown as AgentSession[];
+    const result = await loadTaskActivity(task.id, dependencies({ sessions }));
+    expect(
+      result.items.flatMap((item) => (item.kind === 'SESSION_STARTED' ? [item.origin] : [])),
+    ).toEqual([
+      { kind: 'RESUME', previousSessionId: 'two' },
+      { kind: 'RETRY', previousSessionId: 'one' },
+      { kind: 'START' },
+    ]);
+    expect(
+      result.items.every(
+        (item) => item.kind !== 'SESSION_STARTED' || item.continuedFromSessionId === undefined,
+      ),
+    ).toBe(true);
+  });
   it('combines persisted evidence in deterministic newest-first order without exposing content or output', async () => {
     const session = {
       id: 'session-1',

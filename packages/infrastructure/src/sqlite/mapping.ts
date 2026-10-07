@@ -132,6 +132,7 @@ export function mapAgentSessionRows(
     agentId: readNonBlankText(sessionRow, 'agent_id', 'Agent Session'),
     createdAt,
     id: readNonBlankText(sessionRow, 'id', 'Agent Session'),
+    origin: readSessionOrigin(sessionRow),
     taskId: readNonBlankText(sessionRow, 'task_id', 'Agent Session'),
   });
 
@@ -175,6 +176,20 @@ export function mapAgentSessionRows(
     session = setProviderSessionId(session, providerSessionId);
   }
   return session;
+}
+
+function readSessionOrigin(row: SqliteRow): AgentSession['origin'] {
+  const kind = readText(row, 'attempt_origin', 'Agent Session');
+  const previous = readNullableText(row, 'origin_session_id', 'Agent Session');
+  if (kind === 'START' || kind === 'UNKNOWN') {
+    if (previous !== undefined)
+      throw new SqlitePersistenceError('Agent Session origin is malformed.');
+    return { kind };
+  }
+  if ((kind === 'RETRY' || kind === 'RESUME') && previous !== undefined) {
+    return { kind, previousSessionId: previous };
+  }
+  throw new SqlitePersistenceError('Agent Session origin is malformed.');
 }
 
 function readOptionalHostOwnership(sessionRow: SqliteRow): AgentSessionHostOwnership | undefined {

@@ -137,6 +137,7 @@ function makeSessionRepo(entries: ReadonlyMap<string, AgentSessionStatus>): Agen
       history: Object.freeze([]),
       hostOwnership: undefined,
       id: sessionId,
+      origin: { kind: 'UNKNOWN' },
       providerSessionId: undefined,
       status,
       taskId: reviewTask.id,

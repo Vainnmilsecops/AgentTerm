@@ -46,6 +46,26 @@ function reportStatus(
 }
 
 describe('AgentSession', () => {
+  it('records the immutable attempt origin and validates its predecessor', () => {
+    const retried = createAgentSession({
+      agentId: 'codex',
+      createdAt,
+      id: 'session-2',
+      taskId: 'task-1',
+      origin: { kind: 'RETRY', previousSessionId: 'session-1' },
+    });
+    expect(retried.origin).toEqual({ kind: 'RETRY', previousSessionId: 'session-1' });
+    expect(Object.isFrozen(retried.origin)).toBe(true);
+    expect(() =>
+      createAgentSession({
+        agentId: 'codex',
+        createdAt,
+        id: 'session-2',
+        taskId: 'task-1',
+        origin: { kind: 'RETRY', previousSessionId: 'session-2' },
+      }),
+    ).toThrow(TypeError);
+  });
   it('creates an immutable STARTING session with the first history event', () => {
     const session = createStartingSession();
 
@@ -62,6 +82,7 @@ describe('AgentSession', () => {
         },
       ],
       id: 'session-1',
+      origin: { kind: 'START' },
       status: Status.STARTING,
       taskId: 'task-1',
     });

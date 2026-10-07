@@ -11,6 +11,9 @@ import {
 export type AgentSessionActiveStatus = 'IDLE' | 'WAITING_INPUT' | 'WORKING';
 export type AgentSessionFailureStage =
   'CLEANUP' | 'RESIZE' | 'RUNTIME' | 'START' | 'TERMINATE' | 'WRITE';
+export type AgentSessionOrigin =
+  | { readonly kind: 'START' | 'UNKNOWN' }
+  | { readonly kind: 'RETRY' | 'RESUME'; readonly previousSessionId: string };
 
 export interface AgentSessionStartRequestedEvent {
   readonly kind: 'START_REQUESTED';
@@ -71,6 +74,7 @@ export interface AgentSession {
   readonly history: readonly AgentSessionEvent[];
   readonly hostOwnership: AgentSessionHostOwnership | undefined;
   readonly id: string;
+  readonly origin: AgentSessionOrigin;
   readonly providerSessionId: string | undefined;
   readonly status: AgentSessionStatusValue;
   readonly taskId: string;
@@ -80,6 +84,7 @@ export interface CreateAgentSessionInput {
   readonly agentId: string;
   readonly createdAt: number;
   readonly id: string;
+  readonly origin?: AgentSessionOrigin;
   readonly taskId: string;
 }
 
@@ -159,6 +164,7 @@ export function createAgentSession(input: CreateAgentSessionInput): AgentSession
   assertNonBlank(input.taskId, 'Agent Session Task id');
   assertNonBlank(input.agentId, 'Agent Session agent id');
   assertTimestamp(input.createdAt, 'Agent Session creation timestamp');
+  const origin = validateOrigin(input.origin ?? { kind: 'START' }, input.id);
 
   const initialEvent: AgentSessionStartRequestedEvent = Object.freeze({
     kind: 'START_REQUESTED',
@@ -174,6 +180,7 @@ export function createAgentSession(input: CreateAgentSessionInput): AgentSession
     history: [initialEvent],
     hostOwnership: undefined,
     id: input.id,
+    origin,
     providerSessionId: undefined,
     status: AgentSessionStatus.STARTING,
     taskId: input.taskId,
@@ -357,6 +364,7 @@ export function hydrateAgentSession(value: unknown): AgentSession {
     history: candidate.history as AgentSessionEvent[],
     hostOwnership,
     id: candidate.id,
+    origin: validateOrigin(candidate.origin ?? { kind: 'UNKNOWN' }, candidate.id),
     providerSessionId:
       typeof candidate.providerSessionId === 'string' ? candidate.providerSessionId : undefined,
     status: candidate.status as AgentSessionStatusValue,
@@ -366,6 +374,28 @@ export function hydrateAgentSession(value: unknown): AgentSession {
 
 function freezeSession(session: AgentSession): AgentSession {
   return Object.freeze({ ...session, history: Object.freeze([...session.history]) });
+}
+
+function validateOrigin(origin: AgentSessionOrigin, sessionId: string): AgentSessionOrigin {
+  if (origin === null || typeof origin !== 'object') {
+    throw new TypeError('Agent Session origin is invalid.');
+  }
+  if (origin.kind === 'START' || origin.kind === 'UNKNOWN') {
+    if ('previousSessionId' in origin)
+      throw new TypeError('Initial Session cannot name a predecessor.');
+    return Object.freeze({ kind: origin.kind });
+  }
+  if (origin.kind !== 'RETRY' && origin.kind !== 'RESUME') {
+    throw new TypeError('Agent Session origin is invalid.');
+  }
+  if (
+    typeof origin.previousSessionId !== 'string' ||
+    origin.previousSessionId.trim().length === 0 ||
+    origin.previousSessionId === sessionId
+  ) {
+    throw new TypeError('Agent Session predecessor is invalid.');
+  }
+  return Object.freeze({ kind: origin.kind, previousSessionId: origin.previousSessionId });
 }
 
 function assertTransition(from: AgentSessionStatusValue, to: AgentSessionStatusValue): void {

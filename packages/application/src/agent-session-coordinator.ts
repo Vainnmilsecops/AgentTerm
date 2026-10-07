@@ -35,6 +35,8 @@ import type {
 import { hasUnsettledTaskCodeWriter } from './agent-session-writer-state';
 
 export interface StartAgentSessionInput {
+  /** Explicit provenance for a new attempt; resume origin is derived from the verified prior session. */
+  readonly origin?: { readonly kind: 'RETRY'; readonly previousSessionId: string };
   /** A settled prior attempt whose verified provider identity must be resumed. */
   readonly resumeFromSessionId?: string;
   readonly agentId: string;
@@ -317,7 +319,22 @@ export class AgentSessionCoordinator {
       throw new AgentSessionActiveConflictError(input.taskId);
     }
 
+    if (input.origin !== undefined) {
+      const previous = await this.sessions.findById(input.origin.previousSessionId);
+      if (
+        previous === undefined ||
+        previous.taskId !== input.taskId ||
+        (previous.status !== 'EXITED' && previous.status !== 'FAILED') ||
+        hasUnsettledTaskCodeWriter(previous)
+      ) {
+        throw new TypeError('Retry origin requires a settled predecessor in the same Task.');
+      }
+    }
+
     let providerSessionId: string | undefined;
+    if (input.resumeFromSessionId !== undefined && input.origin !== undefined) {
+      throw new TypeError('Resume origin is derived from the verified previous Session.');
+    }
     if (input.resumeFromSessionId !== undefined) {
       const previous = await this.sessions.findById(input.resumeFromSessionId);
       if (previous === undefined) {
@@ -349,6 +366,11 @@ export class AgentSessionCoordinator {
       agentId: input.agentId,
       createdAt: this.clock(),
       id: input.sessionId,
+      ...(input.resumeFromSessionId === undefined
+        ? input.origin === undefined
+          ? {}
+          : { origin: input.origin }
+        : { origin: { kind: 'RESUME' as const, previousSessionId: input.resumeFromSessionId } }),
       taskId: input.taskId,
     });
     if (providerSessionId !== undefined)

@@ -16,6 +16,7 @@ const timeline: TaskActivityTimeline = {
       agentId: 'codex',
       attempt: 1,
       continuedFromSessionId: undefined,
+      origin: { kind: 'RETRY', previousSessionId: 'session-0' },
       sessionId: 'session-1',
     },
     {
@@ -67,12 +68,35 @@ describe('TaskActivityTimelineView', () => {
     );
     expect(html).toContain('Task activity');
     expect(html).toContain('Attempt 1');
+    expect(html).toContain('retried');
+    expect(html).toContain('session-0');
     expect(html).toContain('codex');
     expect(html).toContain('plan');
     expect(html).toContain('Open PR #42');
     expect(html).toContain('Latest stored PR snapshot');
     expect(html).toContain('View artifact history');
     expect(html).toContain('aria-pressed="true"');
+  });
+
+  it('labels an actual provider resume separately from a retry', () => {
+    const first = timeline.items[0];
+    if (first?.kind !== 'SESSION_STARTED') throw new Error('Session fixture is missing.');
+    const html = renderToStaticMarkup(
+      createElement(TaskActivityTimelineView, {
+        filter: 'SESSION',
+        onFilterChange: vi.fn(),
+        onOpenPullRequest: vi.fn(),
+        onReveal: vi.fn(),
+        onShowMore: vi.fn(),
+        timeline: {
+          taskId: timeline.taskId,
+          items: [{ ...first, origin: { kind: 'RESUME', previousSessionId: 'prior' } }],
+        },
+        visibleCount: 20,
+      }),
+    );
+    expect(html).toContain('Attempt 1 resumed');
+    expect(html).toContain('from prior');
   });
 
   it('shows a clear empty state and offers progressive disclosure for long history', () => {

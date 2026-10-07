@@ -51,6 +51,75 @@ async function seedTask(
 }
 
 describe('SQLite Agent Session persistence', () => {
+  it('round-trips retry provenance across reopen without altering historical sessions', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath);
+      const persistence = openSqlitePersistence(databasePath);
+      try {
+        const first = startingSession('first');
+        await persistence.sessions.insert(first);
+        await persistence.sessions.append(
+          recordAgentSessionEvent(first, {
+            kind: 'PROCESS_EXITED',
+            occurredAt: createdAt + 1,
+            exitCode: 0,
+            reason: 'PROCESS_EXIT',
+            runtimeSequence: 1,
+          }),
+          1,
+        );
+        await persistence.sessions.insert(
+          createAgentSession({
+            agentId: 'codex',
+            createdAt: createdAt + 2,
+            id: 'second',
+            taskId: 'task-1',
+            origin: { kind: 'RETRY', previousSessionId: 'first' },
+          }),
+        );
+      } finally {
+        persistence.close();
+      }
+      const reopened = openSqlitePersistence(databasePath);
+      try {
+        expect((await reopened.sessions.findById('second'))?.origin).toEqual({
+          kind: 'RETRY',
+          previousSessionId: 'first',
+        });
+        expect((await reopened.sessions.findById('first'))?.origin).toEqual({ kind: 'START' });
+      } finally {
+        reopened.close();
+      }
+    });
+  });
+  it('rejects a predecessor from another Task and keeps the original Session', async () => {
+    await withTemporaryDatabase(async (databasePath) => {
+      await seedTask(databasePath);
+      const persistence = openSqlitePersistence(databasePath);
+      try {
+        const second = createTask({ id: 'task-2', projectId: 'project-1', title: 'Other Task' });
+        await persistence.tasks.insert(
+          transitionTask(transitionTask(second, TaskPhase.PLANNING), TaskPhase.RUNNING),
+        );
+        await persistence.sessions.insert(startingSession('first'));
+        await expect(
+          persistence.sessions.insert(
+            createAgentSession({
+              agentId: 'codex',
+              createdAt: createdAt + 1,
+              id: 'foreign-retry',
+              taskId: 'task-2',
+              origin: { kind: 'RETRY', previousSessionId: 'first' },
+            }),
+          ),
+        ).rejects.toBeInstanceOf(SqlitePersistenceError);
+        expect((await persistence.sessions.findById('first'))?.origin).toEqual({ kind: 'START' });
+        expect(await persistence.sessions.findById('foreign-retry')).toBeUndefined();
+      } finally {
+        persistence.close();
+      }
+    });
+  });
   it('retains adapter conversation identity across database reopen without changing history', async () => {
     await withTemporaryDatabase(async (databasePath) => {
       await seedTask(databasePath);
